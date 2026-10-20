@@ -86,7 +86,8 @@ const INITIAL_DB = {
       mobile: '+919876543210',
       passwordHash: crypto.createHash('sha256').update('admin123').digest('hex'),
       role: 'admin',
-      categories: ['startups', 'banking_fintech', 'it_ai', 'economy_business'],
+      category: 'startups',
+      categories: ['startups'],
       trialStart: new Date().toISOString(),
       trialExpiry: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
       subscriptionStatus: 'active_paid',
@@ -190,9 +191,9 @@ async function startServer() {
 
   // Register
   app.post('/api/auth/register', (req, res) => {
-    const { name, email, mobile, password, categories } = req.body;
-    if (!name || !email || !mobile || !password) {
-      return res.status(400).json({ error: 'Missing required registration fields' });
+    const { name, email, mobile, password, category } = req.body;
+    if (!name || !email || !mobile || !password || !category) {
+      return res.status(400).json({ error: 'Missing required registration fields or category selection' });
     }
 
     const db = readDb();
@@ -209,7 +210,8 @@ async function startServer() {
       mobile,
       passwordHash: crypto.createHash('sha256').update(password).digest('hex'),
       role: email.toLowerCase() === 'mihirkapuria@gmail.com' ? 'admin' : 'customer',
-      categories: Array.isArray(categories) && categories.length > 0 ? categories : ['startups', 'economy_business'],
+      category,
+      categories: [category],
       trialStart: now.toISOString(),
       trialExpiry: trialExpiry.toISOString(),
       subscriptionStatus: 'trial', // trial, active_paid, expired
@@ -437,17 +439,27 @@ async function startServer() {
     res.json(db.auditLogs);
   });
 
-  // Vite integration
-  const vite = await createViteServer({
-    server: { middlewareMode: true },
-    appType: 'spa',
-  });
+  // Static / Vite integration
+  const isProduction = process.env.NODE_ENV === 'production' || fs.existsSync(path.join(__dirname, 'dist'));
 
-  app.use(vite.middlewares);
+  if (isProduction) {
+    const distPath = path.join(__dirname, 'dist');
+    app.use(express.static(distPath));
+    app.get('*', (req, res, next) => {
+      if (req.path.startsWith('/api/')) return next();
+      res.sendFile(path.join(distPath, 'index.html'));
+    });
+  } else {
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: 'spa',
+    });
+    app.use(vite.middlewares);
+  }
 
   const port = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
   app.listen(port, '0.0.0.0', () => {
-    console.log(`MyDigitAsset server running on http://localhost:${port}`);
+    console.log(`MyDigitAsset server running on http://0.0.0.0:${port}`);
   });
 }
 

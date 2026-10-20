@@ -22,7 +22,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [mobile, setMobile] = useState('+91');
-  const [selectedCategories, setSelectedCategories] = useState<string[]>(['startups', 'banking_fintech', 'it_ai']);
+  const [selectedCategory, setSelectedCategory] = useState<string>('startups');
   const [newPassword, setNewPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
@@ -30,16 +30,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [loading, setLoading] = useState(false);
 
   if (!isOpen) return null;
-
-  const handleToggleCategory = (catId: string) => {
-    if (selectedCategories.includes(catId)) {
-      if (selectedCategories.length > 1) {
-        setSelectedCategories(selectedCategories.filter(id => id !== catId));
-      }
-    } else {
-      setSelectedCategories([...selectedCategories, catId]);
-    }
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -62,7 +52,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         const res = await fetch('/api/auth/register', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name, email, mobile, password, categories: selectedCategories })
+          body: JSON.stringify({ name, email, mobile, password, category: selectedCategory })
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Registration failed');
@@ -110,7 +100,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             {mode === 'login'
               ? 'Access your curated news subscription and Telegram settings.'
               : mode === 'register'
-              ? 'No upfront payment. Experience category-based business news instantly.'
+              ? 'Select 1 news category to receive daily updates on Telegram (₹297.36/yr incl. GST).'
               : 'Recover access using your registered email and mobile number.'}
           </p>
         </div>
@@ -231,16 +221,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           {mode === 'register' && (
             <div className="space-y-2 pt-2">
               <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600">
-                Select Initial News Categories (Choose any)
+                Select Exactly ONE News Category (Subscription covers 1 category) *
               </label>
               <div className="max-h-48 overflow-y-auto space-y-2 p-2 bg-slate-50 rounded-xl border border-slate-200">
                 {categories.map((cat) => (
                   <label key={cat.id} className="flex items-center gap-3 p-2 hover:bg-white rounded-lg cursor-pointer transition-colors text-xs">
                     <input
-                      type="checkbox"
-                      checked={selectedCategories.includes(cat.id)}
-                      onChange={() => handleToggleCategory(cat.id)}
-                      className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4"
+                      type="radio"
+                      name="news_category"
+                      value={cat.id}
+                      checked={selectedCategory === cat.id}
+                      onChange={() => setSelectedCategory(cat.id)}
+                      className="border-slate-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4"
                     />
                     <span className="font-medium text-slate-900">{cat.title}</span>
                   </label>
@@ -255,6 +247,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             className="w-full py-3.5 bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-xl transition-colors text-sm shadow-md mt-4 disabled:opacity-50"
           >
             {loading ? 'Processing...' : mode === 'login' ? 'Sign In' : mode === 'register' ? 'Start Free Trial' : 'Reset Password'}
+          </button>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl transition-colors text-xs mt-2"
+          >
+            Exit
           </button>
         </form>
 

@@ -2,5 +2,7 @@
   "name": "MyDigitAsset",
   "description": "Category-based news delivery service through Telegram for Indian business professionals and entrepreneurs.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

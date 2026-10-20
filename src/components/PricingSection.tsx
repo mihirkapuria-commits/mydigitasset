@@ -24,8 +24,8 @@ export const PricingSection: React.FC<PricingSectionProps> = ({ onStartTrial }) 
 
           <div className="flex items-center justify-between pb-6 border-b border-slate-800">
             <div>
-              <span className="text-xs font-bold tracking-widest uppercase text-indigo-400">Annual Professional Plan</span>
-              <h4 className="text-2xl font-extrabold text-white mt-1">Full Category Access</h4>
+              <span className="text-xs font-bold tracking-widest uppercase text-indigo-400">Annual News Subscription</span>
+              <h4 className="text-2xl font-extrabold text-white mt-1">1 Selected Category Plan</h4>
             </div>
             <div className="px-3 py-1 rounded-full bg-indigo-500/20 text-indigo-300 text-xs font-semibold border border-indigo-500/30">
               3-Day Free Trial
@@ -51,11 +51,11 @@ export const PricingSection: React.FC<PricingSectionProps> = ({ onStartTrial }) 
             <div className="space-y-3 text-sm text-slate-300">
               <div className="flex items-center gap-3">
                 <Check className="w-5 h-5 text-indigo-400 shrink-0" />
-                <span>Access to all 10 India business and industry categories</span>
+                <span>10 daily news updates delivered every day on Telegram in your selected category</span>
               </div>
               <div className="flex items-center gap-3">
                 <Check className="w-5 h-5 text-indigo-400 shrink-0" />
-                <span>Direct daily news delivery through Telegram</span>
+                <span>Designed for students and anyone interested in staying updated</span>
               </div>
               <div className="flex items-center gap-3">
                 <Check className="w-5 h-5 text-indigo-400 shrink-0" />

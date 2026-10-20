@@ -11,6 +11,7 @@ export interface User {
   email: string;
   mobile: string;
   role: 'admin' | 'customer';
+  category: string;
   categories: string[];
   trialStart: string;
   trialExpiry: string;

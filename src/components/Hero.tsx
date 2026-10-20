@@ -14,15 +14,15 @@ export const Hero: React.FC<HeroProps> = ({ onStartTrial }) => {
           <div className="lg:col-span-7 space-y-8">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-700 text-xs font-semibold">
               <span className="w-2 h-2 rounded-full bg-indigo-600 animate-pulse"></span>
-              India's Curated Business News via Telegram
+              Curated Daily News for Students & Professionals via Telegram
             </div>
 
             <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold text-slate-900 tracking-tight leading-[1.1] text-balance">
-              Stay Informed About What Matters to Your Business.
+              Stay Informed About What Matters to You.
             </h1>
 
             <p className="text-lg sm:text-xl text-slate-600 leading-relaxed max-w-2xl">
-              Choose the news categories that interest you and receive curated updates directly through Telegram. Start with a <strong className="text-slate-900 font-semibold">three-day free trial</strong>, with no upfront payment.
+              Select <strong className="text-slate-900 font-semibold">one category</strong> and receive 10 curated daily updates every day directly through Telegram. Designed for students, founders, and anyone interested in staying updated. Start with a <strong className="text-slate-900 font-semibold">three-day free trial</strong> with no upfront payment.
             </p>
 
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 pt-2">

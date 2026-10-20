@@ -151,21 +151,18 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
             </button>
           </div>
 
-          {/* Selected Categories */}
+          {/* Selected Category */}
           <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-sm space-y-4">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">Selected Categories ({currentUser.categories.length})</h3>
-            <div className="max-h-40 overflow-y-auto space-y-2 pr-1">
-              {currentUser.categories.map((catId) => {
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">Selected News Category (1 Category)</h3>
+            <div className="p-3 bg-indigo-50/60 rounded-xl text-xs font-semibold text-slate-900 border border-indigo-100">
+              {(() => {
+                const catId = currentUser.category || currentUser.categories?.[0];
                 const catObj = categories.find(c => c.id === catId);
-                return (
-                  <div key={catId} className="p-2 bg-slate-50 rounded-lg text-xs font-medium text-slate-900 border border-slate-200/60">
-                    {catObj ? catObj.title : catId}
-                  </div>
-                );
-              })}
+                return catObj ? catObj.title : catId || 'No category selected';
+              })()}
             </div>
-            <p className="text-xs text-slate-400 pt-1">
-              Category updates are managed via admin configuration workflow.
+            <p className="text-xs text-slate-500 pt-1">
+              Your ₹297.36 annual subscription covers daily Telegram news delivery for this category.
             </p>
           </div>
         </div>

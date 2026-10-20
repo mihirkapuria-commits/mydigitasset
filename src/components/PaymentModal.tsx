@@ -158,6 +158,14 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({ isOpen, onClose, onS
           >
             {loading ? 'Submitting...' : 'Submit UTR for Verification'}
           </button>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl transition-colors text-xs mt-2"
+          >
+            Exit
+          </button>
         </form>
       </div>
     </div>
