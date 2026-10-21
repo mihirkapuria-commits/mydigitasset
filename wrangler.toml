@@ -1,3 +1,4 @@
+
 name = "mydigitasset"
 compatibility_date = "2026-03-01"
 
@@ -7,5 +8,5 @@ bucket = "./dist"
 [[d1_databases]]
 binding = "DB"
 database_name = "mydigitasset-db"
-database_id = "mydigitasset-db-id-placeholder"
+database_id = "061175d7-661b-4fe8-bce2-c334b08a1750"
 migrations_dir = "./migrations"
