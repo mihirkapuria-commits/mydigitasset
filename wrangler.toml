@@ -1,12 +1,10 @@
 
-name = "mydigitasset"
+name = "mydigitasset-staging"
 compatibility_date = "2026-03-01"
-
-[site]
-bucket = "./dist"
+pages_build_output_dir = "./dist"
 
 [[d1_databases]]
 binding = "DB"
-database_name = "mydigitasset-db"
+database_name = "mydigitasset-staging-db"
 database_id = "061175d7-661b-4fe8-bce2-c334b08a1750"
 migrations_dir = "./migrations"
