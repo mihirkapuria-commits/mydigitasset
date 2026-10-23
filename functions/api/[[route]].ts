@@ -205,14 +205,39 @@ export async function onRequest(context: { request: Request; env: Env; params: {
       const userId = 'user-' + crypto.randomUUID().slice(0, 8);
       const passwordHash = await hashPassword(password);
       const role = 'customer'; // Never accept a public role from the request.
-      const now = new Date().toISOString();
-      const trialExpiry = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
+      // Record signup time separately from the free-trial start time.
+      const nowDate = new Date();
+      const now = nowDate.toISOString();
+
+      // The 3-day free trial starts at midnight India time on the day after signup.
+      const indiaDateParts = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Kolkata',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+      }).formatToParts(nowDate);
+
+      const indiaDatePart = (type: string): number =>
+        Number(indiaDateParts.find(part => part.type === type)!.value);
+
+      // Midnight IST is 18:30 UTC on the previous calendar day.
+      const trialStartDate = new Date(Date.UTC(
+        indiaDatePart('year'),
+        indiaDatePart('month') - 1,
+        indiaDatePart('day') + 1,
+        -5,
+        -30
+      ));
+      const trialStart = trialStartDate.toISOString();
+      const trialExpiry = new Date(
+        trialStartDate.getTime() + 3 * 24 * 60 * 60 * 1000
+      ).toISOString();
 
       try {
         await env.DB.prepare(`
           INSERT INTO users (id, name, email, mobile, password_hash, role, category, categories, trial_start, trial_expiry, subscription_status, payment_status, telegram_connected, telegram_username, created_at)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'trial', 'none', 0, '', ?)
-        `).bind(userId, String(name).trim(), normalizedEmail, normalizedMobile, passwordHash, role, category, JSON.stringify([category]), now, trialExpiry, now).run();
+        `).bind(userId, String(name).trim(), normalizedEmail, normalizedMobile, passwordHash, role, category, JSON.stringify([category]), trialStart, trialExpiry, now).run();
       } catch (error: any) {
         // Database unique constraints are the final protection against simultaneous requests.
         const message = String(error?.message || '');
@@ -237,7 +262,7 @@ export async function onRequest(context: { request: Request; env: Env; params: {
         role,
         category,
         categories: [category],
-        trialStart: now,
+        trialStart,
         trialExpiry,
         subscriptionStatus: 'trial',
         paymentStatus: 'none',
