@@ -29,6 +29,25 @@ export async function onRequest(context: { request: Request; env: Env; params: {
     });
   };
 
+  // Normalize Indian mobile numbers to a canonical 10-digit value.
+  // The website uses country code +91, but users may paste spaces or +91.
+  function normalizeIndianMobile(value: unknown): string | null {
+    if (typeof value !== 'string' && typeof value !== 'number') return null;
+    let digits = String(value).replace(/\D/g, '');
+    if (digits.startsWith('91') && digits.length === 12) digits = digits.slice(2);
+    if (digits.length !== 10 || !/^[6-9]\d{9}$/.test(digits)) return null;
+    return digits;
+  }
+
+  // Compare stored numbers after normalization too, so older formatting variants
+  // such as +91 9876543210 cannot bypass duplicate checks.
+  async function findMobileDuplicate(normalizedMobile: string, excludeUserId?: string): Promise<boolean> {
+    const { results } = await env.DB.prepare('SELECT id, mobile FROM users').all();
+    return (results as any[]).some((row: any) =>
+      row.id !== excludeUserId && normalizeIndianMobile(row.mobile) === normalizedMobile
+    );
+  }
+
   // --- Password Security: PBKDF2 with Legacy SHA-256 Fallback & Auto-Upgrade ---
   async function hashPassword(password: string): Promise<string> {
     const salt = crypto.getRandomValues(new Uint8Array(16));
@@ -143,37 +162,68 @@ export async function onRequest(context: { request: Request; env: Env; params: {
       return json(results.map((c: any) => ({ ...c, active: c.active === 1 })));
     }
 
-    // 2. POST /api/auth/register (Secure: Prevents self-registration as admin)
+    // 2. POST /api/auth/register (prevents duplicate accounts and repeat trials)
     if (route === 'auth/register' && method === 'POST') {
       const body = await context.request.json() as any;
-      const { name, email, mobile, password, category } = body;
-      if (!name || !email || !mobile || !password || !category) {
-        return json({ error: 'Missing required registration fields or category selection' }, 400);
+      const { name, email, mobile, password, confirmPassword, category } = body;
+      if (!name || !email || !mobile || !password || !confirmPassword || !category) {
+        return json({ error: 'Name, email, mobile, password, confirm password, and category are required.' }, 400);
+      }
+      if (typeof password !== 'string' || password.length < 8) {
+        return json({ error: 'Password must be at least 8 characters long.' }, 400);
+      }
+      if (password !== confirmPassword) {
+        return json({ error: 'Password and Confirm Password do not match.' }, 400);
       }
 
-      const normalizedEmail = email.toLowerCase().trim();
-      
-      // Prevent unauthorized public registration using the admin email address
+      const normalizedEmail = String(email).toLowerCase().trim();
+      const normalizedMobile = normalizeIndianMobile(mobile);
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+        return json({ error: 'Please enter a valid email address.' }, 400);
+      }
+      if (!normalizedMobile) {
+        return json({ error: 'Enter a valid 10-digit Indian mobile number. Country code +91 is fixed.' }, 400);
+      }
+
+      // Prevent unauthorized public registration using the reserved admin identity.
       if (normalizedEmail === 'mihirkapuria@gmail.com') {
         return json({ error: 'Registration using reserved administrator identity is not permitted.' }, 403);
       }
 
-      const existing = await env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(normalizedEmail).first();
-      if (existing) {
-        return json({ error: 'Email address is already registered.' }, 400);
+      const existingEmail = await env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(normalizedEmail).first();
+      if (existingEmail) {
+        return json({ error: 'Email address is already registered. Please log in instead of starting another trial.' }, 409);
       }
+      if (await findMobileDuplicate(normalizedMobile)) {
+        return json({ error: 'Mobile number is already registered. One free trial is allowed per mobile number.' }, 409);
+      }
+
+      // Accept only active categories that exist in the staging database.
+      const selectedCategory = await env.DB.prepare('SELECT id FROM categories WHERE id = ? AND active = 1').bind(category).first();
+      if (!selectedCategory) return json({ error: 'Please select an available category.' }, 400);
 
       const userId = 'user-' + crypto.randomUUID().slice(0, 8);
       const passwordHash = await hashPassword(password);
-      // Strictly force role to 'customer' for all public registrations
-      const role = 'customer';
+      const role = 'customer'; // Never accept a public role from the request.
       const now = new Date().toISOString();
       const trialExpiry = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
 
-      await env.DB.prepare(`
-        INSERT INTO users (id, name, email, mobile, password_hash, role, category, categories, trial_start, trial_expiry, subscription_status, payment_status, telegram_connected, telegram_username, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'trial', 'none', 0, '', ?)
-      `).bind(userId, name, normalizedEmail, mobile, passwordHash, role, category, JSON.stringify([category]), now, trialExpiry, now).run();
+      try {
+        await env.DB.prepare(`
+          INSERT INTO users (id, name, email, mobile, password_hash, role, category, categories, trial_start, trial_expiry, subscription_status, payment_status, telegram_connected, telegram_username, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'trial', 'none', 0, '', ?)
+        `).bind(userId, String(name).trim(), normalizedEmail, normalizedMobile, passwordHash, role, category, JSON.stringify([category]), now, trialExpiry, now).run();
+      } catch (error: any) {
+        // Database unique constraints are the final protection against simultaneous requests.
+        const message = String(error?.message || '');
+        if (message.includes('users.email')) {
+          return json({ error: 'Email address is already registered. Please log in instead.' }, 409);
+        }
+        if (message.includes('users.mobile')) {
+          return json({ error: 'Mobile number is already registered. One free trial is allowed per mobile number.' }, 409);
+        }
+        throw error;
+      }
 
       const token = crypto.randomUUID() + crypto.randomUUID();
       const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
@@ -181,9 +231,9 @@ export async function onRequest(context: { request: Request; env: Env; params: {
 
       const user = {
         id: userId,
-        name,
+        name: String(name).trim(),
         email: normalizedEmail,
-        mobile,
+        mobile: normalizedMobile,
         role,
         category,
         categories: [category],
@@ -277,16 +327,29 @@ export async function onRequest(context: { request: Request; env: Env; params: {
       return json({ success: true, message: 'Password successfully reset. You can now log in.' });
     }
 
-    // 6. PUT /api/profile
+    // 6. PUT /api/profile (customers may not take another account's mobile number)
     if (route === 'profile' && method === 'PUT') {
       const user = await getAuthUser(context.request);
       if (!user) return json({ error: 'Unauthorized' }, 401);
 
       const body = await context.request.json() as any;
-      const { mobile } = body;
-      if (!mobile) return json({ error: 'Mobile number is required' }, 400);
+      const normalizedMobile = normalizeIndianMobile(body.mobile);
+      if (!normalizedMobile) {
+        return json({ error: 'Enter a valid 10-digit Indian mobile number. Country code +91 is fixed.' }, 400);
+      }
+      if (await findMobileDuplicate(normalizedMobile, user.id)) {
+        return json({ error: 'This mobile number is already registered to another account.' }, 409);
+      }
 
-      await env.DB.prepare('UPDATE users SET mobile = ? WHERE id = ?').bind(mobile, user.id).run();
+      try {
+        await env.DB.prepare('UPDATE users SET mobile = ? WHERE id = ?').bind(normalizedMobile, user.id).run();
+      } catch (error: any) {
+        const message = String(error?.message || '');
+        if (message.includes('users.mobile')) {
+          return json({ error: 'This mobile number is already registered to another account.' }, 409);
+        }
+        throw error;
+      }
       const updated = await env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(user.id).first();
 
       return json({
@@ -296,7 +359,7 @@ export async function onRequest(context: { request: Request; env: Env; params: {
         mobile: updated.mobile,
         role: updated.role,
         category: updated.category,
-        categories: JSON.parse(updated.categories || '["' + updated.category + '"]'),
+        categories: JSON.parse(updated.categories || '[\"' + updated.category + '\"]'),
         trialStart: updated.trial_start,
         trialExpiry: updated.trial_expiry,
         subscriptionStatus: updated.subscription_status,
@@ -571,6 +634,7 @@ export async function onRequest(context: { request: Request; env: Env; params: {
 
     return json({ error: 'Not found' }, 404);
   } catch (err: any) {
-    return json({ error: err.message || 'Internal server error' }, 500);
+    // Keep unexpected backend details out of public API responses.
+    return json({ error: 'An unexpected server error occurred. Please try again later.' }, 500);
   }
 }
