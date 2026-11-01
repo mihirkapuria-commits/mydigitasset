@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { X, Send, CheckCircle2, AlertCircle } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, Send, CheckCircle2, AlertCircle, Copy, RefreshCw } from 'lucide-react';
 
 interface TelegramConnectModalProps {
   isOpen: boolean;
@@ -14,37 +14,77 @@ export const TelegramConnectModal: React.FC<TelegramConnectModalProps> = ({
   onConnected,
   token
 }) => {
-  const [telegramUsername, setTelegramUsername] = useState('');
-  const [telegramChatId, setTelegramChatId] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [verificationToken, setVerificationToken] = useState('');
+  const [loadingToken, setLoadingToken] = useState(false);
+  const [polling, setPolling] = useState(false);
   const [error, setError] = useState('');
+  const [copied, setCopied] = useState(false);
 
-  if (!isOpen) return null;
+  useEffect(() => {
+    if (isOpen) {
+      fetchVerificationToken();
+    }
+  }, [isOpen]);
 
-  const handleConnect = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const fetchVerificationToken = async () => {
     setError('');
-    setLoading(true);
-
+    setLoadingToken(true);
     try {
-      const res = await fetch('/api/telegram/connect', {
+      const res = await fetch('/api/telegram/request-token', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ telegramChatId, telegramUsername })
+        }
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to connect Telegram');
-      onConnected(data.user);
-      onClose();
+      if (!res.ok) throw new Error(data.error || 'Failed to generate verification token');
+      setVerificationToken(data.verificationToken);
+      startPolling();
     } catch (err: any) {
       setError(err.message);
     } finally {
-      setLoading(false);
+      setLoadingToken(false);
     }
   };
+
+  const startPolling = () => {
+    setPolling(true);
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch('/api/telegram/status', {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        const data = await res.json();
+        if (data.connected) {
+          clearInterval(interval);
+          setPolling(false);
+          // Fetch updated user profile
+          const meRes = await fetch('/api/auth/me', {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          const meData = await meRes.json();
+          if (meRes.ok) {
+            onConnected(meData);
+          }
+          onClose();
+        }
+      } catch (e) {
+        // ignore polling errors
+      }
+    }, 3000);
+
+    return () => clearInterval(interval);
+  };
+
+  const copyCommand = () => {
+    navigator.clipboard.writeText(`/verify ${verificationToken}`);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm overflow-y-auto">
@@ -63,15 +103,8 @@ export const TelegramConnectModal: React.FC<TelegramConnectModalProps> = ({
           </div>
           <h3 className="text-2xl font-extrabold text-slate-900">Connect Telegram Bot</h3>
           <p className="text-sm text-slate-600">
-            Receive your curated India business news updates directly in Telegram.
+            Receive your curated India business news updates securely via Telegram bot verification.
           </p>
-        </div>
-
-        <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200/80 mb-6 text-xs text-slate-600 space-y-2">
-          <p className="font-semibold text-slate-900">Genuine Verification Instructions:</p>
-          <p>1. Open Telegram and search for <strong className="text-indigo-600">@MyDigitAssetBot</strong>.</p>
-          <p>2. Send <code className="bg-white px-1.5 py-0.5 rounded border border-slate-200">/start</code> to receive your verified numeric Chat ID.</p>
-          <p>3. Enter both your verified Chat ID and Username below.</p>
         </div>
 
         {error && (
@@ -81,51 +114,47 @@ export const TelegramConnectModal: React.FC<TelegramConnectModalProps> = ({
           </div>
         )}
 
-        <form onSubmit={handleConnect} className="space-y-4">
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">
-              Verified Telegram Chat ID (Numeric) *
-            </label>
-            <input
-              type="text"
-              required
-              value={telegramChatId}
-              onChange={(e) => setTelegramChatId(e.target.value)}
-              placeholder="e.g. 123456789"
-              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:border-slate-900"
-            />
+        <div className="bg-slate-50 rounded-2xl p-5 border border-slate-200/80 mb-6 space-y-4">
+          <p className="font-semibold text-xs uppercase tracking-wider text-slate-700">Genuine Verification Steps:</p>
+          <ol className="text-xs text-slate-600 space-y-2 list-decimal list-inside">
+            <li>Open Telegram and search for <strong className="text-indigo-600">@MyDigitAssetBot</strong>.</li>
+            <li>Send the following single-use verification command to the bot:</li>
+          </ol>
+
+          {loadingToken ? (
+            <div className="py-4 text-center text-xs text-slate-500 flex items-center justify-center gap-2">
+              <RefreshCw className="w-4 h-4 animate-spin text-indigo-600" />
+              Generating secure verification token...
+            </div>
+          ) : (
+            <div className="bg-white p-3 rounded-xl border border-indigo-200 flex items-center justify-between gap-2 shadow-inner">
+              <code className="text-xs font-mono font-bold text-indigo-700 select-all overflow-x-auto">
+                /verify {verificationToken}
+              </code>
+              <button
+                type="button"
+                onClick={copyCommand}
+                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 shrink-0"
+              >
+                <Copy className="w-3.5 h-3.5" />
+                {copied ? 'Copied!' : 'Copy'}
+              </button>
+            </div>
+          )}
+
+          <div className="pt-2 flex items-center gap-3 text-xs text-slate-500 border-t border-slate-200/60">
+            <div className="w-3 h-3 rounded-full bg-amber-400 animate-pulse shrink-0" />
+            <span>Waiting for genuine bot verification... (listening via webhook)</span>
           </div>
+        </div>
 
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">
-              Telegram Username / Handle *
-            </label>
-            <input
-              type="text"
-              required
-              value={telegramUsername}
-              onChange={(e) => setTelegramUsername(e.target.value)}
-              placeholder="@your_telegram_handle"
-              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-slate-900"
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-xl transition-colors text-sm shadow-md mt-4 disabled:opacity-50"
-          >
-            {loading ? 'Verifying...' : 'Verify & Link Telegram Account'}
-          </button>
-
-          <button
-            type="button"
-            onClick={onClose}
-            className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl transition-colors text-xs mt-2"
-          >
-            Exit
-          </button>
-        </form>
+        <button
+          type="button"
+          onClick={onClose}
+          className="w-full py-3.5 bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-xl transition-colors text-xs"
+        >
+          Close & Return to Dashboard
+        </button>
       </div>
     </div>
   );

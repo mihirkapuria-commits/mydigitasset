@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS users (
   access_override INTEGER NOT NULL DEFAULT 0, -- 0 or 1 for manual access override without changing payment status
   telegram_connected INTEGER NOT NULL DEFAULT 0, -- 0 or 1
   telegram_username TEXT,
+  telegram_chat_id TEXT,
   created_at TEXT NOT NULL
 );
 

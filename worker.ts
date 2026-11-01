@@ -70,8 +70,8 @@ async function ensureAdminInitialized(env: Env) {
   } else {
     // Created with minimum necessary account info (no fabricated mobile, payment status 'none', subscription 'trial')
     await env.DB.prepare(`
-      INSERT INTO users (id, name, email, mobile, password_hash, role, category, categories, trial_start, trial_expiry, subscription_status, payment_status, access_override, telegram_connected, telegram_username, created_at)
-      VALUES ('admin-bootstrap-1', 'Mihir Kapuria', ?, '', ?, 'admin', 'startups', '["startups"]', ?, ?, 'trial', 'none', 0, 0, '', ?)
+      INSERT INTO users (id, name, email, mobile, password_hash, role, category, categories, trial_start, trial_expiry, subscription_status, payment_status, access_override, telegram_connected, telegram_username, telegram_chat_id, created_at)
+      VALUES ('admin-bootstrap-1', 'Mihir Kapuria', ?, '', ?, 'admin', 'startups', '["startups"]', ?, ?, 'trial', 'none', 0, 0, '', '', ?)
     `).bind(adminEmail, passwordHash, now, trialExpiry, now).run();
   }
 
@@ -235,6 +235,7 @@ async function handleApiRequest(request: Request, env: Env): Promise<Response> {
       accessOverride: user.access_override === 1,
       telegramConnected: user.telegram_connected === 1,
       telegramUsername: user.telegram_username,
+      telegramChatId: user.telegram_chat_id || '',
       createdAt: user.created_at
     };
   }
@@ -277,6 +278,19 @@ async function handleApiRequest(request: Request, env: Env): Promise<Response> {
         configured: isConfigured,
         connected: user ? user.telegramConnected : false,
         username: user ? user.telegramUsername : ''
+      });
+    }
+
+    // GET /api/news/eligibility
+    if (route === 'news/eligibility' && method === 'GET') {
+      const user = await getAuthUser(request);
+      if (!user) return json({ error: 'Unauthorized' }, 401);
+      const hasAccess = user.accessOverride || user.subscriptionStatus === 'active_paid' || new Date() < new Date(user.trialExpiry);
+      return json({
+        authorized: hasAccess,
+        reason: user.accessOverride ? 'access_override' :
+                user.subscriptionStatus === 'active_paid' ? 'annual_subscription' :
+                new Date() < new Date(user.trialExpiry) ? 'active_trial' : 'expired'
       });
     }
 
@@ -439,7 +453,32 @@ async function handleApiRequest(request: Request, env: Env): Promise<Response> {
       return json({ success: true, verificationToken: token, expiresInMinutes: 10 });
     }
 
-    // 9b. POST /api/telegram/connect (Genuine Telegram verification requirement with single-use crypto token)
+    // 9b. POST /api/telegram/webhook (Received from Telegram Bot)
+    if (route === 'telegram/webhook' && method === 'POST') {
+      if (!env.TELEGRAM_BOT_TOKEN) {
+        return json({ error: 'Telegram bot token not configured' }, 400);
+      }
+      const update = await request.json() as any;
+      if (update && update.message && update.message.text) {
+        const text = update.message.text.trim();
+        const chatId = String(update.message.chat.id);
+        const username = update.message.from.username ? '@' + update.message.from.username : (update.message.from.first_name || 'user');
+
+        const parts = text.split(/\s+/);
+        if (parts.length >= 2 && parts[0].toLowerCase() === '/verify') {
+          const verifyToken = parts[1];
+          const tokenRecord = await env.DB.prepare('SELECT * FROM telegram_tokens WHERE token = ? AND used = 0').bind(verifyToken).first();
+          if (tokenRecord && new Date(tokenRecord.expires_at) > new Date()) {
+            await env.DB.prepare('UPDATE telegram_tokens SET used = 1 WHERE token = ?').bind(verifyToken).run();
+            await env.DB.prepare('UPDATE users SET telegram_connected = 1, telegram_username = ?, telegram_chat_id = ? WHERE id = ?')
+              .bind(username, chatId, tokenRecord.user_id).run();
+          }
+        }
+      }
+      return json({ ok: true });
+    }
+
+    // 9c. POST /api/telegram/connect (Confirms verification if token was redeemed by bot webhook)
     if (route === 'telegram/connect' && method === 'POST') {
       const user = await getAuthUser(request);
       if (!user) return json({ error: 'Unauthorized' }, 401);
@@ -449,30 +488,16 @@ async function handleApiRequest(request: Request, env: Env): Promise<Response> {
       }
 
       const body = await request.json() as any;
-      const { telegramChatId, telegramUsername, verificationToken, verificationCode } = body;
-      const tokenToVerify = verificationToken || verificationCode;
-
-      if (!telegramChatId || !telegramUsername || !tokenToVerify) {
-        return json({ error: 'Genuine Telegram Chat ID, username, and single-use verification token are required.' }, 400);
+      const { verificationToken } = body;
+      if (!verificationToken) {
+        return json({ error: 'Verification token is required.' }, 400);
       }
 
-      const tokenRecord = await env.DB.prepare('SELECT * FROM telegram_tokens WHERE token = ? AND user_id = ?').bind(tokenToVerify, user.id).first();
-      if (!tokenRecord) {
-        return json({ error: 'Telegram verification failed: invalid verification token.' }, 400);
+      const tokenRecord = await env.DB.prepare('SELECT * FROM telegram_tokens WHERE token = ? AND user_id = ?').bind(verificationToken, user.id).first();
+      if (!tokenRecord || tokenRecord.used !== 1) {
+        return json({ error: 'Telegram verification pending: please send /verify command to @MyDigitAssetBot first.' }, 400);
       }
 
-      if (tokenRecord.used === 1) {
-        return json({ error: 'Telegram verification failed: verification token has already been used.' }, 400);
-      }
-
-      if (new Date(tokenRecord.expires_at) < new Date()) {
-        return json({ error: 'Telegram verification failed: verification token has expired.' }, 400);
-      }
-
-      // Mark token as used
-      await env.DB.prepare('UPDATE telegram_tokens SET used = 1 WHERE token = ?').bind(tokenToVerify).run();
-
-      await env.DB.prepare('UPDATE users SET telegram_connected = 1, telegram_username = ? WHERE id = ?').bind(telegramUsername, user.id).run();
       const updated = await env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(user.id).first();
 
       return json({
@@ -492,6 +517,7 @@ async function handleApiRequest(request: Request, env: Env): Promise<Response> {
           accessOverride: updated.access_override === 1,
           telegramConnected: updated.telegram_connected === 1,
           telegramUsername: updated.telegram_username,
+          telegramChatId: updated.telegram_chat_id || '',
           createdAt: updated.created_at
         },
         message: 'Telegram account successfully verified.'
