@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { X, Copy, Check, ShieldCheck, QrCode, AlertCircle } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, Copy, Check, ShieldCheck, AlertCircle } from 'lucide-react';
+import { Category } from '../types';
 
 interface PaymentModalProps {
   isOpen: boolean;
@@ -9,6 +10,9 @@ interface PaymentModalProps {
 }
 
 export const PaymentModal: React.FC<PaymentModalProps> = ({ isOpen, onClose, onSubmitted, token }) => {
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [selectedCategoryId, setSelectedCategoryId] = useState('');
+  const [settings, setSettings] = useState<any>({});
   const [utr, setUtr] = useState('');
   const [notes, setNotes] = useState('');
   const [copied, setCopied] = useState(false);
@@ -16,11 +20,45 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({ isOpen, onClose, onS
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
 
+  useEffect(() => {
+    if (isOpen) {
+      async function fetchModalData() {
+        try {
+          const [catRes, setRes] = await Promise.all([
+            fetch('/api/categories'),
+            fetch('/api/settings')
+          ]);
+          if (catRes.ok) {
+            const catData = await catRes.json();
+            setCategories(catData);
+            if (catData.length > 0 && !selectedCategoryId) {
+              setSelectedCategoryId(catData[0].id);
+            }
+          }
+          if (setRes.ok) {
+            const setData = await setRes.json();
+            setSettings(setData);
+          }
+        } catch (err) {
+          console.error('Failed to load payment modal data:', err);
+        }
+      }
+      fetchModalData();
+    }
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
-  const upiId = 'mydigitalasset@upi';
+  const currentCategory = categories.find(c => c.id === selectedCategoryId) || categories[0];
+  const basePrice = currentCategory ? (currentCategory as any).basePrice || 252.00 : 252.00;
+  const gstRate = currentCategory ? (currentCategory as any).gstRate || 18.00 : 18.00;
+  const gstAmount = parseFloat((basePrice * (gstRate / 100)).toFixed(2));
+  const totalAmount = parseFloat((basePrice + gstAmount).toFixed(2));
+
+  const upiId = settings.upiId || '';
 
   const handleCopyUpi = () => {
+    if (!upiId) return;
     navigator.clipboard.writeText(upiId);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -29,6 +67,14 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({ isOpen, onClose, onS
   const handleSubmitUtr = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    if (!selectedCategoryId) {
+      setError('Please select a news category for subscription.');
+      return;
+    }
+    if (!upiId) {
+      setError('Administrator has not yet configured UPI/Bank payment details.');
+      return;
+    }
     setLoading(true);
 
     try {
@@ -38,7 +84,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({ isOpen, onClose, onS
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ utr, notes })
+        body: JSON.stringify({ categoryId: selectedCategoryId, utr, notes })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to submit UTR');
@@ -68,48 +114,74 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({ isOpen, onClose, onS
         <div className="space-y-2 mb-6">
           <h3 className="text-2xl font-extrabold text-slate-900">Annual Subscription Payment</h3>
           <p className="text-sm text-slate-600">
-            Pay via UPI and submit your UTR / transaction reference for manual verification.
+            Select category, pay via UPI, and submit your UTR / transaction reference for manual verification.
           </p>
+        </div>
+
+        {/* Category selector */}
+        <div className="mb-6 space-y-1.5">
+          <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600">
+            Select Subscription Category *
+          </label>
+          <select
+            value={selectedCategoryId}
+            onChange={(e) => setSelectedCategoryId(e.target.value)}
+            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:outline-none focus:border-slate-900"
+          >
+            {categories.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.title} (₹{( (c as any).basePrice ? (c as any).basePrice * (1 + ((c as any).gstRate || 18)/100) : 297.36 ).toFixed(2) })
+              </option>
+            ))}
+          </select>
         </div>
 
         {/* Pricing breakdown box */}
         <div className="bg-slate-50 rounded-2xl p-5 border border-slate-200/80 mb-6 space-y-2">
           <div className="flex justify-between text-xs text-slate-600">
             <span>Base Annual Subscription</span>
-            <span className="font-mono font-semibold">₹252.00</span>
+            <span className="font-mono font-semibold">₹{basePrice.toFixed(2)}</span>
           </div>
           <div className="flex justify-between text-xs text-slate-600 pb-2 border-b border-slate-200">
-            <span>GST (18% Applicable Tax)</span>
-            <span className="font-mono font-semibold">₹45.36</span>
+            <span>GST ({gstRate}% Applicable Tax)</span>
+            <span className="font-mono font-semibold">₹{gstAmount.toFixed(2)}</span>
           </div>
           <div className="flex justify-between text-sm font-bold text-slate-900 pt-1">
             <span>Total Payable Amount</span>
-            <span className="font-mono text-indigo-600">₹297.36</span>
+            <span className="font-mono text-indigo-600">₹{totalAmount.toFixed(2)}</span>
           </div>
         </div>
 
         {/* UPI Details Box */}
         <div className="bg-indigo-50/50 rounded-2xl p-5 border border-indigo-100 mb-6 space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <span className="text-xs font-bold uppercase tracking-wider text-indigo-600">Official UPI ID</span>
-              <p className="text-lg font-mono font-bold text-slate-900 mt-0.5">{upiId}</p>
-            </div>
-            <button
-              onClick={handleCopyUpi}
-              className="flex items-center gap-1.5 px-3 py-2 bg-white border border-indigo-200 text-indigo-700 rounded-xl text-xs font-semibold hover:bg-indigo-50 transition-colors shadow-sm"
-            >
-              {copied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-              {copied ? 'Copied' : 'Copy UPI'}
-            </button>
-          </div>
+          {upiId ? (
+            <>
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-xs font-bold uppercase tracking-wider text-indigo-600">Official UPI ID</span>
+                  <p className="text-lg font-mono font-bold text-slate-900 mt-0.5">{upiId}</p>
+                </div>
+                <button
+                  onClick={handleCopyUpi}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-white border border-indigo-200 text-indigo-700 rounded-xl text-xs font-semibold hover:bg-indigo-50 transition-colors shadow-sm"
+                >
+                  {copied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                  {copied ? 'Copied' : 'Copy UPI'}
+                </button>
+              </div>
 
-          <div className="text-xs text-slate-600 space-y-1 pt-2 border-t border-indigo-100">
-            <p className="font-semibold text-slate-700">Payment Instructions:</p>
-            <p>1. Open your UPI app (GPay, PhonePe, Paytm, BHIM).</p>
-            <p>2. Transfer exact amount: <strong>₹297.36</strong> to <strong>{upiId}</strong>.</p>
-            <p>3. Copy the 12-digit UPI Transaction Reference (UTR) and submit below.</p>
-          </div>
+              <div className="text-xs text-slate-600 space-y-1 pt-2 border-t border-indigo-100">
+                <p className="font-semibold text-slate-700">Payment Instructions:</p>
+                <p>1. Open your UPI app (GPay, PhonePe, Paytm, BHIM).</p>
+                <p>2. Transfer exact amount: <strong>₹{totalAmount.toFixed(2)}</strong> to <strong>{upiId}</strong>.</p>
+                <p>3. Copy the 12-digit UPI Transaction Reference (UTR) and submit below.</p>
+              </div>
+            </>
+          ) : (
+            <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs font-medium">
+              ⚠️ Administrator has not yet configured UPI/Bank payment details. Please check back later or contact support.
+            </div>
+          )}
         </div>
 
         {error && (
@@ -155,7 +227,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({ isOpen, onClose, onS
 
           <button
             type="submit"
-            disabled={loading || success}
+            disabled={loading || success || !upiId}
             className="w-full py-3.5 bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-xl transition-colors text-sm shadow-md mt-4 disabled:opacity-50"
           >
             {loading ? 'Submitting...' : 'Submit UTR for Verification'}

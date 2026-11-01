@@ -15,6 +15,7 @@ export const TelegramConnectModal: React.FC<TelegramConnectModalProps> = ({
   token
 }) => {
   const [telegramUsername, setTelegramUsername] = useState('');
+  const [telegramChatId, setTelegramChatId] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -32,7 +33,7 @@ export const TelegramConnectModal: React.FC<TelegramConnectModalProps> = ({
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ telegramUsername })
+        body: JSON.stringify({ telegramChatId, telegramUsername })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to connect Telegram');
@@ -67,10 +68,10 @@ export const TelegramConnectModal: React.FC<TelegramConnectModalProps> = ({
         </div>
 
         <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200/80 mb-6 text-xs text-slate-600 space-y-2">
-          <p className="font-semibold text-slate-900">Connection Instructions:</p>
+          <p className="font-semibold text-slate-900">Genuine Verification Instructions:</p>
           <p>1. Open Telegram and search for <strong className="text-indigo-600">@MyDigitAssetBot</strong>.</p>
-          <p>2. Send the command <code className="bg-white px-1.5 py-0.5 rounded border border-slate-200">/start</code> to the bot.</p>
-          <p>3. Enter your Telegram handle or username below to complete authorization.</p>
+          <p>2. Send <code className="bg-white px-1.5 py-0.5 rounded border border-slate-200">/start</code> to receive your verified numeric Chat ID.</p>
+          <p>3. Enter both your verified Chat ID and Username below.</p>
         </div>
 
         {error && (
@@ -81,6 +82,20 @@ export const TelegramConnectModal: React.FC<TelegramConnectModalProps> = ({
         )}
 
         <form onSubmit={handleConnect} className="space-y-4">
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">
+              Verified Telegram Chat ID (Numeric) *
+            </label>
+            <input
+              type="text"
+              required
+              value={telegramChatId}
+              onChange={(e) => setTelegramChatId(e.target.value)}
+              placeholder="e.g. 123456789"
+              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:border-slate-900"
+            />
+          </div>
+
           <div>
             <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">
               Telegram Username / Handle *
@@ -100,7 +115,7 @@ export const TelegramConnectModal: React.FC<TelegramConnectModalProps> = ({
             disabled={loading}
             className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-xl transition-colors text-sm shadow-md mt-4 disabled:opacity-50"
           >
-            {loading ? 'Connecting...' : 'Verify & Link Telegram Account'}
+            {loading ? 'Verifying...' : 'Verify & Link Telegram Account'}
           </button>
 
           <button
