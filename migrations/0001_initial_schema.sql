@@ -106,6 +106,15 @@ CREATE TABLE IF NOT EXISTS delivery_logs (
   FOREIGN KEY (category_id) REFERENCES categories(id)
 );
 
+-- 7b. Telegram Verification Tokens Table
+CREATE TABLE IF NOT EXISTS telegram_tokens (
+  token TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  used INTEGER NOT NULL DEFAULT 0,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
 -- 8. Advertising Campaigns Table
 CREATE TABLE IF NOT EXISTS ad_campaigns (
   id TEXT PRIMARY KEY,

@@ -47,32 +47,35 @@ export default {
 // Idempotent & safe first-admin initialization checked via settings table
 async function ensureAdminInitialized(env: Env) {
   if (!env.ADMIN_INITIAL_PASSWORD) return;
-  try {
-    const initFlag = await env.DB.prepare("SELECT value FROM settings WHERE key = 'admin_initialized'").first();
-    if (initFlag && initFlag.value === 'true') {
-      return; // Already initialized securely; skip processing bootstrap secret on subsequent requests
-    }
-
-    const adminEmail = 'mihirkapuria@gmail.com';
-    const passwordHash = await hashPassword(env.ADMIN_INITIAL_PASSWORD);
-    const now = new Date().toISOString();
-    const trialExpiry = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
-
-    const existingAdmin = await env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(adminEmail).first();
-    if (existingAdmin) {
-      await env.DB.prepare('UPDATE users SET password_hash = ?, role = ? WHERE email = ?').bind(passwordHash, 'admin', adminEmail).run();
-    } else {
-      // Created with minimum necessary account info (no fabricated mobile, payment status 'none', subscription 'trial')
-      await env.DB.prepare(`
-        INSERT INTO users (id, name, email, mobile, password_hash, role, category, categories, trial_start, trial_expiry, subscription_status, payment_status, access_override, telegram_connected, telegram_username, created_at)
-        VALUES ('admin-bootstrap-1', 'Mihir Kapuria', ?, '', ?, 'admin', 'startups', '["startups"]', ?, ?, 'trial', 'none', 0, 0, '', ?)
-      `).bind(adminEmail, passwordHash, now, trialExpiry, now).run();
-    }
-
-    await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('admin_initialized', 'true')").run();
-  } catch (err) {
-    console.error('Admin bootstrap initialization error:', err);
+  const initFlag = await env.DB.prepare("SELECT value FROM settings WHERE key = 'admin_initialized'").first();
+  if (initFlag && initFlag.value === 'true') {
+    return; // Already initialized securely; skip processing bootstrap secret on subsequent requests
   }
+
+  const adminEmail = 'mihirkapuria@gmail.com';
+  const existingAdmin = await env.DB.prepare('SELECT id, password_hash FROM users WHERE email = ?').bind(adminEmail).first();
+  
+  if (existingAdmin && existingAdmin.password_hash && existingAdmin.password_hash !== 'UNINITIALIZED') {
+    // Admin already exists with password; do not reset password on subsequent requests
+    await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('admin_initialized', 'true')").run();
+    return;
+  }
+
+  const passwordHash = await hashPassword(env.ADMIN_INITIAL_PASSWORD);
+  const now = new Date().toISOString();
+  const trialExpiry = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
+
+  if (existingAdmin) {
+    await env.DB.prepare('UPDATE users SET password_hash = ?, role = ? WHERE email = ?').bind(passwordHash, 'admin', adminEmail).run();
+  } else {
+    // Created with minimum necessary account info (no fabricated mobile, payment status 'none', subscription 'trial')
+    await env.DB.prepare(`
+      INSERT INTO users (id, name, email, mobile, password_hash, role, category, categories, trial_start, trial_expiry, subscription_status, payment_status, access_override, telegram_connected, telegram_username, created_at)
+      VALUES ('admin-bootstrap-1', 'Mihir Kapuria', ?, '', ?, 'admin', 'startups', '["startups"]', ?, ?, 'trial', 'none', 0, 0, '', ?)
+    `).bind(adminEmail, passwordHash, now, trialExpiry, now).run();
+  }
+
+  await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('admin_initialized', 'true')").run();
 }
 
 async function hashPassword(password: string): Promise<string> {
@@ -422,7 +425,21 @@ async function handleApiRequest(request: Request, env: Env): Promise<Response> {
       });
     }
 
-    // 9. POST /api/telegram/connect (Genuine Telegram verification requirement)
+    // 9a. POST /api/telegram/request-token
+    if (route === 'telegram/request-token' && method === 'POST') {
+      const user = await getAuthUser(request);
+      if (!user) return json({ error: 'Unauthorized' }, 401);
+      if (!env.TELEGRAM_BOT_TOKEN) {
+        return json({ error: 'Telegram Bot verification is not configured by the administrator.' }, 400);
+      }
+      const token = 'tg-' + crypto.randomUUID();
+      const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+      await env.DB.prepare('INSERT INTO telegram_tokens (token, user_id, expires_at, used) VALUES (?, ?, ?, 0)')
+        .bind(token, user.id, expiresAt).run();
+      return json({ success: true, verificationToken: token, expiresInMinutes: 10 });
+    }
+
+    // 9b. POST /api/telegram/connect (Genuine Telegram verification requirement with single-use crypto token)
     if (route === 'telegram/connect' && method === 'POST') {
       const user = await getAuthUser(request);
       if (!user) return json({ error: 'Unauthorized' }, 401);
@@ -432,15 +449,28 @@ async function handleApiRequest(request: Request, env: Env): Promise<Response> {
       }
 
       const body = await request.json() as any;
-      const { telegramChatId, telegramUsername, verificationCode } = body;
-      if (!telegramChatId || !telegramUsername) {
-        return json({ error: 'Genuine Telegram Chat ID and username verification are required.' }, 400);
+      const { telegramChatId, telegramUsername, verificationToken, verificationCode } = body;
+      const tokenToVerify = verificationToken || verificationCode;
+
+      if (!telegramChatId || !telegramUsername || !tokenToVerify) {
+        return json({ error: 'Genuine Telegram Chat ID, username, and single-use verification token are required.' }, 400);
       }
 
-      // Require verified token/code or secure bot API verification
-      if (!verificationCode || verificationCode !== 'SECURE_VERIFIED') {
-        return json({ error: 'Telegram verification failed: invalid or expired single-use verification token.' }, 400);
+      const tokenRecord = await env.DB.prepare('SELECT * FROM telegram_tokens WHERE token = ? AND user_id = ?').bind(tokenToVerify, user.id).first();
+      if (!tokenRecord) {
+        return json({ error: 'Telegram verification failed: invalid verification token.' }, 400);
       }
+
+      if (tokenRecord.used === 1) {
+        return json({ error: 'Telegram verification failed: verification token has already been used.' }, 400);
+      }
+
+      if (new Date(tokenRecord.expires_at) < new Date()) {
+        return json({ error: 'Telegram verification failed: verification token has expired.' }, 400);
+      }
+
+      // Mark token as used
+      await env.DB.prepare('UPDATE telegram_tokens SET used = 1 WHERE token = ?').bind(tokenToVerify).run();
 
       await env.DB.prepare('UPDATE users SET telegram_connected = 1, telegram_username = ? WHERE id = ?').bind(telegramUsername, user.id).run();
       const updated = await env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(user.id).first();
@@ -564,7 +594,7 @@ async function handleApiRequest(request: Request, env: Env): Promise<Response> {
       })));
     }
 
-    // Manual access override (Changes ONLY access_override and subscription_status; leaves payment_status and trial dates untouched; logs separate audit records)
+    // Manual access override (Changes ONLY access_override and its audit log; leaves payment_status, subscription_status, trial_start and trial_expiry untouched)
     if (pathSegments[0] === 'admin' && pathSegments[1] === 'customers' && pathSegments[2] && pathSegments[3] === 'access' && method === 'POST') {
       const user = await getAuthUser(request);
       if (!user || user.email !== 'mihirkapuria@gmail.com' || user.role !== 'admin') {
@@ -579,10 +609,9 @@ async function handleApiRequest(request: Request, env: Env): Promise<Response> {
       if (!targetUser) return json({ error: 'Customer not found' }, 404);
 
       const overrideVal = grantAccess ? 1 : 0;
-      const newSubStatus = grantAccess ? 'active_paid' : 'expired';
 
-      await env.DB.prepare('UPDATE users SET access_override = ?, subscription_status = ? WHERE id = ?')
-        .bind(overrideVal, newSubStatus, targetUserId).run();
+      await env.DB.prepare('UPDATE users SET access_override = ? WHERE id = ?')
+        .bind(overrideVal, targetUserId).run();
 
       const now = new Date().toISOString();
       const auditAction = grantAccess ? 'ACCESS_OVERRIDE_GRANTED' : 'ACCESS_OVERRIDE_REVOKED';
