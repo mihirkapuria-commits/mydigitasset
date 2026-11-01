@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { X, Send, CheckCircle2, AlertCircle, Copy, RefreshCw } from 'lucide-react';
 
 interface TelegramConnectModalProps {
@@ -19,16 +19,44 @@ export const TelegramConnectModal: React.FC<TelegramConnectModalProps> = ({
   const [polling, setPolling] = useState(false);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
+  const [expired, setExpired] = useState(false);
+  const [success, setSuccess] = useState(false);
+
+  const pollIntervalRef = useRef<any>(null);
+  const timeoutRef = useRef<any>(null);
 
   useEffect(() => {
     if (isOpen) {
+      setExpired(false);
+      setSuccess(false);
+      setError('');
       fetchVerificationToken();
+    } else {
+      cleanupTimers();
     }
+    return () => {
+      cleanupTimers();
+    };
   }, [isOpen]);
 
+  const cleanupTimers = () => {
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+    }
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+    setPolling(false);
+  };
+
   const fetchVerificationToken = async () => {
+    cleanupTimers();
     setError('');
+    setExpired(false);
     setLoadingToken(true);
+
     try {
       const res = await fetch('/api/telegram/request-token', {
         method: 'POST',
@@ -48,34 +76,62 @@ export const TelegramConnectModal: React.FC<TelegramConnectModalProps> = ({
   };
 
   const startPolling = () => {
+    if (pollIntervalRef.current) return;
     setPolling(true);
-    const interval = setInterval(async () => {
+
+    // Poll every 3 seconds
+    pollIntervalRef.current = setInterval(async () => {
       try {
         const res = await fetch('/api/telegram/status', {
           headers: {
             'Authorization': `Bearer ${token}`
           }
         });
+        if (res.status === 401) {
+          cleanupTimers();
+          setError('Session expired. Please log in again.');
+          return;
+        }
         const data = await res.json();
         if (data.connected) {
-          clearInterval(interval);
-          setPolling(false);
-          // Fetch updated user profile
-          const meRes = await fetch('/api/auth/me', {
-            headers: { 'Authorization': `Bearer ${token}` }
+          cleanupTimers();
+          setSuccess(true);
+          // Confirm connection & refresh profile
+          const connectRes = await fetch('/api/telegram/connect', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ verificationToken })
           });
-          const meData = await meRes.json();
-          if (meRes.ok) {
-            onConnected(meData);
+          const connectData = await connectRes.json();
+          if (connectRes.ok && connectData.user) {
+            onConnected(connectData.user);
+          } else {
+            const meRes = await fetch('/api/auth/me', {
+              headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const meData = await meRes.json();
+            if (meRes.ok) {
+              onConnected(meData);
+            }
           }
-          onClose();
+          setTimeout(() => {
+            onClose();
+          }, 1500);
         }
       } catch (e) {
-        // ignore polling errors
+        // Ignore temporary network errors during polling
       }
     }, 3000);
 
-    return () => clearInterval(interval);
+    // Timeout after 5 minutes (300,000 ms)
+    timeoutRef.current = setTimeout(() => {
+      cleanupTimers();
+      setExpired(true);
+      setError('Verification token has expired. Please generate a new code.');
+    }, 300000);
   };
 
   const copyCommand = () => {
@@ -90,7 +146,10 @@ export const TelegramConnectModal: React.FC<TelegramConnectModalProps> = ({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm overflow-y-auto">
       <div className="bg-white rounded-3xl max-w-md w-full p-8 shadow-2xl relative border border-slate-100 my-8">
         <button
-          onClick={onClose}
+          onClick={() => {
+            cleanupTimers();
+            onClose();
+          }}
           title="Close window"
           className="absolute top-6 right-6 p-2.5 text-slate-500 hover:text-red-600 rounded-full bg-slate-100 hover:bg-red-50 transition-colors shadow-sm flex items-center justify-center"
         >
@@ -114,6 +173,13 @@ export const TelegramConnectModal: React.FC<TelegramConnectModalProps> = ({
           </div>
         )}
 
+        {success && (
+          <div className="mb-6 p-4 rounded-2xl bg-emerald-50 border-2 border-emerald-300 text-emerald-900 text-sm font-semibold flex items-center gap-3 shadow-sm">
+            <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+            <span>Telegram account successfully verified and connected!</span>
+          </div>
+        )}
+
         <div className="bg-slate-50 rounded-2xl p-5 border border-slate-200/80 mb-6 space-y-4">
           <p className="font-semibold text-xs uppercase tracking-wider text-slate-700">Genuine Verification Steps:</p>
           <ol className="text-xs text-slate-600 space-y-2 list-decimal list-inside">
@@ -125,6 +191,17 @@ export const TelegramConnectModal: React.FC<TelegramConnectModalProps> = ({
             <div className="py-4 text-center text-xs text-slate-500 flex items-center justify-center gap-2">
               <RefreshCw className="w-4 h-4 animate-spin text-indigo-600" />
               Generating secure verification token...
+            </div>
+          ) : expired ? (
+            <div className="text-center py-3 space-y-2">
+              <p className="text-xs text-red-600 font-semibold">Verification token expired.</p>
+              <button
+                type="button"
+                onClick={fetchVerificationToken}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold transition-colors"
+              >
+                Generate New Code
+              </button>
             </div>
           ) : (
             <div className="bg-white p-3 rounded-xl border border-indigo-200 flex items-center justify-between gap-2 shadow-inner">
@@ -142,15 +219,20 @@ export const TelegramConnectModal: React.FC<TelegramConnectModalProps> = ({
             </div>
           )}
 
-          <div className="pt-2 flex items-center gap-3 text-xs text-slate-500 border-t border-slate-200/60">
-            <div className="w-3 h-3 rounded-full bg-amber-400 animate-pulse shrink-0" />
-            <span>Waiting for genuine bot verification... (listening via webhook)</span>
-          </div>
+          {!expired && !success && (
+            <div className="pt-2 flex items-center gap-3 text-xs text-slate-500 border-t border-slate-200/60">
+              <div className="w-3 h-3 rounded-full bg-amber-400 animate-pulse shrink-0" />
+              <span>Waiting for bot response via webhook...</span>
+            </div>
+          )}
         </div>
 
         <button
           type="button"
-          onClick={onClose}
+          onClick={() => {
+            cleanupTimers();
+            onClose();
+          }}
           className="w-full py-3.5 bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-xl transition-colors text-xs"
         >
           Close & Return to Dashboard

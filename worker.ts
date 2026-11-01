@@ -10,6 +10,7 @@ interface Env {
     fetch: (request: Request) => Promise<Response>;
   };
   TELEGRAM_BOT_TOKEN?: string;
+  TELEGRAM_WEBHOOK_SECRET?: string;
   ADMIN_INITIAL_PASSWORD?: string;
   ALLOWED_REDIRECT_DOMAINS?: string;
 }
@@ -285,13 +286,41 @@ async function handleApiRequest(request: Request, env: Env): Promise<Response> {
     if (route === 'news/eligibility' && method === 'GET') {
       const user = await getAuthUser(request);
       if (!user) return json({ error: 'Unauthorized' }, 401);
-      const hasAccess = user.accessOverride || user.subscriptionStatus === 'active_paid' || new Date() < new Date(user.trialExpiry);
-      return json({
-        authorized: hasAccess,
-        reason: user.accessOverride ? 'access_override' :
-                user.subscriptionStatus === 'active_paid' ? 'annual_subscription' :
-                new Date() < new Date(user.trialExpiry) ? 'active_trial' : 'expired'
-      });
+
+      const categoryId = url.searchParams.get('categoryId') || user.category;
+
+      if (user.accessOverride) {
+        return json({ authorized: true, reason: 'access_override' });
+      }
+
+      const sub = await env.DB.prepare('SELECT * FROM user_subscriptions WHERE user_id = ? AND category_id = ?')
+        .bind(user.id, categoryId).first();
+
+      const now = new Date();
+      let authorized = false;
+      let reason = 'expired';
+
+      if (sub) {
+        if (sub.access_override === 1) {
+          authorized = true;
+          reason = 'access_override';
+        } else if (sub.status === 'active_paid' && sub.subscription_expiry && now < new Date(sub.subscription_expiry)) {
+          authorized = true;
+          reason = 'annual_subscription';
+        } else if (sub.status === 'trial' && sub.trial_expiry && now < new Date(sub.trial_expiry)) {
+          authorized = true;
+          reason = 'active_trial';
+        }
+      } else {
+        if (categoryId === user.category) {
+          if (user.subscriptionStatus === 'active_paid' || now < new Date(user.trialExpiry)) {
+            authorized = true;
+            reason = user.subscriptionStatus === 'active_paid' ? 'annual_subscription' : 'active_trial';
+          }
+        }
+      }
+
+      return json({ authorized, reason });
     }
 
     // 4. POST /api/auth/register
@@ -322,6 +351,11 @@ async function handleApiRequest(request: Request, env: Env): Promise<Response> {
         INSERT INTO users (id, name, email, mobile, password_hash, role, category, categories, trial_start, trial_expiry, subscription_status, payment_status, access_override, telegram_connected, telegram_username, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'trial', 'none', 0, 0, '', ?)
       `).bind(userId, name, normalizedEmail, mobile, passwordHash, role, category, JSON.stringify([category]), now, trialExpiry, now).run();
+
+      await env.DB.prepare(`
+        INSERT OR IGNORE INTO user_subscriptions (id, user_id, category_id, status, trial_start, trial_expiry, access_override)
+        VALUES (?, ?, ?, 'trial', ?, ?, 0)
+      `).bind('sub-' + crypto.randomUUID().slice(0, 8), userId, category, now, trialExpiry).run();
 
       const token = crypto.randomUUID() + crypto.randomUUID();
       const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
@@ -455,6 +489,10 @@ async function handleApiRequest(request: Request, env: Env): Promise<Response> {
 
     // 9b. POST /api/telegram/webhook (Received from Telegram Bot)
     if (route === 'telegram/webhook' && method === 'POST') {
+      const secretHeader = request.headers.get('X-Telegram-Bot-Api-Secret-Token');
+      if (!env.TELEGRAM_WEBHOOK_SECRET || secretHeader !== env.TELEGRAM_WEBHOOK_SECRET) {
+        return json({ error: 'Unauthorized webhook request: missing or incorrect secret token header.' }, 401);
+      }
       if (!env.TELEGRAM_BOT_TOKEN) {
         return json({ error: 'Telegram bot token not configured' }, 400);
       }
@@ -462,7 +500,7 @@ async function handleApiRequest(request: Request, env: Env): Promise<Response> {
       if (update && update.message && update.message.text) {
         const text = update.message.text.trim();
         const chatId = String(update.message.chat.id);
-        const username = update.message.from.username ? '@' + update.message.from.username : (update.message.from.first_name || 'user');
+        const username = update.message.from?.username ? '@' + update.message.from.username : (update.message.from?.first_name || 'user');
 
         const parts = text.split(/\s+/);
         if (parts.length >= 2 && parts[0].toLowerCase() === '/verify') {
@@ -495,8 +533,10 @@ async function handleApiRequest(request: Request, env: Env): Promise<Response> {
 
       const tokenRecord = await env.DB.prepare('SELECT * FROM telegram_tokens WHERE token = ? AND user_id = ?').bind(verificationToken, user.id).first();
       if (!tokenRecord || tokenRecord.used !== 1) {
-        return json({ error: 'Telegram verification pending: please send /verify command to @MyDigitAssetBot first.' }, 400);
+        return json({ error: 'Telegram verification pending or token already consumed.' }, 400);
       }
+
+      await env.DB.prepare('UPDATE telegram_tokens SET used = 2 WHERE token = ?').bind(verificationToken).run();
 
       const updated = await env.DB.prepare('SELECT * FROM users WHERE id = ?').bind(user.id).first();
 
@@ -715,6 +755,13 @@ async function handleApiRequest(request: Request, env: Env): Promise<Response> {
       const payment = await env.DB.prepare('SELECT * FROM payments WHERE id = ?').bind(paymentId).first();
       if (!payment) return json({ error: 'Payment not found' }, 404);
 
+      if (payment.status === 'verified') {
+        return json({ error: 'Verified payments cannot be approved again.' }, 400);
+      }
+      if (payment.status === 'rejected' && action === 'approve') {
+        return json({ error: 'Rejected payments cannot be approved without a proper new payment process.' }, 400);
+      }
+
       const now = new Date();
       const istDates = calculateIstSubscriptionDates(now);
       const nowIso = now.toISOString();
@@ -725,6 +772,15 @@ async function handleApiRequest(request: Request, env: Env): Promise<Response> {
         
         await env.DB.prepare('UPDATE users SET payment_status = ?, subscription_status = ?, trial_start = ?, trial_expiry = ? WHERE id = ?')
           .bind('verified', 'active_paid', istDates.startIso, istDates.expiryIso, payment.user_id).run();
+
+        await env.DB.prepare(`
+          INSERT INTO user_subscriptions (id, user_id, category_id, status, trial_start, trial_expiry, subscription_start, subscription_expiry, access_override)
+          VALUES (?, ?, ?, 'active_paid', ?, ?, ?, ?, 0)
+          ON CONFLICT(user_id, category_id) DO UPDATE SET
+            status = 'active_paid',
+            subscription_start = excluded.subscription_start,
+            subscription_expiry = excluded.subscription_expiry
+        `).bind('sub-' + crypto.randomUUID().slice(0, 8), payment.user_id, payment.category_id, nowIso, nowIso, istDates.startIso, istDates.expiryIso).run();
 
         await env.DB.prepare(`
           INSERT INTO audit_logs (id, timestamp, admin_email, action, details)
