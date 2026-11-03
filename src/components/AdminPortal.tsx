@@ -15,6 +15,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ currentUser, token, on
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [testSending, setTestSending] = useState(false);
+  const [testResult, setTestResult] = useState('');
 
   const fetchAdminData = async () => {
     setLoading(true);
@@ -47,6 +49,24 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ currentUser, token, on
   useEffect(() => {
     fetchAdminData();
   }, [token]);
+
+  const handleTestIndiaStartupsNews = async () => {
+    setTestSending(true);
+    setTestResult('');
+    try {
+      const res = await fetch('/api/admin/test-india-startups-news', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Test delivery failed.');
+      setTestResult('Test digest sent successfully. Telegram message ID: ' + data.messageId);
+    } catch (err: any) {
+      setTestResult('Test failed: ' + err.message);
+    } finally {
+      setTestSending(false);
+    }
+  };
 
   const handleVerifyPayment = async (paymentId: string, action: 'approve' | 'reject') => {
     try {
@@ -97,6 +117,13 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ currentUser, token, on
           </div>
 
           <div className="flex items-center gap-3">
+            <button
+              onClick={handleTestIndiaStartupsNews}
+              disabled={testSending}
+              className="px-4 py-2 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white"
+            >
+              {testSending ? 'Sending test…' : 'Test India Startups News'}
+            </button>
             <div className="flex items-center gap-2 bg-slate-800 p-1 rounded-xl border border-slate-700">
               <button
                 onClick={() => setActiveTab('customers')}
@@ -139,6 +166,11 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ currentUser, token, on
         {error && (
           <div className="p-4 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-medium">
             {error}
+          </div>
+        )}
+        {testResult && (
+          <div className="p-4 rounded-xl bg-slate-100 border border-slate-200 text-slate-700 text-xs font-medium">
+            {testResult}
           </div>
         )}
 
