@@ -18,7 +18,6 @@ interface NewsStory {
   explanation: string;
 }
 
-const INDIA_STARTUPS_CATEGORY_ID = "india-startups";
 const DEFAULT_NEWS_DELIVERY_TIME_IST = "06:15";
 const GEMINI_MODEL = "gemini-3.8-flash";
 
@@ -34,9 +33,6 @@ const INDIA_STARTUPS_SOURCE: CategoryNewsSource = {
   googleNewsUrl:
     "https://news.google.com/search?q=(India%20startup%20OR%20Indian%20startup)%20(funding%20OR%20investment%20OR%20business%20OR%20launch)&hl=en-IN&gl=IN&ceid=IN:en"
 };
-
-const DEFAULT_NEWS_DELIVERY_TIME_IST = "06:15";
-const GEMINI_MODEL = "gemini-3.8-flash";
 
 export async function runIndiaStartupsNewsDelivery(env: NewsEnv): Promise<void> {
   await runCategoryNewsDelivery(env, INDIA_STARTUPS_SOURCE);
