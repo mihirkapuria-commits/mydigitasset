@@ -51,6 +51,19 @@ export async function runIndiaStartupsNewsDelivery(env: NewsEnv): Promise<void> 
   await runCategoryNewsDelivery(env, INDIA_STARTUPS_SOURCE);
 }
 
+export async function fetchIndiaStartupsNewsPreview(env: NewsEnv): Promise<Array<{
+  title: string;
+  source: string;
+  publishedAt: string;
+}>> {
+  const articles = await fetchGoogleNewsArticles(env, INDIA_STARTUPS_SOURCE.googleNewsUrl);
+  return articles.slice(0, 20).map(article => ({
+    title: article.title,
+    source: article.source,
+    publishedAt: article.publishedAt.toISOString()
+  }));
+}
+
 async function runCategoryNewsDelivery(env: NewsEnv, source: CategoryNewsSource): Promise<void> {
   if (!env.TELEGRAM_BOT_TOKEN) {
     console.error(source.topic + " delivery skipped: TELEGRAM_BOT_TOKEN is not configured.");
