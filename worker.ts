@@ -1,4 +1,4 @@
-import { runIndiaStartupsNewsDelivery, sendIndiaStartupsNewsTest } from "./telegram-news";
+import { GoogleNewsRateLimitError, runIndiaStartupsNewsDelivery, sendIndiaStartupsNewsTest } from "./telegram-news";
 
 /**
  * Standalone Cloudflare Worker Entry Point for MyDigitAsset
@@ -169,12 +169,13 @@ async function handleApiRequest(request: Request, env: Env): Promise<Response> {
   const route = pathSegments.join('/');
   const method = request.method;
 
-  const json = (data: any, status = 200) => {
+  const json = (data: any, status = 200, extraHeaders: Record<string, string> = {}) => {
     return new Response(JSON.stringify(data), {
       status,
       headers: {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*'
+        'Access-Control-Allow-Origin': '*',
+        ...extraHeaders
       }
     });
   };
@@ -662,6 +663,13 @@ async function handleApiRequest(request: Request, env: Env): Promise<Response> {
         const messageId = await sendIndiaStartupsNewsTest(env);
         return json({ success: true, messageId, message: 'Test news digest sent to the India Startups Telegram channel.' });
       } catch (error: any) {
+        if (error instanceof GoogleNewsRateLimitError) {
+          return json(
+            { error: error.message, retryAfterSeconds: error.retryAfterSeconds },
+            429,
+            { 'Retry-After': String(error.retryAfterSeconds) }
+          );
+        }
         return json({ error: error?.message || 'India Startups test delivery failed.' }, 500);
       }
     }
@@ -677,6 +685,13 @@ async function handleApiRequest(request: Request, env: Env): Promise<Response> {
         const messageId = await sendIndiaStartupsNewsTest(env);
         return json({ success: true, messageId, message: 'Test news digest sent to the India Startups Telegram channel.' });
       } catch (error: any) {
+        if (error instanceof GoogleNewsRateLimitError) {
+          return json(
+            { error: error.message, retryAfterSeconds: error.retryAfterSeconds },
+            429,
+            { 'Retry-After': String(error.retryAfterSeconds) }
+          );
+        }
         return json({ error: error?.message || 'India Startups test delivery failed.' }, 500);
       }
     }
