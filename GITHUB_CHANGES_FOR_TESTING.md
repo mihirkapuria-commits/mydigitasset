@@ -147,3 +147,35 @@ If the webpage approach does not work:
 ## G. Current next action
 
 Deploy the latest `main` code to the Cloudflare Worker, then run the protected POST test endpoint again. If Google News webpage fetching works, verify that the digest arrives in the India Startups Telegram channel. If it fails, record the exact error here before deciding on another change.
+
+
+---
+
+## H. Deferred checks and MyDigitAsset core-product worklist
+
+These items are deliberately recorded for later. The immediate priority is to get the core news product working, not to spend more time investigating deployment screens.
+
+### Deployment and India Startups test — deferred verification
+
+- [ ] Confirm whether the active Cloudflare production version contains the latest GitHub `main` code, especially commit `4a14c30db3472ac97c210374e1b2b856531cb021`.
+- [ ] Current Cloudflare screen showed active version `svgfe421098`, 100% traffic, 0 requests/sec, 0% error rate, and 0ms median CPU time. This confirms traffic allocation, not the source commit.
+- [ ] Review the deployment's source/build details or logs later. The version-ID link opened the website, not the deployment details.
+- [ ] Do not click **Retry build** until there is a reason to do so.
+- [ ] Run the protected India Startups test after confirming the deployment, or when deliberately choosing to test the currently active version.
+- [ ] Confirm the complete flow: Google News webpage fetch → headline extraction → Gemini summary → Telegram digest received.
+- [ ] Record the exact response/error and outcome here. The earlier RSS HTTP 503 is historical; the webpage approach has not yet been verified.
+
+### Core product priorities
+
+1. [ ] Make the India Startups daily news digest work reliably end to end using Google News webpage fetching, Gemini summarization, and Telegram delivery.
+2. [ ] Confirm normal scheduled delivery at the configured time (06:15 IST) and ensure the manual test does not interfere with the daily delivery lock.
+3. [ ] Add clear delivery logs and a safe way to identify whether a daily digest was sent, failed, or skipped, without creating duplicate messages.
+4. [ ] Once India Startups is stable, extend the same approved and tested delivery approach to the remaining 14 news categories/channels.
+5. [ ] Verify that each channel receives one daily news digest, with the content belonging to that category.
+6. [ ] Implement and verify the separate advertising digest: one combined ad message per channel every 14 days; ads must not be mixed into the daily news message.
+7. [ ] Build and test admin controls for category/channel settings, delivery schedules, ad campaigns, and customer access after the news-delivery foundation is stable.
+8. [ ] Later return to deferred website work: admin portal error, customer registration/category loading, password recovery, and Google Sign-In. Do not let these distract from the current news-delivery milestone.
+
+### Working rule
+
+Proceed one small step at a time. Keep a record of source-code commits and test outcomes. Do not change code, database records, secrets, or deployment settings without explaining the exact proposed change and receiving the user's approval.
