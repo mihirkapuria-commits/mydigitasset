@@ -1,4 +1,4 @@
-import { GoogleNewsRateLimitError, runIndiaStartupsNewsDelivery, sendIndiaStartupsNewsTest } from "./telegram-news";
+import { fetchIndiaStartupsNewsPreview, GoogleNewsRateLimitError, runIndiaStartupsNewsDelivery, sendIndiaStartupsNewsTest } from "./telegram-news";
 
 /**
  * Standalone Cloudflare Worker Entry Point for MyDigitAsset
@@ -649,6 +649,35 @@ async function handleApiRequest(request: Request, env: Env): Promise<Response> {
         verifiedAt: p.verified_at,
         verifiedBy: p.verified_by
       })));
+    }
+
+    // Read-only Google News RSS preview; protected by the separate Cloudflare test secret.
+    // This route never calls Gemini or Telegram.
+    if (route === 'test/india-startups-rss' && method === 'GET') {
+      const configuredSecret = env.NEWS_TEST_SECRET;
+      const suppliedSecret = request.headers.get('x-news-test-secret') || '';
+      if (!configuredSecret || !secretsMatch(suppliedSecret, configuredSecret)) {
+        return json({ error: 'Unauthorized' }, 401);
+      }
+
+      try {
+        const articles = await fetchIndiaStartupsNewsPreview(env);
+        return json({
+          success: true,
+          source: 'Google News RSS',
+          count: articles.length,
+          articles
+        });
+      } catch (error: any) {
+        if (error instanceof GoogleNewsRateLimitError) {
+          return json(
+            { error: error.message, retryAfterSeconds: error.retryAfterSeconds },
+            429,
+            { 'Retry-After': String(error.retryAfterSeconds) }
+          );
+        }
+        return json({ error: error?.message || 'Google News RSS preview failed.' }, 500);
+      }
     }
 
     // Temporary one-time India Startups digest test, protected by a separate Cloudflare secret.
