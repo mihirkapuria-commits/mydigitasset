@@ -182,7 +182,7 @@ function getIndiaDateAndTime(date: Date): { date: string; time: string } {
 }
 
 async function fetchIndiaStartupsArticles(): Promise<NewsArticle[]> {
-  // Fetch the Google News search results webpage directly. No RSS feed or other news provider is used.
+  // Fetch the Google News search webpage directly. No RSS feed or other news provider is used.
   const response = await fetch(INDIA_STARTUPS_GOOGLE_NEWS_URL, {
     headers: {
       "Accept": "text/html,application/xhtml+xml",
@@ -201,55 +201,50 @@ async function fetchIndiaStartupsArticles(): Promise<NewsArticle[]> {
 
   const articles: NewsArticle[] = [];
   const seenUrls = new Set<string>();
-  const articleBlocks = html.match(/<article\\b[\\s\\S]*?<\\/article>/gi) || [];
+  const articleBlocks = html.match(/<article\b[\s\S]*?<\/article>/gi) || [];
 
-  // Google News search results are presented as article cards. Parse only Google News article links.
+  // Extract Google News article cards first.
   for (const block of articleBlocks) {
-    const linkMatch = block.match(/<a\\b[^>]*href=["']([^"']*articles\\/[^"']+)["'][^>]*>([\\s\\S]*?)<\\/a>/i);
-    if (!linkMatch) continue;
+    const linkPattern = /<a\b([^>]*)href=["']([^"']*(?:read|articles)\/[^"']+)["']([^>]*)>([\s\S]*?)<\/a>/gi;
+    let linkMatch: RegExpExecArray | null;
 
-    const title = htmlToText(linkMatch[2]);
-    const url = safeGoogleNewsUrl(linkMatch[1]);
-    if (!title || title.length < 12 || !url || seenUrls.has(url)) continue;
+    while ((linkMatch = linkPattern.exec(block)) !== null) {
+      const attributes = linkMatch[1] + " " + linkMatch[3];
+      const title = htmlToText(linkMatch[4]) ||
+        htmlToText((attributes.match(/aria-label=["']([^"']+)["']/i) || [])[1] || "");
+      const url = safeGoogleNewsUrl(linkMatch[2]);
+      if (!title || title.length < 12 || !url || seenUrls.has(url)) continue;
 
-    const timeMatch = block.match(/<time\\b[^>]*datetime=["']([^"']+)["']/i);
-    const parsedDate = timeMatch ? new Date(timeMatch[1]) : new Date();
-    const publishedAt = Number.isNaN(parsedDate.getTime()) ? new Date() : parsedDate;
+      const timeMatch = block.match(/<time\b[^>]*datetime=["']([^"']+)["']/i);
+      const parsedDate = timeMatch ? new Date(timeMatch[1]) : new Date();
+      const publishedAt = Number.isNaN(parsedDate.getTime()) ? new Date() : parsedDate;
 
-    seenUrls.add(url);
-    articles.push({
-      title,
-      url,
-      description: "",
-      source: "Google News",
-      publishedAt
-    });
+      seenUrls.add(url);
+      articles.push({ title, url, description: "", source: "Google News", publishedAt });
+      break;
+    }
     if (articles.length >= 10) break;
   }
 
-  // If Google changes its article-card wrapper, make a second pass over Google News article links.
+  // Google may change its card wrapper. Still restrict extraction to Google News story URLs.
   if (articles.length === 0) {
-    const linkPattern = /<a\\b[^>]*href=["']([^"']*articles\\/[^"']+)["'][^>]*>([\\s\\S]*?)<\\/a>/gi;
+    const linkPattern = /<a\b([^>]*)href=["']([^"']*(?:read|articles)\/[^"']+)["']([^>]*)>([\s\S]*?)<\/a>/gi;
     let match: RegExpExecArray | null;
 
     while ((match = linkPattern.exec(html)) !== null && articles.length < 10) {
-      const title = htmlToText(match[2]);
-      const url = safeGoogleNewsUrl(match[1]);
+      const attributes = match[1] + " " + match[3];
+      const title = htmlToText(match[4]) ||
+        htmlToText((attributes.match(/aria-label=["']([^"']+)["']/i) || [])[1] || "");
+      const url = safeGoogleNewsUrl(match[2]);
       if (!title || title.length < 12 || !url || seenUrls.has(url)) continue;
 
       seenUrls.add(url);
-      articles.push({
-        title,
-        url,
-        description: "",
-        source: "Google News",
-        publishedAt: new Date()
-      });
+      articles.push({ title, url, description: "", source: "Google News", publishedAt: new Date() });
     }
   }
 
   if (articles.length === 0) {
-    throw new Error("Google News webpage loaded, but no article headlines could be extracted. Its page structure may have changed.");
+    throw new Error("Google News webpage loaded, but no article headlines could be extracted. Google may have changed its page structure or restricted automated access.");
   }
 
   return articles;
@@ -267,11 +262,11 @@ function safeGoogleNewsUrl(value: string): string {
 
 function htmlToText(value: string): string {
   return decodeXmlText(value
-    .replace(/<script\\b[\\s\\S]*?<\\/script>/gi, " ")
-    .replace(/<style\\b[\\s\\S]*?<\\/style>/gi, " ")
+    .replace(/<script\b[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style\b[\s\S]*?<\/style>/gi, " ")
     .replace(/<[^>]*>/g, " ")
     .replace(/&nbsp;/gi, " "))
-    .replace(/\\s+/g, " ")
+    .replace(/\s+/g, " ")
     .trim();
 }
 
