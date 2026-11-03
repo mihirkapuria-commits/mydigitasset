@@ -14,6 +14,7 @@ interface Env {
   TELEGRAM_BOT_TOKEN?: string;
   TELEGRAM_WEBHOOK_SECRET?: string;
   GEMINI_API_KEY?: string;
+  NEWS_TEST_SECRET?: string;
   ADMIN_INITIAL_PASSWORD?: string;
   ALLOWED_REDIRECT_DOMAINS?: string;
 }
@@ -84,6 +85,15 @@ async function ensureAdminInitialized(env: Env) {
   }
 
   await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('admin_initialized', 'true')").run();
+}
+
+function secretsMatch(supplied: string, expected: string): boolean {
+  if (!supplied || supplied.length !== expected.length) return false;
+  let difference = 0;
+  for (let index = 0; index < supplied.length; index++) {
+    difference |= supplied.charCodeAt(index) ^ expected.charCodeAt(index);
+  }
+  return difference === 0;
 }
 
 async function hashPassword(password: string): Promise<string> {
@@ -638,6 +648,22 @@ async function handleApiRequest(request: Request, env: Env): Promise<Response> {
         verifiedAt: p.verified_at,
         verifiedBy: p.verified_by
       })));
+    }
+
+    // Temporary one-time India Startups digest test, protected by a separate Cloudflare secret.
+    if (route === 'test/india-startups-news' && method === 'POST') {
+      const configuredSecret = env.NEWS_TEST_SECRET;
+      const suppliedSecret = request.headers.get('x-news-test-secret') || '';
+      if (!configuredSecret || !secretsMatch(suppliedSecret, configuredSecret)) {
+        return json({ error: 'Unauthorized' }, 401);
+      }
+
+      try {
+        const messageId = await sendIndiaStartupsNewsTest(env);
+        return json({ success: true, messageId, message: 'Test news digest sent to the India Startups Telegram channel.' });
+      } catch (error: any) {
+        return json({ error: error?.message || 'India Startups test delivery failed.' }, 500);
+      }
     }
 
     // One-time India Startups digest test; restricted to the authorized administrator.
