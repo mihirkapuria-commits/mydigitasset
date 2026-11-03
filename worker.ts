@@ -1,4 +1,4 @@
-import { runIndiaStartupsNewsDelivery } from "./telegram-news";
+import { runIndiaStartupsNewsDelivery, sendIndiaStartupsNewsTest } from "./telegram-news";
 
 /**
  * Standalone Cloudflare Worker Entry Point for MyDigitAsset
@@ -638,6 +638,21 @@ async function handleApiRequest(request: Request, env: Env): Promise<Response> {
         verifiedAt: p.verified_at,
         verifiedBy: p.verified_by
       })));
+    }
+
+    // One-time India Startups digest test; restricted to the authorized administrator.
+    if (route === 'admin/test-india-startups-news' && method === 'POST') {
+      const user = await getAuthUser(request);
+      if (!user || user.email !== 'mihirkapuria@gmail.com' || user.role !== 'admin') {
+        return json({ error: 'Forbidden: Administrator privileges required' }, 403);
+      }
+
+      try {
+        const messageId = await sendIndiaStartupsNewsTest(env);
+        return json({ success: true, messageId, message: 'Test news digest sent to the India Startups Telegram channel.' });
+      } catch (error: any) {
+        return json({ error: error?.message || 'India Startups test delivery failed.' }, 500);
+      }
     }
 
     // --- Administrator Routes ---
