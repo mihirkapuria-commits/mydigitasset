@@ -579,7 +579,7 @@ export async function diagnoseIndiaStartupsRssSources(): Promise<{
         status: "ok" as const,
         httpStatus: response.status,
         articleCount: articles.length,
-        headlines: articles.slice(0, 5)
+        headlines: articles
       };
     } catch (error: any) {
       return {
@@ -614,7 +614,7 @@ export async function diagnoseIndiaStartupsRssSources(): Promise<{
 
   return {
     success: sources.some((source) => source.status === "ok"),
-    sources,
+    sources: sources.map(({ headlines, ...source }) => ({ ...source, headlines: headlines.slice(0, 5) })),
     totalUniqueArticles: unique.length,
     duplicatesRemoved,
     sample: unique.slice(0, 10)
