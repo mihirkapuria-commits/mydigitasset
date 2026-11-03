@@ -179,3 +179,42 @@ These items are deliberately recorded for later. The immediate priority is to ge
 ### Working rule
 
 Proceed one small step at a time. Keep a record of source-code commits and test outcomes. Do not change code, database records, secrets, or deployment settings without explaining the exact proposed change and receiving the user's approval.
+
+
+---
+
+## I. Reusable category news-delivery foundation — 3 November 2026
+
+### Approved implementation
+
+The user approved refactoring the India Startups news-delivery code into a reusable category pipeline. The work was committed to GitHub `main`.
+
+- Commit `94c94a87e3bd4d389dc1c9ca605f2048655300a3` — `Refactor Telegram news delivery into reusable category pipeline`.
+- Follow-up correction: `3b9e42357dbd1b56cf24dc3fc424f54a75d85730` — `Remove duplicate constants from news delivery refactor`.
+- File changed: `telegram-news.ts` only.
+
+### What changed
+
+- Introduced a category news-source configuration shape containing category ID, topic name and Google News webpage URL.
+- Kept India Startups as the only configured source for now.
+- Added a shared scheduled-delivery pipeline that receives the category configuration.
+- Added a shared active-category lookup that reads the category title and Telegram channel ID from D1.
+- Added a shared manual-test pipeline; the existing exported India Startups test function remains as a wrapper.
+- Generalized Google News webpage fetching, Gemini prompt topic and Telegram digest formatting helpers.
+- Preserved the existing cron entry-point function name and the authenticated India Startups manual-test entry point.
+- Preserved the daily per-category delivery key and sending/sent/failed lock behavior.
+- Manual test still does not read or modify the scheduled delivery lock.
+- No D1 migration, database record, secret, Worker route, cron schedule, or other category/channel was changed.
+
+### Verification status
+
+- GitHub confirms both commits on `main`.
+- A source inspection confirmed the existing exported scheduled and test entry points remain present and old helper references were removed.
+- GitHub reported no commit status checks for the corrective commit. A local TypeScript build/lint and live Cloudflare/Telegram end-to-end test have not yet been run.
+- Do not describe the refactor as fully tested or all-category delivery as implemented.
+- Next: verify the active Cloudflare deployment includes the latest `main` commit, run the India Startups manual test, and check the Telegram message. Record the exact result.
+- After India Startups works, add further category configurations one at a time. Do not enable all categories until each configuration and channel ID is verified.
+
+### Rollback
+
+To review or reverse this refactor, compare or revert commits `94c94a87e3bd4d389dc1c9ca605f2048655300a3` and `3b9e42357dbd1b56cf24dc3fc424f54a75d85730`. Do not revert without first confirming the desired rollback and checking later dependent commits.
