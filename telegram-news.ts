@@ -638,9 +638,11 @@ function normalizeRssDedupKey(value: string): string {
   try {
     const url = new URL(value);
     url.hash = "";
-    for (const key of Array.from(url.searchParams.keys())) {
-      if (/^(utm_|fbclid|gclid)/i.test(key)) url.searchParams.delete(key);
-    }
+    const trackingKeys: string[] = [];
+    url.searchParams.forEach((_value, key) => {
+      if (/^(utm_|fbclid|gclid)/i.test(key)) trackingKeys.push(key);
+    });
+    for (const key of trackingKeys) url.searchParams.delete(key);
     return url.toString().replace(/\/$/, "").toLowerCase();
   } catch {
     return value.toLowerCase();
