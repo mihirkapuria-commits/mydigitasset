@@ -115,6 +115,40 @@ export async function runIndiaStartupsNewsDelivery(env: NewsEnv): Promise<void> 
   }
 }
 
+
+/**
+ * Sends a one-time test digest without changing the daily delivery lock.
+ * This is called only by the authenticated administrator test endpoint.
+ */
+export async function sendIndiaStartupsNewsTest(env: NewsEnv): Promise<number> {
+  if (!env.TELEGRAM_BOT_TOKEN) throw new Error("TELEGRAM_BOT_TOKEN is not configured.");
+  if (!env.GEMINI_API_KEY) throw new Error("GEMINI_API_KEY is not configured.");
+
+  const category = await env.DB.prepare(
+    "SELECT id, title, telegram_channel_id FROM categories WHERE id = ? AND active = 1"
+  ).bind(INDIA_STARTUPS_CATEGORY_ID).first();
+
+  if (!category || !category.telegram_channel_id) {
+    throw new Error("The active India Startups category or its Telegram channel ID is missing in D1.");
+  }
+
+  const articles = await fetchIndiaStartupsArticles();
+  if (articles.length === 0) throw new Error("Google News RSS returned no usable India Startups articles.");
+
+  const stories = await summarizeIndiaStartupsArticles(env.GEMINI_API_KEY, articles);
+  if (stories.length === 0) throw new Error("Gemini did not return any valid news stories.");
+
+  const message = buildIndiaStartupsMessage(category.title || "India Startups", stories, articles);
+  const result = await sendTelegramChannelMessage(
+    env.TELEGRAM_BOT_TOKEN,
+    String(category.telegram_channel_id),
+    message
+  );
+
+  console.log("India Startups test digest sent. Message ID:", result.message_id);
+  return result.message_id;
+}
+
 async function getConfiguredDeliveryTime(env: NewsEnv): Promise<string> {
   try {
     const setting = await env.DB.prepare(
