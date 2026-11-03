@@ -218,3 +218,56 @@ The user approved refactoring the India Startups news-delivery code into a reusa
 ### Rollback
 
 To review or reverse this refactor, compare or revert commits `94c94a87e3bd4d389dc1c9ca605f2048655300a3` and `3b9e42357dbd1b56cf24dc3fc424f54a75d85730`. Do not revert without first confirming the desired rollback and checking later dependent commits.
+
+
+---
+
+## J. Fix missing static-assets binding — 3 November 2026
+
+### Approved change
+
+The user approved adding the explicit `ASSETS` binding to the existing Cloudflare static-assets configuration.
+
+- **Commit:** `dcd82beb99dd4e154c3680eb7c8e4ed6a77bb5ee`
+- **Commit message:** `Fix Worker static asset binding`
+- **File changed:** `wrangler.toml`
+- **Branch:** `main`
+- **Commit link:** https://github.com/mihirkapuria-commits/mydigitasset/commit/dcd82beb99dd4e154c3680eb7c8e4ed6a77bb5ee
+
+### Exact change
+
+Under the existing `[assets]` section, added this one line:
+
+```toml
+binding = "ASSETS"
+```
+
+The section now reads:
+
+```toml
+[assets]
+directory = "./dist"
+binding = "ASSETS"
+```
+
+### Why
+
+The Worker code calls `env.ASSETS.fetch(request)`, but the previous Wrangler configuration did not name the static-assets binding. This could leave `env.ASSETS` undefined and cause the observed `Cannot read properties of undefined (reading 'fetch')` runtime error.
+
+### Scope and safety
+
+- Only one configuration line was added to `wrangler.toml`.
+- No TypeScript source code, D1 database, migration, customer/payment data, secrets, category settings, Telegram configuration, or cron schedule was changed.
+- This is a configuration correction; it does not by itself prove that the India Startups news-delivery test now works.
+- The observed runtime errors were on automated scanner requests to unrelated paths (`/debug/default/view?panel=config` and `/.vscode/sftp.json`). This binding issue explains those Worker crashes; it does not yet explain the separate HTTP 500 from the India Startups test endpoint.
+
+### Deployment and verification
+
+- GitHub confirms the configuration commit on `main`.
+- **Cloudflare deployment status:** Not yet verified after this commit.
+- **Runtime verification:** Not yet performed after this commit.
+- Next: confirm Cloudflare has deployed commit `dcd82beb99dd4e154c3680eb7c8e4ed6a77bb5ee`. Then, if the India Startups manual test still fails, inspect logs for the exact `/api/test/india-startups-news` request and record its actual error. Do not assume the unrelated scanner errors are the cause of the test endpoint's HTTP 500.
+
+### Rollback
+
+If a rollback is required, review commit `dcd82beb99dd4e154c3680eb7c8e4ed6a77bb5ee` and remove only the added `binding = "ASSETS"` line in a new, approved commit. Do not roll back automatically.
