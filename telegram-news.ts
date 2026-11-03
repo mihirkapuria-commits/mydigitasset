@@ -20,6 +20,19 @@ interface NewsStory {
 
 const DEFAULT_NEWS_DELIVERY_TIME_IST = "06:15";
 const GEMINI_MODEL = "gemini-3.8-flash";
+const GOOGLE_NEWS_COOLDOWN_SETTING_KEY = "google_news_rate_limit_until";
+const GOOGLE_NEWS_DEFAULT_COOLDOWN_SECONDS = 15 * 60;
+const GOOGLE_NEWS_MAX_COOLDOWN_SECONDS = 24 * 60 * 60;
+
+export class GoogleNewsRateLimitError extends Error {
+  retryAfterSeconds: number;
+
+  constructor(retryAfterSeconds: number) {
+    super("Google News is rate-limiting requests. Please try again in about " + retryAfterSeconds + " seconds.");
+    this.name = "GoogleNewsRateLimitError";
+    this.retryAfterSeconds = retryAfterSeconds;
+  }
+}
 
 interface CategoryNewsSource {
   categoryId: string;
@@ -87,7 +100,7 @@ async function runCategoryNewsDelivery(env: NewsEnv, source: CategoryNewsSource)
 
   try {
     const category = await getActiveTelegramCategory(env, source.categoryId);
-    const articles = await fetchGoogleNewsArticles(source.googleNewsUrl);
+    const articles = await fetchGoogleNewsArticles(env, source.googleNewsUrl);
     const stories = await summarizeArticles(env.GEMINI_API_KEY!, source.topic, articles);
     const message = buildNewsMessage(category.title || source.topic, stories, articles);
     const sent = await sendTelegramChannelMessage(env.TELEGRAM_BOT_TOKEN!, String(category.telegram_channel_id), message);
@@ -122,7 +135,7 @@ async function sendCategoryNewsTest(env: NewsEnv, source: CategoryNewsSource): P
   if (!env.GEMINI_API_KEY) throw new Error("GEMINI_API_KEY is not configured.");
 
   const category = await getActiveTelegramCategory(env, source.categoryId);
-  const articles = await fetchGoogleNewsArticles(source.googleNewsUrl);
+  const articles = await fetchGoogleNewsArticles(env, source.googleNewsUrl);
   const stories = await summarizeArticles(env.GEMINI_API_KEY, source.topic, articles);
   const message = buildNewsMessage(category.title || source.topic, stories, articles);
   const result = await sendTelegramChannelMessage(env.TELEGRAM_BOT_TOKEN, String(category.telegram_channel_id), message);
@@ -163,14 +176,60 @@ function getIndiaDateAndTime(date: Date): { date: string; time: string } {
   };
 }
 
-async function fetchGoogleNewsArticles(googleNewsUrl: string): Promise<NewsArticle[]> {
+async function getGoogleNewsCooldownRemaining(env: NewsEnv): Promise<number> {
+  const setting = await env.DB.prepare("SELECT value FROM settings WHERE key = ?")
+    .bind(GOOGLE_NEWS_COOLDOWN_SETTING_KEY).first();
+  const cooldownUntil = Number(setting?.value || 0);
+  if (!Number.isFinite(cooldownUntil) || cooldownUntil <= Date.now()) return 0;
+  return Math.max(1, Math.ceil((cooldownUntil - Date.now()) / 1000));
+}
+
+function parseRetryAfter(value: string | null): number | null {
+  if (!value) return null;
+
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.ceil(seconds);
+
+  const date = Date.parse(value);
+  if (Number.isNaN(date)) return null;
+  return Math.max(1, Math.ceil((date - Date.now()) / 1000));
+}
+
+async function fetchGoogleNewsArticles(env: NewsEnv, googleNewsUrl: string): Promise<NewsArticle[]> {
+  // Respect a shared D1 cooldown so tests and scheduled category deliveries do not
+  // repeatedly contact Google while its upstream rate limit is active.
+  const cooldown = await getGoogleNewsCooldownRemaining(env);
+  if (cooldown > 0) {
+    throw new GoogleNewsRateLimitError(cooldown);
+  }
+
   // Fetch the Google News search webpage directly. No RSS feed or other news provider is used.
   const response = await fetch(googleNewsUrl, {
     headers: {
-      "Accept": "text/html,application/xhtml+xml",
-      "User-Agent": "Mozilla/5.0 (compatible; MyDigitAsset-NewsBot/1.0)"
+      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "Accept-Language": "en-IN,en-US;q=0.9,en;q=0.8",
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
   });
+
+  if (response.status === 429) {
+    const suppliedRetryAfter = parseRetryAfter(response.headers.get("Retry-After"));
+    const retryAfterSeconds = Math.min(
+      Math.max(suppliedRetryAfter ?? GOOGLE_NEWS_DEFAULT_COOLDOWN_SECONDS, 1),
+      GOOGLE_NEWS_MAX_COOLDOWN_SECONDS
+    );
+    const cooldownUntil = Date.now() + retryAfterSeconds * 1000;
+
+    try {
+      await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)")
+        .bind(GOOGLE_NEWS_COOLDOWN_SETTING_KEY, String(cooldownUntil)).run();
+    } catch (error) {
+      console.error("Could not save Google News rate-limit cooldown in D1:", error);
+    }
+
+    await response.body?.cancel().catch(() => undefined);
+    throw new GoogleNewsRateLimitError(retryAfterSeconds);
+  }
 
   if (!response.ok) {
     throw new Error("Google News webpage request failed with HTTP " + response.status + ".");
