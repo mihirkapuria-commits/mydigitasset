@@ -484,3 +484,165 @@ async function sendTelegramChannelMessage(
 
   return { message_id: Number(result.result.message_id) };
 }
+
+interface RssDiagnosticArticle {
+  title: string;
+  url: string;
+  description: string;
+  source: string;
+  publishedAt: string | null;
+}
+
+interface RssFeedDiagnostic {
+  source: string;
+  status: "ok" | "error";
+  httpStatus: number | null;
+  articleCount: number;
+  headlines: RssDiagnosticArticle[];
+  error?: string;
+}
+
+const INDIA_STARTUPS_RSS_FEEDS = [
+  { source: "YourStory", url: "https://yourstory.com/feed/" },
+  { source: "Inc42", url: "https://inc42.com/feed/" }
+];
+
+/**
+ * Read-only diagnostic for the proposed India Startups RSS sources.
+ * It fetches and parses feeds only; it does not call Gemini, D1, or Telegram.
+ */
+export async function diagnoseIndiaStartupsRssSources(): Promise<{
+  success: boolean;
+  sources: RssFeedDiagnostic[];
+  totalUniqueArticles: number;
+  duplicatesRemoved: number;
+  sample: RssDiagnosticArticle[];
+}> {
+  const sources = await Promise.all(INDIA_STARTUPS_RSS_FEEDS.map(async (feed) => {
+    try {
+      const response = await fetch(feed.url, {
+        headers: {
+          "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml;q=0.9, */*;q=0.8",
+          "Accept-Language": "en-IN,en;q=0.9",
+          "User-Agent": "MyDigitAsset RSS feed diagnostic/1.0"
+        }
+      });
+
+      if (!response.ok) {
+        await response.body?.cancel().catch(() => undefined);
+        throw new Error("Feed request returned HTTP " + response.status + ".");
+      }
+
+      const xml = await response.text();
+      if (!xml || xml.length > 2_000_000) {
+        throw new Error("Feed was empty or larger than the 2 MB diagnostic limit.");
+      }
+
+      const entries = xml.match(/<(?:item|entry)\b[\s\S]*?<\/(?:item|entry)\s*>/gi) || [];
+      const articles: RssDiagnosticArticle[] = [];
+
+      for (const entry of entries) {
+        const title = htmlToText(readRssXmlField(entry, ["title"]));
+        const linkText = readRssXmlField(entry, ["link"]);
+        const linkHref = (entry.match(/<link\b[^>]*href=["']([^"']+)["'][^>]*\/?\s*>/i) || [])[1] || "";
+        const url = safeHttpUrl(htmlToText(linkText) || decodeXmlText(linkHref));
+        const descriptionRaw = readRssXmlField(entry, [
+          "description",
+          "content:encoded",
+          "summary",
+          "content"
+        ]);
+        const description = htmlToText(descriptionRaw).slice(0, 500);
+        const dateRaw = readRssXmlField(entry, ["pubDate", "published", "updated", "date"]);
+        const parsedDate = dateRaw ? new Date(htmlToText(dateRaw)) : null;
+        const publishedAt = parsedDate && !Number.isNaN(parsedDate.getTime())
+          ? parsedDate.toISOString()
+          : null;
+
+        if (!title || !url) continue;
+        articles.push({
+          title: title.slice(0, 300),
+          url,
+          description,
+          source: feed.source,
+          publishedAt
+        });
+        if (articles.length >= 40) break;
+      }
+
+      if (articles.length === 0) {
+        throw new Error("Feed responded, but no usable RSS/Atom headlines were found.");
+      }
+
+      return {
+        source: feed.source,
+        status: "ok" as const,
+        httpStatus: response.status,
+        articleCount: articles.length,
+        headlines: articles.slice(0, 5)
+      };
+    } catch (error: any) {
+      return {
+        source: feed.source,
+        status: "error" as const,
+        httpStatus: null,
+        articleCount: 0,
+        headlines: [],
+        error: String(error?.message || "Feed request failed.").slice(0, 240)
+      };
+    }
+  }));
+
+  const unique: RssDiagnosticArticle[] = [];
+  const seenUrls = new Set<string>();
+  const seenTitles = new Set<string>();
+  let duplicatesRemoved = 0;
+
+  for (const feed of sources) {
+    for (const article of feed.headlines) {
+      const normalizedUrl = normalizeRssDedupKey(article.url);
+      const normalizedTitle = article.title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+      if (seenUrls.has(normalizedUrl) || (normalizedTitle && seenTitles.has(normalizedTitle))) {
+        duplicatesRemoved++;
+        continue;
+      }
+      seenUrls.add(normalizedUrl);
+      if (normalizedTitle) seenTitles.add(normalizedTitle);
+      unique.push(article);
+    }
+  }
+
+  return {
+    success: sources.some((source) => source.status === "ok"),
+    sources,
+    totalUniqueArticles: unique.length,
+    duplicatesRemoved,
+    sample: unique.slice(0, 10)
+  };
+}
+
+function readRssXmlField(xml: string, names: string[]): string {
+  for (const name of names) {
+    const escapedName = name.replace(/[.*+?^$\{\}()|[\]\\]/g, "\\$&");
+    const expression = new RegExp(
+      "<(?:[\\w.-]+:)?" + escapedName + "\\b[^>]*>([\\s\\S]*?)<\\/(?:[\\w.-]+:)?" + escapedName + "\\s*>",
+      "i"
+    );
+    const match = xml.match(expression);
+    if (match?.[1]) return match[1];
+  }
+  return "";
+}
+
+function normalizeRssDedupKey(value: string): string {
+  try {
+    const url = new URL(value);
+    url.hash = "";
+    for (const key of Array.from(url.searchParams.keys())) {
+      if (/^(utm_|fbclid|gclid)/i.test(key)) url.searchParams.delete(key);
+    }
+    return url.toString().replace(/\/$/, "").toLowerCase();
+  } catch {
+    return value.toLowerCase();
+  }
+}
