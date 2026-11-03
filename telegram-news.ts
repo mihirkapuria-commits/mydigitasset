@@ -1,0 +1,356 @@
+interface NewsEnv {
+  DB: any;
+  TELEGRAM_BOT_TOKEN?: string;
+  GEMINI_API_KEY?: string;
+}
+
+interface NewsArticle {
+  title: string;
+  url: string;
+  description: string;
+  source: string;
+  publishedAt: Date;
+}
+
+interface NewsStory {
+  articleNumber: number;
+  headline: string;
+  explanation: string;
+}
+
+const INDIA_STARTUPS_CATEGORY_ID = "india-startups";
+const DEFAULT_NEWS_DELIVERY_TIME_IST = "06:15";
+const GEMINI_MODEL = "gemini-3.8-flash";
+const INDIA_STARTUPS_RSS_URL =
+  "https://news.google.com/rss/search?q=(India%20startup%20OR%20Indian%20startup)%20(funding%20OR%20investment%20OR%20business%20OR%20launch)&hl=en-IN&gl=IN&ceid=IN:en";
+
+export async function runIndiaStartupsNewsDelivery(env: NewsEnv): Promise<void> {
+  if (!env.TELEGRAM_BOT_TOKEN) {
+    console.error("India Startups delivery skipped: TELEGRAM_BOT_TOKEN is not configured.");
+    return;
+  }
+  if (!env.GEMINI_API_KEY) {
+    console.error("India Startups delivery skipped: GEMINI_API_KEY is not configured.");
+    return;
+  }
+
+  const { date, time } = getIndiaDateAndTime(new Date());
+  const deliveryKey = "telegram_news_delivery:" + INDIA_STARTUPS_CATEGORY_ID + ":" + date;
+
+  let priorDelivery: any = null;
+  try {
+    priorDelivery = await env.DB.prepare("SELECT value FROM settings WHERE key = ?")
+      .bind(deliveryKey)
+      .first();
+  } catch (error) {
+    console.error("Could not read Telegram delivery status from D1:", error);
+    return;
+  }
+
+  const priorStatus = String(priorDelivery?.value || "");
+  if (priorStatus.startsWith("sent:") || priorStatus === "sending") return;
+
+  if (priorStatus.startsWith("failed:")) {
+    const failedAt = Number(priorStatus.split(":")[1] || 0);
+    if (failedAt && Date.now() - failedAt < 15 * 60 * 1000) return;
+  } else if (time !== await getConfiguredDeliveryTime(env)) {
+    return;
+  }
+
+  try {
+    if (!priorStatus) {
+      const claim = await env.DB.prepare(
+        "INSERT OR IGNORE INTO settings (key, value) VALUES (?, 'sending')"
+      ).bind(deliveryKey).run();
+      if (Number(claim?.meta?.changes || 0) !== 1) return;
+    } else if (priorStatus.startsWith("failed:")) {
+      const claim = await env.DB.prepare(
+        "UPDATE settings SET value = 'sending' WHERE key = ? AND value = ?"
+      ).bind(deliveryKey, priorStatus).run();
+      if (Number(claim?.meta?.changes || 0) !== 1) return;
+    }
+  } catch (error) {
+    console.error("Could not claim India Startups delivery slot:", error);
+    return;
+  }
+
+  try {
+    const category = await env.DB.prepare(
+      "SELECT id, title, telegram_channel_id FROM categories WHERE id = ? AND active = 1"
+    ).bind(INDIA_STARTUPS_CATEGORY_ID).first();
+
+    if (!category || !category.telegram_channel_id) {
+      throw new Error("The active India Startups category or its Telegram channel ID is missing in D1.");
+    }
+
+    const articles = await fetchIndiaStartupsArticles();
+    if (articles.length === 0) {
+      throw new Error("Google News RSS returned no usable India Startups articles.");
+    }
+
+    const stories = await summarizeIndiaStartupsArticles(env.GEMINI_API_KEY!, articles);
+    if (stories.length === 0) {
+      throw new Error("Gemini did not return any valid news stories.");
+    }
+
+    const message = buildIndiaStartupsMessage(category.title || "India Startups", stories, articles);
+    const telegramResult = await sendTelegramChannelMessage(
+      env.TELEGRAM_BOT_TOKEN!,
+      String(category.telegram_channel_id),
+      message
+    );
+
+    await env.DB.prepare("UPDATE settings SET value = ? WHERE key = ?")
+      .bind("sent:" + String(telegramResult.message_id), deliveryKey)
+      .run();
+
+    console.log("India Startups daily news digest sent. Message ID:", telegramResult.message_id);
+  } catch (error: any) {
+    await env.DB.prepare("UPDATE settings SET value = ? WHERE key = ?")
+      .bind("failed:" + Date.now(), deliveryKey)
+      .run()
+      .catch((dbError: any) => console.error("Could not record failed delivery:", dbError));
+
+    console.error("India Startups daily news delivery failed:", error?.message || error);
+  }
+}
+
+async function getConfiguredDeliveryTime(env: NewsEnv): Promise<string> {
+  try {
+    const setting = await env.DB.prepare(
+      "SELECT value FROM settings WHERE key = 'news_delivery_time_ist'"
+    ).first();
+    const value = String(setting?.value || DEFAULT_NEWS_DELIVERY_TIME_IST);
+    return /^([01]\d|2[0-3]):[0-5]\d$/.test(value) ? value : DEFAULT_NEWS_DELIVERY_TIME_IST;
+  } catch {
+    return DEFAULT_NEWS_DELIVERY_TIME_IST;
+  }
+}
+
+function getIndiaDateAndTime(date: Date): { date: string; time: string } {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23"
+  }).formatToParts(date);
+
+  const values: Record<string, string> = {};
+  for (const part of parts) values[part.type] = part.value;
+
+  return {
+    date: values.year + "-" + values.month + "-" + values.day,
+    time: values.hour + ":" + values.minute
+  };
+}
+
+async function fetchIndiaStartupsArticles(): Promise<NewsArticle[]> {
+  const response = await fetch(INDIA_STARTUPS_RSS_URL, {
+    headers: { "User-Agent": "MyDigitAsset-NewsBot/1.0" }
+  });
+  if (!response.ok) {
+    throw new Error("Google News RSS request failed with HTTP " + response.status + ".");
+  }
+
+  const xml = await response.text();
+  const itemMatches = xml.match(/<item\b[^>]*>[\s\S]*?<\/item>/gi) || [];
+  const articles: NewsArticle[] = [];
+
+  for (const item of itemMatches.slice(0, 10)) {
+    const title = readRssTag(item, "title");
+    const url = safeHttpUrl(readRssTag(item, "link"));
+    if (!title || !url) continue;
+
+    const description = readRssTag(item, "description").slice(0, 1200);
+    let source = readRssTag(item, "source");
+    if (!source) {
+      try { source = new URL(url).hostname.replace(/^www\./, ""); } catch { source = "Source"; }
+    }
+
+    const parsedDate = new Date(readRssTag(item, "pubDate"));
+    const publishedAt = Number.isNaN(parsedDate.getTime()) ? new Date() : parsedDate;
+    articles.push({ title, url, description, source, publishedAt });
+  }
+
+  return articles;
+}
+
+function readRssTag(xml: string, tagName: string): string {
+  const expression = new RegExp("<" + tagName + "\\b[^>]*>([\\s\\S]*?)<\\/" + tagName + ">", "i");
+  const match = xml.match(expression);
+  if (!match) return "";
+  return decodeXmlText(match[1]).replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function decodeXmlText(value: string): string {
+  return value
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
+    .replace(/&#x([0-9a-f]+);/gi, (_match, hex) => String.fromCodePoint(parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_match, decimal) => String.fromCodePoint(parseInt(decimal, 10)))
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, "\"")
+    .replace(/&apos;|&#39;/g, "'");
+}
+
+function safeHttpUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" || url.protocol === "http:" ? url.toString() : "";
+  } catch {
+    return "";
+  }
+}
+
+async function summarizeIndiaStartupsArticles(apiKey: string, articles: NewsArticle[]): Promise<NewsStory[]> {
+  const articleInput = articles.map((article, index) => {
+    const date = new Intl.DateTimeFormat("en-IN", {
+      timeZone: "Asia/Kolkata",
+      day: "2-digit",
+      month: "short",
+      year: "numeric"
+    }).format(article.publishedAt);
+
+    return [
+      "ARTICLE " + (index + 1),
+      "Title: " + article.title,
+      "Source: " + article.source,
+      "Date: " + date,
+      "Description: " + (article.description || "No description supplied.")
+    ].join("\n");
+  }).join("\n\n");
+
+  const prompt = [
+    "Prepare a concise daily India Startups news digest using only the supplied articles.",
+    "Select up to 5 useful, recent and genuinely relevant stories.",
+    "Put constructive or positive developments first. If there is a genuine significant risk or setback, place it last.",
+    "Use very simple English and short explanations. Do not use the words you or your.",
+    "Do not invent facts, figures, quotes, dates, or details. Do not repeat a story.",
+    "Return only one line per selected story in this exact format:",
+    "STORY|ARTICLE_NUMBER|HEADLINE|ONE SHORT EXPLANATION",
+    "ARTICLE_NUMBER must be the number of the supplied article. Do not include source links; they will be added separately.",
+    "",
+    articleInput
+  ].join("\n");
+
+  const response = await fetch(
+    "https://generativelanguage.googleapis.com/v1beta/models/" + GEMINI_MODEL +
+      ":generateContent?key=" + encodeURIComponent(apiKey),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.2, maxOutputTokens: 1200 }
+      })
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error("Gemini request failed with HTTP " + response.status + ".");
+  }
+
+  const result: any = await response.json();
+  const generatedText = (result?.candidates?.[0]?.content?.parts || [])
+    .map((part: any) => part.text || "")
+    .join("\n")
+    .replace(new RegExp(String.fromCharCode(96).repeat(3) + "[a-z]*|" + String.fromCharCode(96).repeat(3), "gi"), "")
+    .trim();
+
+  const stories: NewsStory[] = [];
+  const seen = new Set<number>();
+
+  for (const line of generatedText.split(/\r?\n/)) {
+    const match = line.trim().match(/^STORY\|(\d+)\|([^|]+)\|(.+)$/i);
+    if (!match) continue;
+
+    const articleNumber = Number(match[1]);
+    if (articleNumber < 1 || articleNumber > articles.length || seen.has(articleNumber)) continue;
+
+    seen.add(articleNumber);
+    stories.push({
+      articleNumber,
+      headline: match[2].trim(),
+      explanation: match[3].trim()
+    });
+    if (stories.length >= 5) break;
+  }
+
+  return stories;
+}
+
+function buildIndiaStartupsMessage(
+  categoryTitle: string,
+  stories: NewsStory[],
+  articles: NewsArticle[]
+): string {
+  const today = new Intl.DateTimeFormat("en-IN", {
+    timeZone: "Asia/Kolkata",
+    day: "2-digit",
+    month: "short",
+    year: "numeric"
+  }).format(new Date());
+
+  const lines = [
+    "<b>" + escapeTelegramHtml(categoryTitle) + " — Daily News</b>",
+    "<code>" + escapeTelegramHtml(today) + "</code>",
+    ""
+  ];
+
+  for (let index = 0; index < stories.length; index++) {
+    const story = stories[index];
+    const article = articles[story.articleNumber - 1];
+    const sourceDate = new Intl.DateTimeFormat("en-IN", {
+      timeZone: "Asia/Kolkata",
+      day: "2-digit",
+      month: "short",
+      year: "numeric"
+    }).format(article.publishedAt);
+
+    lines.push(
+      "<b>" + (index + 1) + ". " + escapeTelegramHtml(story.headline) + "</b>",
+      escapeTelegramHtml(story.explanation),
+      '<a href="' + escapeTelegramHtml(article.url) + '">Source: ' +
+        escapeTelegramHtml(article.source) + " · " + escapeTelegramHtml(sourceDate) + "</a>",
+      ""
+    );
+  }
+
+  return lines.join("\n").trim();
+}
+
+function escapeTelegramHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+async function sendTelegramChannelMessage(
+  botToken: string,
+  channelId: string,
+  text: string
+): Promise<{ message_id: number }> {
+  const response = await fetch("https://api.telegram.org/bot" + botToken + "/sendMessage", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      chat_id: channelId,
+      text,
+      parse_mode: "HTML",
+      disable_web_page_preview: true
+    })
+  });
+
+  const result: any = await response.json();
+  if (!response.ok || !result?.ok || !result?.result?.message_id) {
+    throw new Error("Telegram sendMessage failed: " + (result?.description || response.status));
+  }
+
+  return { message_id: Number(result.result.message_id) };
+}
