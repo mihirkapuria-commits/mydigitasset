@@ -21,35 +21,50 @@ interface NewsStory {
 const INDIA_STARTUPS_CATEGORY_ID = "india-startups";
 const DEFAULT_NEWS_DELIVERY_TIME_IST = "06:15";
 const GEMINI_MODEL = "gemini-3.8-flash";
-const INDIA_STARTUPS_GOOGLE_NEWS_URL =
-  "https://news.google.com/search?q=(India%20startup%20OR%20Indian%20startup)%20(funding%20OR%20investment%20OR%20business%20OR%20launch)&hl=en-IN&gl=IN&ceid=IN:en";
+
+interface CategoryNewsSource {
+  categoryId: string;
+  topic: string;
+  googleNewsUrl: string;
+}
+
+const INDIA_STARTUPS_SOURCE: CategoryNewsSource = {
+  categoryId: "india-startups",
+  topic: "India Startups",
+  googleNewsUrl:
+    "https://news.google.com/search?q=(India%20startup%20OR%20Indian%20startup)%20(funding%20OR%20investment%20OR%20business%20OR%20launch)&hl=en-IN&gl=IN&ceid=IN:en"
+};
+
+const DEFAULT_NEWS_DELIVERY_TIME_IST = "06:15";
+const GEMINI_MODEL = "gemini-3.8-flash";
 
 export async function runIndiaStartupsNewsDelivery(env: NewsEnv): Promise<void> {
+  await runCategoryNewsDelivery(env, INDIA_STARTUPS_SOURCE);
+}
+
+async function runCategoryNewsDelivery(env: NewsEnv, source: CategoryNewsSource): Promise<void> {
   if (!env.TELEGRAM_BOT_TOKEN) {
-    console.error("India Startups delivery skipped: TELEGRAM_BOT_TOKEN is not configured.");
+    console.error(source.topic + " delivery skipped: TELEGRAM_BOT_TOKEN is not configured.");
     return;
   }
   if (!env.GEMINI_API_KEY) {
-    console.error("India Startups delivery skipped: GEMINI_API_KEY is not configured.");
+    console.error(source.topic + " delivery skipped: GEMINI_API_KEY is not configured.");
     return;
   }
 
   const { date, time } = getIndiaDateAndTime(new Date());
-  const deliveryKey = "telegram_news_delivery:" + INDIA_STARTUPS_CATEGORY_ID + ":" + date;
-
+  const deliveryKey = "telegram_news_delivery:" + source.categoryId + ":" + date;
   let priorDelivery: any = null;
+
   try {
-    priorDelivery = await env.DB.prepare("SELECT value FROM settings WHERE key = ?")
-      .bind(deliveryKey)
-      .first();
+    priorDelivery = await env.DB.prepare("SELECT value FROM settings WHERE key = ?").bind(deliveryKey).first();
   } catch (error) {
-    console.error("Could not read Telegram delivery status from D1:", error);
+    console.error("Could not read " + source.topic + " delivery status from D1:", error);
     return;
   }
 
   const priorStatus = String(priorDelivery?.value || "");
   if (priorStatus.startsWith("sent:") || priorStatus === "sending") return;
-
   if (priorStatus.startsWith("failed:")) {
     const failedAt = Number(priorStatus.split(":")[1] || 0);
     if (failedAt && Date.now() - failedAt < 15 * 60 * 1000) return;
@@ -70,82 +85,53 @@ export async function runIndiaStartupsNewsDelivery(env: NewsEnv): Promise<void> 
       if (Number(claim?.meta?.changes || 0) !== 1) return;
     }
   } catch (error) {
-    console.error("Could not claim India Startups delivery slot:", error);
+    console.error("Could not claim " + source.topic + " delivery slot:", error);
     return;
   }
 
   try {
-    const category = await env.DB.prepare(
-      "SELECT id, title, telegram_channel_id FROM categories WHERE id = ? AND active = 1"
-    ).bind(INDIA_STARTUPS_CATEGORY_ID).first();
-
-    if (!category || !category.telegram_channel_id) {
-      throw new Error("The active India Startups category or its Telegram channel ID is missing in D1.");
-    }
-
-    const articles = await fetchIndiaStartupsArticles();
-    if (articles.length === 0) {
-      throw new Error("Google News RSS returned no usable India Startups articles.");
-    }
-
-    const stories = await summarizeIndiaStartupsArticles(env.GEMINI_API_KEY!, articles);
-    if (stories.length === 0) {
-      throw new Error("Gemini did not return any valid news stories.");
-    }
-
-    const message = buildIndiaStartupsMessage(category.title || "India Startups", stories, articles);
-    const telegramResult = await sendTelegramChannelMessage(
-      env.TELEGRAM_BOT_TOKEN!,
-      String(category.telegram_channel_id),
-      message
-    );
+    const category = await getActiveTelegramCategory(env, source.categoryId);
+    const articles = await fetchGoogleNewsArticles(source.googleNewsUrl);
+    const stories = await summarizeArticles(env.GEMINI_API_KEY!, source.topic, articles);
+    const message = buildNewsMessage(category.title || source.topic, stories, articles);
+    const sent = await sendTelegramChannelMessage(env.TELEGRAM_BOT_TOKEN!, String(category.telegram_channel_id), message);
 
     await env.DB.prepare("UPDATE settings SET value = ? WHERE key = ?")
-      .bind("sent:" + String(telegramResult.message_id), deliveryKey)
-      .run();
-
-    console.log("India Startups daily news digest sent. Message ID:", telegramResult.message_id);
+      .bind("sent:" + String(sent.message_id), deliveryKey).run();
+    console.log(source.topic + " daily news digest sent. Message ID:", sent.message_id);
   } catch (error: any) {
     await env.DB.prepare("UPDATE settings SET value = ? WHERE key = ?")
-      .bind("failed:" + Date.now(), deliveryKey)
-      .run()
+      .bind("failed:" + Date.now(), deliveryKey).run()
       .catch((dbError: any) => console.error("Could not record failed delivery:", dbError));
-
-    console.error("India Startups daily news delivery failed:", error?.message || error);
+    console.error(source.topic + " daily news delivery failed:", error?.message || error);
   }
 }
 
+async function getActiveTelegramCategory(env: NewsEnv, categoryId: string): Promise<any> {
+  const category = await env.DB.prepare(
+    "SELECT id, title, telegram_channel_id FROM categories WHERE id = ? AND active = 1"
+  ).bind(categoryId).first();
+  if (!category || !category.telegram_channel_id) {
+    throw new Error("The active category or its Telegram channel ID is missing in D1: " + categoryId);
+  }
+  return category;
+}
 
-/**
- * Sends a one-time test digest without changing the daily delivery lock.
- * This is called only by the authenticated administrator test endpoint.
- */
 export async function sendIndiaStartupsNewsTest(env: NewsEnv): Promise<number> {
+  return sendCategoryNewsTest(env, INDIA_STARTUPS_SOURCE);
+}
+
+async function sendCategoryNewsTest(env: NewsEnv, source: CategoryNewsSource): Promise<number> {
   if (!env.TELEGRAM_BOT_TOKEN) throw new Error("TELEGRAM_BOT_TOKEN is not configured.");
   if (!env.GEMINI_API_KEY) throw new Error("GEMINI_API_KEY is not configured.");
 
-  const category = await env.DB.prepare(
-    "SELECT id, title, telegram_channel_id FROM categories WHERE id = ? AND active = 1"
-  ).bind(INDIA_STARTUPS_CATEGORY_ID).first();
+  const category = await getActiveTelegramCategory(env, source.categoryId);
+  const articles = await fetchGoogleNewsArticles(source.googleNewsUrl);
+  const stories = await summarizeArticles(env.GEMINI_API_KEY, source.topic, articles);
+  const message = buildNewsMessage(category.title || source.topic, stories, articles);
+  const result = await sendTelegramChannelMessage(env.TELEGRAM_BOT_TOKEN, String(category.telegram_channel_id), message);
 
-  if (!category || !category.telegram_channel_id) {
-    throw new Error("The active India Startups category or its Telegram channel ID is missing in D1.");
-  }
-
-  const articles = await fetchIndiaStartupsArticles();
-  if (articles.length === 0) throw new Error("Google News RSS returned no usable India Startups articles.");
-
-  const stories = await summarizeIndiaStartupsArticles(env.GEMINI_API_KEY, articles);
-  if (stories.length === 0) throw new Error("Gemini did not return any valid news stories.");
-
-  const message = buildIndiaStartupsMessage(category.title || "India Startups", stories, articles);
-  const result = await sendTelegramChannelMessage(
-    env.TELEGRAM_BOT_TOKEN,
-    String(category.telegram_channel_id),
-    message
-  );
-
-  console.log("India Startups test digest sent. Message ID:", result.message_id);
+  console.log(source.topic + " test digest sent. Message ID:", result.message_id);
   return result.message_id;
 }
 
@@ -181,9 +167,9 @@ function getIndiaDateAndTime(date: Date): { date: string; time: string } {
   };
 }
 
-async function fetchIndiaStartupsArticles(): Promise<NewsArticle[]> {
+async function fetchGoogleNewsArticles(googleNewsUrl: string): Promise<NewsArticle[]> {
   // Fetch the Google News search webpage directly. No RSS feed or other news provider is used.
-  const response = await fetch(INDIA_STARTUPS_GOOGLE_NEWS_URL, {
+  const response = await fetch(googleNewsUrl, {
     headers: {
       "Accept": "text/html,application/xhtml+xml",
       "User-Agent": "Mozilla/5.0 (compatible; MyDigitAsset-NewsBot/1.0)"
@@ -291,7 +277,7 @@ function safeHttpUrl(value: string): string {
   }
 }
 
-async function summarizeIndiaStartupsArticles(apiKey: string, articles: NewsArticle[]): Promise<NewsStory[]> {
+async function summarizeArticles(apiKey: string, categoryTopic: string, articles: NewsArticle[]): Promise<NewsStory[]> {
   const articleInput = articles.map((article, index) => {
     const date = new Intl.DateTimeFormat("en-IN", {
       timeZone: "Asia/Kolkata",
@@ -310,7 +296,7 @@ async function summarizeIndiaStartupsArticles(apiKey: string, articles: NewsArti
   }).join("\n\n");
 
   const prompt = [
-    "Prepare a concise daily India Startups news digest using only the supplied articles.",
+    "Prepare a concise daily " + categoryTopic + " news digest using only the supplied articles.",
     "Select up to 5 useful, recent and genuinely relevant stories.",
     "Put constructive or positive developments first. If there is a genuine significant risk or setback, place it last.",
     "Use very simple English and short explanations. Do not use the words you or your.",
@@ -368,7 +354,7 @@ async function summarizeIndiaStartupsArticles(apiKey: string, articles: NewsArti
   return stories;
 }
 
-function buildIndiaStartupsMessage(
+function buildNewsMessage(
   categoryTitle: string,
   stories: NewsStory[],
   articles: NewsArticle[]
