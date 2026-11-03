@@ -1,4 +1,4 @@
-import { diagnoseIndiaStartupsRssSources, GoogleNewsRateLimitError, runIndiaStartupsNewsDelivery, sendIndiaStartupsNewsTest } from "./telegram-news";
+import { GoogleNewsRateLimitError, runIndiaStartupsNewsDelivery, sendIndiaStartupsNewsTest } from "./telegram-news";
 
 /**
  * Standalone Cloudflare Worker Entry Point for MyDigitAsset
@@ -649,22 +649,6 @@ async function handleApiRequest(request: Request, env: Env): Promise<Response> {
         verifiedAt: p.verified_at,
         verifiedBy: p.verified_by
       })));
-    }
-
-    // Read-only RSS source diagnostic. This endpoint never invokes Gemini or Telegram.
-    if (route === 'test/india-startups-sources' && method === 'POST') {
-      const configuredSecret = env.NEWS_TEST_SECRET;
-      const suppliedSecret = request.headers.get('x-news-test-secret') || '';
-      if (!configuredSecret || !secretsMatch(suppliedSecret, configuredSecret)) {
-        return json({ error: 'Unauthorized' }, 401);
-      }
-
-      try {
-        const result = await diagnoseIndiaStartupsRssSources();
-        return json(result, result.success ? 200 : 502);
-      } catch (error: any) {
-        return json({ error: error?.message || 'RSS source diagnostic failed.' }, 500);
-      }
     }
 
     // Temporary one-time India Startups digest test, protected by a separate Cloudflare secret.
