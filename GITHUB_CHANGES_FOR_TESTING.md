@@ -1,58 +1,149 @@
-# GitHub Changes for Testing
+# GitHub Changes for Testing — MyDigitAsset
 
-This file records changes made for testing MyDigitAsset so they can be reviewed or reversed later.
+**Purpose:** A permanent record of the code and Cloudflare configuration changes made for the India Startups news-delivery test, including test results and how to reverse the code changes.
 
 **Repository:** `mihirkapuria-commits/mydigitasset`  
 **Branch:** `main`  
-**Rule:** Add a dated entry for every future code or configuration change made for this testing work. Never record secret values.
+**Worker:** `mydigitasset`  
+**Worker URL:** `https://mydigitasset.mihirkapuria.workers.dev`  
+**Scope:** India Startups test delivery only. This is not a complete history of every change ever made to the MyDigitAsset website.
+
+> Never store secret values, API keys, bot tokens, passwords, or private credentials in this document or in GitHub.
 
 ---
 
-## 1. Protected India Startups test endpoint
+## A. Summary of what was done
+
+1. Added a separate, secret-protected manual test endpoint for the India Startups news digest.
+2. Configured the required Cloudflare Worker runtime secrets.
+3. Tested the endpoint from Windows PowerShell.
+4. The test reached the Google News RSS fetching step, but Google News RSS repeatedly returned HTTP 503.
+5. As requested, changed the news source from Google News RSS to the Google News search webpage. No other news provider was added.
+6. Corrected the first webpage parser implementation in a follow-up commit.
+7. Created this record so the work can be reviewed and reversed if needed.
+
+**Current state at the time this note was written:** The latest webpage-fetching code is committed to GitHub `main`, but its Cloudflare deployment and successful end-to-end Telegram test have not yet been confirmed.
+
+---
+
+## B. Code changes (GitHub commits)
+
+### 1. Add a protected India Startups manual test endpoint
 
 - **Commit:** `3e036d9788cf4cadc57faffdb0ad86ebd6998799`
-- **File:** `worker.ts`
-- **Change:** Added the POST endpoint `/api/test/india-startups-news`.
-- **Purpose:** Allow a manually triggered India Startups digest test, protected by the `NEWS_TEST_SECRET` request header.
-- **Safety:** The test calls the existing news-test function and does not update the daily delivery lock.
-- **Status:** Previously deployed and used for testing.
+- **Commit message:** Add secret-protected India Startups news test trigger
+- **File changed:** `worker.ts`
+- **What changed:**
+  - Added the optional Worker environment binding `NEWS_TEST_SECRET`.
+  - Added a constant-time secret comparison helper.
+  - Added the POST route `/api/test/india-startups-news`.
+  - The route checks the `x-news-test-secret` request header.
+  - If authorized, it calls the existing India Startups test-delivery function.
+- **Why:** To trigger a manual digest test without needing to use the admin portal.
+- **Important safety detail:** The test function is intended not to update the scheduled daily delivery lock.
+- **Observed result:** The endpoint accepted the supplied test secret and proceeded into the news-fetching function. This showed that the route and secret check were working at that time.
+- **Commit link:** https://github.com/mihirkapuria-commits/mydigitasset/commit/3e036d9788cf4cadc57faffdb0ad86ebd6998799
 
-## 2. Switch the news source from Google News RSS to the Google News webpage
+### 2. Replace Google News RSS with the Google News search webpage
 
 - **Commit:** `06a8d1d69480e86d44999efc293db7acaf5c18ba`
-- **File:** `telegram-news.ts`
-- **Change:** Replaced the Google News RSS URL with a Google News search webpage URL and introduced webpage headline extraction.
-- **Purpose:** Avoid the RSS endpoint that returned HTTP 503.
-- **Note:** This first webpage-parser version was immediately refined in the next commit. It should be reviewed together with that correction.
+- **Commit message:** Fetch India Startups headlines from Google News webpage
+- **File changed:** `telegram-news.ts`
+- **What changed:**
+  - Replaced the Google News RSS URL with a Google News search webpage URL.
+  - Changed the fetch process from reading RSS/XML items to reading the webpage HTML.
+  - Added initial extraction of Google News story headlines and links.
+  - Removed the RSS tag-reading helper that was no longer needed.
+- **Why:** Google News RSS had returned HTTP 503 during testing.
+- **Source policy:** Google News only. This change does not add another news provider.
+- **Important note:** The first version contained incorrectly escaped parser expressions. The next commit corrected them. Review this commit together with commit 4 below.
+- **Commit link:** https://github.com/mihirkapuria-commits/mydigitasset/commit/06a8d1d69480e86d44999efc293db7acaf5c18ba
 
-## 3. Refine Google News webpage headline extraction
+### 3. Correct the Google News webpage parser
 
 - **Commit:** `4a14c30db3472ac97c210374e1b2b856531cb021`
-- **File:** `telegram-news.ts`
-- **Change:** Corrected the webpage parsing expressions and added extraction for Google News story links in both article-card and fallback layouts.
-- **Purpose:** Improve extraction of headlines and Google News story URLs from the Google News search webpage.
-- **Source policy:** Google News only. No other news provider and no RSS feed.
-- **Status:** Committed to `main`; deployment and end-to-end Telegram test are pending.
+- **Commit message:** Fix Google News webpage article extraction
+- **File changed:** `telegram-news.ts`
+- **What changed:**
+  - Corrected the HTML parsing expressions.
+  - Added extraction attempts for Google News story links in article-card and fallback layouts.
+  - Added support for article links whose paths contain `read` or `articles`.
+  - Added a clearer error if Google News loads but no headlines can be extracted.
+- **Why:** To correct the parser in the previous commit before testing the webpage approach.
+- **Current status:** Committed to `main`; Cloudflare deployment and successful Telegram delivery are not yet confirmed.
+- **Commit link:** https://github.com/mihirkapuria-commits/mydigitasset/commit/4a14c30db3472ac97c210374e1b2b856531cb021
 
-## Cloudflare runtime secrets used for testing
+### 4. Create this testing record
 
-The following secret names were configured in the Cloudflare Worker runtime. Their values are intentionally not recorded here:
+- **Commit:** `93eccd1d8081931cb13e6d4ea5658fe86d83596b`
+- **File created:** `GITHUB_CHANGES_FOR_TESTING.md`
+- **Purpose:** Keep a readable record of the test changes, configuration names, results, and reversal guidance.
+- **Commit link:** https://github.com/mihirkapuria-commits/mydigitasset/commit/93eccd1d8081931cb13e6d4ea5658fe86d83596b
 
-- `NEWS_TEST_SECRET`
-- `TELEGRAM_BOT_TOKEN`
-- `GEMINI_API_KEY`
+---
 
-Never add secret values, API keys, bot tokens, passwords, or private credentials to this file or to GitHub.
+## C. Cloudflare configuration changes
 
-## Test observations
+The following runtime secrets were added or corrected in the Cloudflare Worker settings. Their values are deliberately not written here.
 
-- The protected test endpoint accepted the test secret.
-- An earlier test reached the news-fetching step but Google News RSS returned HTTP 503.
-- The webpage-based Google News implementation has not yet been confirmed by a successful Telegram digest.
-- The manual test endpoint is intended not to affect the scheduled daily delivery lock.
+| Secret name | Purpose |
+|---|---|
+| `NEWS_TEST_SECRET` | Protects the manual test endpoint |
+| `TELEGRAM_BOT_TOKEN` | Allows the Worker to send messages using the Telegram bot |
+| `GEMINI_API_KEY` | Allows the news process to request Gemini summaries |
 
-## Reversal guidance
+Configuration notes:
+- `NEWS_TEST_SECRE` was initially entered with a missing final `T`; it was corrected to `NEWS_TEST_SECRET`.
+- `NEWS_TEST_SECRET` was configured as an encrypted Secret, not a plain-text variable.
+- `TELEGRAM_BOT_TOKEN` and `GEMINI_API_KEY` were also configured as encrypted Secrets.
+- The Cloudflare environment selector shown during setup was `ProductionPreviews Base`.
+- The user confirmed clicking Deploy after adding the secrets.
+- Secret values must remain only in Cloudflare. Do not put them in `wrangler.toml`, source files, this note, or chat messages.
+- These Cloudflare dashboard actions do not have Git commit IDs. This note records them separately from source-code commits.
 
-- Each code change above has its own Git commit, so the exact prior file version can be inspected and restored through GitHub history.
-- Before reverting anything, check later commits and review the complete affected file.
-- Do not revert the test endpoint or other changes without confirming which functionality should remain.
+---
+
+## D. Test history and observed results
+
+1. A direct Telegram API test had previously succeeded, and a test message appeared in the India Startups Telegram channel (message ID 30). This confirmed basic bot-to-channel connectivity at that time; it did not test the complete news-generation process.
+2. The manual test endpoint was first reached with the test secret, but the response said `TELEGRAM_BOT_TOKEN is not configured`. The Telegram bot token was then added as a Cloudflare Secret and deployed.
+3. After all three secrets were configured, the endpoint passed authorization and proceeded to fetch news.
+4. The RSS-based test returned: `Google News RSS request failed with HTTP 503.`
+5. Retrying after a short wait returned the same HTTP 503.
+6. The user chose to continue using Google News only, but to fetch its search webpage rather than its RSS feed.
+7. The webpage implementation was committed, then its parser was corrected in a follow-up commit.
+8. **Not yet verified:** Whether the deployed Worker can successfully fetch the Google News webpage, extract headlines, obtain Gemini summaries, and send the final digest to Telegram.
+
+---
+
+## E. What this testing work has NOT changed
+
+As part of these specific test changes:
+- No D1 database schema or records were intentionally changed.
+- No customer accounts, subscriptions, payments, or category access were intentionally changed.
+- No daily news schedule or cron setting was intentionally changed.
+- No other news category was intentionally switched to the webpage-fetching method.
+- No alternative news provider was added.
+- No Telegram webhook was added.
+- The manual test endpoint is separate from the normal scheduled delivery process.
+
+---
+
+## F. Reversal and recovery guide
+
+Every source-code change above has its own Git commit. The commit links in section B open the exact historical change.
+
+If the webpage approach does not work:
+1. Review commit `4a14c30db3472ac97c210374e1b2b856531cb021` and commit `06a8d1d69480e86d44999efc293db7acaf5c18ba` together.
+2. To return the news-fetching code to the version before the Google News webpage experiment, restore the `telegram-news.ts` version from the parent of commit `06a8d1d69480e86d44999efc293db7acaf5c18ba`.
+3. Keep or remove the separate test endpoint only after deciding whether manual testing is still needed.
+4. Review the complete current file and later commits before any revert. Prefer a new revert commit rather than rewriting Git history.
+5. A code revert does not automatically undo Cloudflare runtime secret settings. Review those separately before removing any secret.
+
+**Do not perform a revert automatically.** First identify the exact problem and confirm which feature should remain.
+
+---
+
+## G. Current next action
+
+Deploy the latest `main` code to the Cloudflare Worker, then run the protected POST test endpoint again. If Google News webpage fetching works, verify that the digest arrives in the India Startups Telegram channel. If it fails, record the exact error here before deciding on another change.
