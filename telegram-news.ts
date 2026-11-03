@@ -44,7 +44,7 @@ const INDIA_STARTUPS_SOURCE: CategoryNewsSource = {
   categoryId: "india-startups",
   topic: "India Startups",
   googleNewsUrl:
-    "https://news.google.com/search?q=(India%20startup%20OR%20Indian%20startup)%20(funding%20OR%20investment%20OR%20business%20OR%20launch)&hl=en-IN&gl=IN&ceid=IN:en"
+    "https://news.google.com/headlines/section/topic/BUSINESS?hl=en-IN&gl=IN&ceid=IN:en"
 };
 
 export async function runIndiaStartupsNewsDelivery(env: NewsEnv): Promise<void> {
@@ -203,7 +203,7 @@ async function fetchGoogleNewsArticles(env: NewsEnv, googleNewsUrl: string): Pro
     throw new GoogleNewsRateLimitError(cooldown);
   }
 
-  // Fetch the Google News search webpage directly. No RSS feed or other news provider is used.
+  // Fetch the Google News Business topic webpage directly. No RSS feed or other news provider is used.
   const response = await fetch(googleNewsUrl, {
     headers: {
       "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -264,7 +264,7 @@ async function fetchGoogleNewsArticles(env: NewsEnv, googleNewsUrl: string): Pro
       articles.push({ title, url, description: "", source: "Google News", publishedAt });
       break;
     }
-    if (articles.length >= 10) break;
+    if (articles.length >= 40) break;
   }
 
   // Google may change its card wrapper. Still restrict extraction to Google News story URLs.
@@ -272,7 +272,7 @@ async function fetchGoogleNewsArticles(env: NewsEnv, googleNewsUrl: string): Pro
     const linkPattern = /<a\b([^>]*)href=["']([^"']*(?:read|articles)\/[^"']+)["']([^>]*)>([\s\S]*?)<\/a>/gi;
     let match: RegExpExecArray | null;
 
-    while ((match = linkPattern.exec(html)) !== null && articles.length < 10) {
+    while ((match = linkPattern.exec(html)) !== null && articles.length < 40) {
       const attributes = match[1] + " " + match[3];
       const title = htmlToText(match[4]) ||
         htmlToText((attributes.match(/aria-label=["']([^"']+)["']/i) || [])[1] || "");
@@ -353,6 +353,10 @@ async function summarizeArticles(apiKey: string, categoryTopic: string, articles
   const prompt = [
     "Prepare a concise daily " + categoryTopic + " news digest using only the supplied articles.",
     "Select up to 5 useful, recent and genuinely relevant stories.",
+    ...(categoryTopic === "India Startups" ? [
+      "Include only Indian startup ecosystem stories: startup companies, founders, venture capital, angel investment, funding rounds, startup launches, acquisitions, incubators, accelerators, or unicorns.",
+      "Exclude general business, established-company, stock-market, banking, and economy stories unless they directly concern an Indian startup.",
+    ] : []),
     "Put constructive or positive developments first. If there is a genuine significant risk or setback, place it last.",
     "Use very simple English and short explanations. Do not use the words you or your.",
     "Do not invent facts, figures, quotes, dates, or details. Do not repeat a story.",
