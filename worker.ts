@@ -1,3 +1,5 @@
+import { runIndiaStartupsNewsDelivery } from "./telegram-news";
+
 /**
  * Standalone Cloudflare Worker Entry Point for MyDigitAsset
  * - Uses Cloudflare Workers Static Assets (env.ASSETS) to serve frontend SPA
@@ -11,6 +13,7 @@ interface Env {
   };
   TELEGRAM_BOT_TOKEN?: string;
   TELEGRAM_WEBHOOK_SECRET?: string;
+  GEMINI_API_KEY?: string;
   ADMIN_INITIAL_PASSWORD?: string;
   ALLOWED_REDIRECT_DOMAINS?: string;
 }
@@ -42,6 +45,10 @@ export default {
       const indexRequest = new Request(new URL('/', request.url), request);
       return await env.ASSETS.fetch(indexRequest);
     }
+  },
+
+  async scheduled(_controller: any, env: Env, ctx: ExecutionContext) {
+    ctx.waitUntil(runIndiaStartupsNewsDelivery(env));
   }
 };
 
