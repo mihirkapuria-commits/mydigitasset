@@ -21,8 +21,8 @@ interface NewsStory {
 const INDIA_STARTUPS_CATEGORY_ID = "india-startups";
 const DEFAULT_NEWS_DELIVERY_TIME_IST = "06:15";
 const GEMINI_MODEL = "gemini-3.8-flash";
-const INDIA_STARTUPS_RSS_URL =
-  "https://news.google.com/rss/search?q=(India%20startup%20OR%20Indian%20startup)%20(funding%20OR%20investment%20OR%20business%20OR%20launch)&hl=en-IN&gl=IN&ceid=IN:en";
+const INDIA_STARTUPS_GOOGLE_NEWS_URL =
+  "https://news.google.com/search?q=(India%20startup%20OR%20Indian%20startup)%20(funding%20OR%20investment%20OR%20business%20OR%20launch)&hl=en-IN&gl=IN&ceid=IN:en";
 
 export async function runIndiaStartupsNewsDelivery(env: NewsEnv): Promise<void> {
   if (!env.TELEGRAM_BOT_TOKEN) {
@@ -182,41 +182,97 @@ function getIndiaDateAndTime(date: Date): { date: string; time: string } {
 }
 
 async function fetchIndiaStartupsArticles(): Promise<NewsArticle[]> {
-  const response = await fetch(INDIA_STARTUPS_RSS_URL, {
-    headers: { "User-Agent": "MyDigitAsset-NewsBot/1.0" }
+  // Fetch the Google News search results webpage directly. No RSS feed or other news provider is used.
+  const response = await fetch(INDIA_STARTUPS_GOOGLE_NEWS_URL, {
+    headers: {
+      "Accept": "text/html,application/xhtml+xml",
+      "User-Agent": "Mozilla/5.0 (compatible; MyDigitAsset-NewsBot/1.0)"
+    }
   });
+
   if (!response.ok) {
-    throw new Error("Google News RSS request failed with HTTP " + response.status + ".");
+    throw new Error("Google News webpage request failed with HTTP " + response.status + ".");
   }
 
-  const xml = await response.text();
-  const itemMatches = xml.match(/<item\b[^>]*>[\s\S]*?<\/item>/gi) || [];
+  const html = await response.text();
+  if (!html || html.length < 500) {
+    throw new Error("Google News returned an empty or incomplete search webpage.");
+  }
+
   const articles: NewsArticle[] = [];
+  const seenUrls = new Set<string>();
+  const articleBlocks = html.match(/<article\\b[\\s\\S]*?<\\/article>/gi) || [];
 
-  for (const item of itemMatches.slice(0, 10)) {
-    const title = readRssTag(item, "title");
-    const url = safeHttpUrl(readRssTag(item, "link"));
-    if (!title || !url) continue;
+  // Google News search results are presented as article cards. Parse only Google News article links.
+  for (const block of articleBlocks) {
+    const linkMatch = block.match(/<a\\b[^>]*href=["']([^"']*articles\\/[^"']+)["'][^>]*>([\\s\\S]*?)<\\/a>/i);
+    if (!linkMatch) continue;
 
-    const description = readRssTag(item, "description").slice(0, 1200);
-    let source = readRssTag(item, "source");
-    if (!source) {
-      try { source = new URL(url).hostname.replace(/^www\./, ""); } catch { source = "Source"; }
-    }
+    const title = htmlToText(linkMatch[2]);
+    const url = safeGoogleNewsUrl(linkMatch[1]);
+    if (!title || title.length < 12 || !url || seenUrls.has(url)) continue;
 
-    const parsedDate = new Date(readRssTag(item, "pubDate"));
+    const timeMatch = block.match(/<time\\b[^>]*datetime=["']([^"']+)["']/i);
+    const parsedDate = timeMatch ? new Date(timeMatch[1]) : new Date();
     const publishedAt = Number.isNaN(parsedDate.getTime()) ? new Date() : parsedDate;
-    articles.push({ title, url, description, source, publishedAt });
+
+    seenUrls.add(url);
+    articles.push({
+      title,
+      url,
+      description: "",
+      source: "Google News",
+      publishedAt
+    });
+    if (articles.length >= 10) break;
+  }
+
+  // If Google changes its article-card wrapper, make a second pass over Google News article links.
+  if (articles.length === 0) {
+    const linkPattern = /<a\\b[^>]*href=["']([^"']*articles\\/[^"']+)["'][^>]*>([\\s\\S]*?)<\\/a>/gi;
+    let match: RegExpExecArray | null;
+
+    while ((match = linkPattern.exec(html)) !== null && articles.length < 10) {
+      const title = htmlToText(match[2]);
+      const url = safeGoogleNewsUrl(match[1]);
+      if (!title || title.length < 12 || !url || seenUrls.has(url)) continue;
+
+      seenUrls.add(url);
+      articles.push({
+        title,
+        url,
+        description: "",
+        source: "Google News",
+        publishedAt: new Date()
+      });
+    }
+  }
+
+  if (articles.length === 0) {
+    throw new Error("Google News webpage loaded, but no article headlines could be extracted. Its page structure may have changed.");
   }
 
   return articles;
 }
 
-function readRssTag(xml: string, tagName: string): string {
-  const expression = new RegExp("<" + tagName + "\\b[^>]*>([\\s\\S]*?)<\\/" + tagName + ">", "i");
-  const match = xml.match(expression);
-  if (!match) return "";
-  return decodeXmlText(match[1]).replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+function safeGoogleNewsUrl(value: string): string {
+  try {
+    const url = new URL(decodeXmlText(value), "https://news.google.com/");
+    if (url.protocol !== "https:" || url.hostname !== "news.google.com") return "";
+    return url.toString();
+  } catch {
+    return "";
+  }
+}
+
+function htmlToText(value: string): string {
+  return decodeXmlText(value
+    .replace(/<script\\b[\\s\\S]*?<\\/script>/gi, " ")
+    .replace(/<style\\b[\\s\\S]*?<\\/style>/gi, " ")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;/gi, " "))
+    .replace(/\\s+/g, " ")
+    .trim();
 }
 
 function decodeXmlText(value: string): string {
