@@ -284,6 +284,31 @@ async function fetchGoogleNewsArticles(env: NewsEnv, googleNewsUrl: string): Pro
   }
 
   if (!response.ok) {
+    if (response.status >= 500 && response.status <= 599) {
+      const diagnosticHeaders: Record<string, string> = {};
+      for (const name of ["content-type", "server", "date", "retry-after", "via", "x-cache", "cf-ray"]) {
+        const value = response.headers.get(name);
+        if (value) diagnosticHeaders[name] = value.slice(0, 200);
+      }
+
+      let bodyPreview = "";
+      try {
+        bodyPreview = (await response.clone().text())
+          .replace(/[\\r\\n\\t]+/g, " ")
+          .replace(/[\\u0000-\\u001f\\u007f]/g, "")
+          .slice(0, 600);
+      } catch {
+        bodyPreview = "[response body could not be read]";
+      }
+
+      console.error("Google News RSS upstream error diagnostic:", JSON.stringify({
+        status: response.status,
+        statusText: response.statusText,
+        headers: diagnosticHeaders,
+        bodyPreview
+      }));
+    }
+
     throw new Error("Google News RSS request failed with HTTP " + response.status + ".");
   }
 
