@@ -217,13 +217,52 @@ async function fetchGoogleNewsArticles(env: NewsEnv, googleNewsUrl: string): Pro
   }
 
   // Read Google's RSS feed directly. Do not request individual Google News article links.
-  const response = await fetch(googleNewsUrl, {
-    headers: {
-      "Accept": "application/rss+xml, application/xml;q=0.9, text/xml;q=0.8, */*;q=0.7",
-      "Accept-Language": "en-IN,en-US;q=0.9,en;q=0.8",
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+  // Match the working PowerShell request headers and retry temporary network/5xx failures.
+  const requestHeaders = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-IN,en;q=0.9"
+  };
+  const maxAttempts = 3;
+  const retryDelayMs = 2000;
+  let response: Response | null = null;
+  let lastFetchError: unknown = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const attemptResponse = await fetch(googleNewsUrl, { headers: requestHeaders });
+
+      // A 429 is handled by the existing shared D1 cooldown below, without retrying here.
+      if (attemptResponse.status === 429) {
+        response = attemptResponse;
+        break;
+      }
+
+      // Retry temporary upstream server errors, including HTTP 503.
+      if (attemptResponse.status >= 500 && attemptResponse.status <= 599) {
+        await attemptResponse.body?.cancel().catch(() => undefined);
+        if (attempt < maxAttempts) {
+          await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+          continue;
+        }
+      }
+
+      response = attemptResponse;
+      break;
+    } catch (error) {
+      lastFetchError = error;
+      if (attempt < maxAttempts) {
+        await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+      }
     }
-  });
+  }
+
+  if (!response) {
+    throw new Error(
+      "Google News RSS request failed after " + maxAttempts + " attempts: " +
+      String(lastFetchError instanceof Error ? lastFetchError.message : lastFetchError || "unknown network error")
+    );
+  }
 
   if (response.status === 429) {
     const suppliedRetryAfter = parseRetryAfter(response.headers.get("Retry-After"));
