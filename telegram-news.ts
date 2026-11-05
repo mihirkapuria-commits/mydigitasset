@@ -230,7 +230,10 @@ async function fetchGoogleNewsArticles(env: NewsEnv, googleNewsUrl: string): Pro
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      const attemptResponse = await fetch(googleNewsUrl, {\n        headers: requestHeaders,\n        signal: AbortSignal.timeout(20_000)\n      });
+      const attemptResponse = await fetch(googleNewsUrl, {
+        headers: requestHeaders,
+        signal: AbortSignal.timeout(20_000)
+      });
 
       // A 429 is handled by the existing shared D1 cooldown below, without retrying here.
       if (attemptResponse.status === 429) {
