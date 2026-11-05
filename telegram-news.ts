@@ -44,7 +44,7 @@ const INDIA_STARTUPS_SOURCE: CategoryNewsSource = {
   categoryId: "india-startups",
   topic: "India Startups",
   googleNewsUrl:
-    "https://news.google.com/rss/search?q=india+startups&hl=en-IN&gl=IN&ceid=IN:en"
+    "https://news.google.com/rss/search?q=india%20startups&hl=en-IN&gl=IN&ceid=IN:en"
 };
 
 export async function runIndiaStartupsNewsDelivery(env: NewsEnv): Promise<void> {
@@ -230,7 +230,7 @@ async function fetchGoogleNewsArticles(env: NewsEnv, googleNewsUrl: string): Pro
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      const attemptResponse = await fetch(googleNewsUrl, { headers: requestHeaders });
+      const attemptResponse = await fetch(googleNewsUrl, {\n        headers: requestHeaders,\n        signal: AbortSignal.timeout(20_000)\n      });
 
       // A 429 is handled by the existing shared D1 cooldown below, without retrying here.
       if (attemptResponse.status === 429) {
