@@ -35,7 +35,7 @@ export const Hero: React.FC<HeroProps> = ({ onStartTrial }) => {
               </button>
               <a
                 href="#pricing"
-                className="inline-flex items-center justify-center gap-2 px-6 py-4 text-sm font-semibold text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors underline decoration-red-600 decoration-2 underline-offset-4"
+                className="inline-flex items-center justify-center gap-2 px-6 py-4 text-sm font-semibold text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors underline decoration-wavy decoration-red-600 decoration-2 underline-offset-4"
               >
                 View Annual Pricing (₹297.36)
               </a>
