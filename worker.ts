@@ -79,6 +79,5 @@ export default {
   // Handles your daily 00:45 cron trigger
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
     console.log('Cron triggered at:', new Date(event.scheduledTime).toISOString());
-    // Your background cron tasks execute here
   },
 };
