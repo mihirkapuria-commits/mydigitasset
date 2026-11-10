@@ -1,3 +1,24 @@
+interface D1PreparedStatement {
+  bind(...args: any[]): D1PreparedStatement;
+  all(): Promise<{ results: any[] }>;
+  run(): Promise<{ meta?: { changes?: number } }>;
+  first(): Promise<any>;
+}
+
+interface D1Database {
+  prepare(query: string): D1PreparedStatement;
+}
+
+interface ScheduledEvent {
+  scheduledTime: number;
+  cron: string;
+}
+
+interface ExecutionContext {
+  waitUntil(promise: Promise<any>): void;
+  passThroughOnException(): void;
+}
+
 export interface Env {
   DB: D1Database;
   ASSETS: {
