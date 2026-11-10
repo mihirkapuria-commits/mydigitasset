@@ -72,11 +72,19 @@ export default {
       }
     }
 
-    // Serve static site assets for all other routes
-    return env.ASSETS.fetch(request);
+    // Attempt to fetch static asset from ./dist
+    let response = await env.ASSETS.fetch(request);
+
+    // Single-Page Application (SPA) fallback: serve index.html on 404
+    if (response.status === 404) {
+      const indexUrl = new URL('/index.html', request.url);
+      response = await env.ASSETS.fetch(new Request(indexUrl, request));
+    }
+
+    return response;
   },
 
-  // Handles your daily 00:45 cron trigger
+  // Daily cron trigger
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
     console.log('Cron triggered at:', new Date(event.scheduledTime).toISOString());
   },
