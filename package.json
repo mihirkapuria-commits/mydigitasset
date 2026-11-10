@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "vite build && esbuild worker.ts --bundle --format=esm --target=esnext --outfile=dist/_worker.js",
+"build": "vite build && esbuild worker.ts --bundle --format=esm --target=esnext --outfile=dist/_worker.js && touch dist/.assetsignore",
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit"
