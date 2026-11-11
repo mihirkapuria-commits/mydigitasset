@@ -20,11 +20,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [mode, setMode] = useState<'login' | 'register' | 'recover'>(initialMode);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [name, setName] = useState('');
   const [mobile, setMobile] = useState('+91');
   const [selectedCategory, setSelectedCategory] = useState<string>('startups');
   const [newPassword, setNewPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [loading, setLoading] = useState(false);
@@ -34,15 +36,55 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       setMode(initialMode);
       setError('');
       setSuccessMsg('');
+      setPassword('');
+      setConfirmPassword('');
+      setMobile('+91');
     }
   }, [isOpen, initialMode]);
 
   if (!isOpen) return null;
 
+  const handleMobileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    if (!val.startsWith('+91')) {
+      setMobile('+91');
+      return;
+    }
+    const digits = val.slice(3).replace(/\D/g, '').slice(0, 10);
+    setMobile('+91' + digits);
+  };
+
+  const isPasswordValid = password.length === 8;
+  const isConfirmValid = confirmPassword.length === 8;
+  const isPasswordMatch = password === confirmPassword;
+
+  const getRegisterValidationError = () => {
+    if (mode !== 'register') return '';
+    if (password.length > 0 && !isPasswordValid) return 'Password must be exactly 8 characters';
+    if (confirmPassword.length > 0 && !isConfirmValid) return 'Confirm password must be exactly 8 characters';
+    if (password.length === 8 && confirmPassword.length === 8 && !isPasswordMatch) return 'Passwords do not match';
+    if (mobile.replace(/\D/g, '').length !== 12) return 'Mobile number must be exactly 10 digits after +91';
+    return '';
+  };
+
+  const registerError = getRegisterValidationError();
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setSuccessMsg('');
+
+    if (mode === 'register') {
+      if (!isPasswordValid || !isConfirmValid || !isPasswordMatch) {
+        setError('Password must be exactly 8 characters and match confirm password.');
+        return;
+      }
+      if (mobile.replace(/\D/g, '').length !== 12) {
+        setError('Please enter a valid 10-digit mobile number after +91.');
+        return;
+      }
+    }
+
     setLoading(true);
 
     try {
@@ -89,7 +131,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm overflow-y-auto">
-      <div className="bg-white rounded-3xl max-w-lg w-full p-8 shadow-2xl relative border border-slate-100 my-8">
+      <div className="bg-white rounded-3xl max-w-lg w-full p-8 pt-10 shadow-2xl relative border border-slate-100 my-8">
         <button
           onClick={onClose}
           title="Close window"
@@ -98,8 +140,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           <X className="w-5 h-5" />
         </button>
 
-        <div className="space-y-2 mb-6">
-          <div className="w-10 h-10 rounded-xl bg-slate-900 text-white font-bold flex items-center justify-center text-sm">
+        <div className="space-y-2 mb-6 pt-2">
+          <div className="w-10 h-10 rounded-xl bg-slate-900 text-white font-bold flex items-center justify-center text-sm shadow-md">
             MA
           </div>
           <h3 className="text-2xl font-extrabold text-slate-900">
@@ -167,7 +209,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           {(mode === 'register' || mode === 'recover') && (
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">
-                Mobile Number (with country code)
+                Mobile Number (Fixed +91 Country Code + 10 Digits)
               </label>
               <div className="relative">
                 <Phone className="absolute left-3.5 top-3.5 w-4 h-4 text-slate-400" />
@@ -175,56 +217,101 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   type="text"
                   required
                   value={mobile}
-                  onChange={(e) => setMobile(e.target.value)}
+                  onChange={handleMobileChange}
+                  maxLength={13}
                   placeholder="+919876543210"
-                  className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-slate-900"
+                  className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-slate-900 font-mono"
                 />
               </div>
+              <p className="text-[11px] text-slate-500 mt-1">Country code +91 is locked. Enter 10 digits after +91.</p>
             </div>
           )}
 
           {mode !== 'recover' && (
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">
-                Password
-              </label>
-              <div className="relative">
-                <Lock className="absolute left-3.5 top-3.5 w-4 h-4 text-slate-400" />
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  className="w-full pl-10 pr-12 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-slate-900"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3.5 top-3.5 text-slate-400 hover:text-slate-600"
-                >
-                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">
+                  Password (Exactly 8 Characters)
+                </label>
+                <div className="relative">
+                  <Lock className="absolute left-3.5 top-3.5 w-4 h-4 text-slate-400" />
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    required
+                    maxLength={8}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="8 characters"
+                    className="w-full pl-10 pr-12 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-slate-900"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3.5 top-3.5 text-slate-400 hover:text-slate-600"
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-1">Password must be exactly 8 characters</p>
+                {mode === 'register' && password.length > 0 && !isPasswordValid && (
+                  <p className="text-[11px] text-red-600 font-semibold mt-0.5">Password must be exactly 8 characters</p>
+                )}
               </div>
+
+              {mode === 'register' && (
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">
+                    Confirm Password (Exactly 8 Characters)
+                  </label>
+                  <div className="relative">
+                    <Lock className="absolute left-3.5 top-3.5 w-4 h-4 text-slate-400" />
+                    <input
+                      type={showConfirmPassword ? 'text' : 'password'}
+                      required
+                      maxLength={8}
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      placeholder="Confirm password"
+                      className="w-full pl-10 pr-12 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-slate-900"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                      className="absolute right-3.5 top-3.5 text-slate-400 hover:text-slate-600"
+                    >
+                      {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-1">Password must be exactly 8 characters</p>
+                  {confirmPassword.length > 0 && !isConfirmValid && (
+                    <p className="text-[11px] text-red-600 font-semibold mt-0.5">Password must be exactly 8 characters</p>
+                  )}
+                  {password.length === 8 && confirmPassword.length === 8 && !isPasswordMatch && (
+                    <p className="text-[11px] text-red-600 font-semibold mt-0.5">Passwords do not match</p>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
           {mode === 'recover' && (
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">
-                New Password
+                New Password (Exactly 8 Characters)
               </label>
               <div className="relative">
                 <Lock className="absolute left-3.5 top-3.5 w-4 h-4 text-slate-400" />
                 <input
                   type={showPassword ? 'text' : 'password'}
                   required
+                  maxLength={8}
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder="••••••••"
+                  placeholder="8 characters"
                   className="w-full pl-10 pr-12 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-slate-900"
                 />
               </div>
+              <p className="text-[11px] text-slate-500 mt-1">Password must be exactly 8 characters</p>
             </div>
           )}
 
@@ -253,8 +340,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
           <button
             type="submit"
-            disabled={loading}
-            className="w-full py-3.5 bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-xl transition-colors text-sm shadow-md mt-4 disabled:opacity-50"
+            disabled={loading || (mode === 'register' && (!isPasswordValid || !isConfirmValid || !isPasswordMatch || mobile.replace(/\D/g, '').length !== 12))}
+            className="w-full py-3.5 bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-xl transition-colors text-sm shadow-md mt-4 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {loading ? 'Processing...' : mode === 'login' ? 'Sign In' : mode === 'register' ? 'Start Free Trial' : 'Reset Password'}
           </button>
