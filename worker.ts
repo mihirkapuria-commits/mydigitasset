@@ -152,7 +152,29 @@ var worker_default = {
   },
 
   async scheduled(event, env, ctx) {
-    console.log("Cron triggered");
+    try {
+      console.log("Automated 6:15 AM IST news broadcast triggered.");
+      const token = env.TELEGRAM_BOT_TOKEN;
+      if (!token) {
+        console.error("TELEGRAM_BOT_TOKEN is missing in environment variables.");
+        return;
+      }
+
+      // Loop through all 15 categories to broadcast morning briefings automatically
+      for (const cat of CATEGORIES) {
+        if (!cat.telegramChatId) continue;
+
+        const broadcastText = `🌅 *MyDigitAsset Morning Briefing*\n\n` +
+          `Category: *${cat.title}*\n\n` +
+          `Good morning! Here are today's top curated business, market, and policy developments to keep you ahead.\n\n` +
+          `_Stay tuned for live updates throughout the day._`;
+
+        await sendTelegramMessage(token, cat.telegramChatId, broadcastText);
+        console.log(`Successfully sent morning briefing to channel: ${cat.title} (${cat.telegramChatId})`);
+      }
+    } catch (err) {
+      console.error("Cron broadcast error:", err.message);
+    }
   }
 };
 
