@@ -20,7 +20,7 @@ export interface User {
   trialStart: string;
   trialExpiry: string;
   trialExpiresAt?: string;
-  subscriptionStatus: 'trial' | 'active_paid' | 'expired';
+  subscriptionStatus: 'trial' | 'active_paid' | 'expired' | 'pending_approval' | 'stopped';
   paymentStatus: 'none' | 'pending' | 'verified' | 'rejected';
   telegramConnected: boolean;
   telegramUsername?: string;

@@ -86,6 +86,49 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ currentUser, token, on
     }
   };
 
+  const handleSetCustomerStatus = async (customerId: string, status: string) => {
+    try {
+      const res = await fetch(`/api/admin/customers/${customerId}/status`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ status })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to update customer status');
+      fetchAdminData();
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  const handleResetPassword = async (customerId: string, email: string) => {
+    const newPassword = prompt(`Enter new 8-character password for ${email}:`);
+    if (!newPassword) return;
+    if (newPassword.length !== 8) {
+      alert('Password must be exactly 8 characters.');
+      return;
+    }
+    try {
+      const res = await fetch(`/api/admin/customers/${customerId}/reset-password`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ newPassword })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to reset password');
+      alert(data.message || 'Password successfully reset.');
+      fetchAdminData();
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
   if (currentUser.email !== 'mihirkapuria@gmail.com' || currentUser.role !== 'admin') {
     return (
       <div className="py-24 max-w-xl mx-auto px-6 text-center space-y-4">
@@ -182,7 +225,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ currentUser, token, on
             {activeTab === 'customers' && (
               <div className="bg-white rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden">
                 <div className="p-6 border-b border-slate-100 flex items-center justify-between">
-                  <h3 className="text-lg font-bold text-slate-900">Registered Customers Overview</h3>
+                  <h3 className="text-lg font-bold text-slate-900">Registered Customers Overview & Management</h3>
                   <span className="text-xs text-slate-500 font-mono">Total: {customers.length}</span>
                 </div>
                 <div className="overflow-x-auto">
@@ -196,6 +239,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ currentUser, token, on
                         <th className="p-4">Payment Status</th>
                         <th className="p-4">Telegram</th>
                         <th className="p-4">Trial Expiry</th>
+                        <th className="p-4 text-right">Admin Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -206,7 +250,9 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ currentUser, token, on
                           <td className="p-4 font-mono text-slate-600">{c.mobile}</td>
                           <td className="p-4">
                             <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide ${
-                              c.subscriptionStatus === 'active_paid' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                              c.subscriptionStatus === 'active_paid' ? 'bg-emerald-100 text-emerald-800' :
+                              c.subscriptionStatus === 'pending_approval' ? 'bg-indigo-100 text-indigo-800' :
+                              c.subscriptionStatus === 'stopped' ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-800'
                             }`}>
                               {c.subscriptionStatus.replace('_', ' ')}
                             </span>
@@ -220,6 +266,37 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ currentUser, token, on
                             )}
                           </td>
                           <td className="p-4 font-mono text-slate-500">{new Date(c.trialExpiry).toLocaleDateString()}</td>
+                          <td className="p-4 text-right space-x-1.5">
+                            {c.email !== 'mihirkapuria@gmail.com' && (
+                              <>
+                                {c.subscriptionStatus !== 'active_paid' && (
+                                  <button
+                                    onClick={() => handleSetCustomerStatus(c.id, 'active_paid')}
+                                    className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded"
+                                    title="Manually Approve Subscription"
+                                  >
+                                    Approve
+                                  </button>
+                                )}
+                                {c.subscriptionStatus !== 'stopped' && (
+                                  <button
+                                    onClick={() => handleSetCustomerStatus(c.id, 'stopped')}
+                                    className="px-2.5 py-1 bg-red-600 hover:bg-red-500 text-white font-semibold rounded"
+                                    title="Manually Stop Subscription"
+                                  >
+                                    Stop
+                                  </button>
+                                )}
+                                <button
+                                  onClick={() => handleResetPassword(c.id, c.email)}
+                                  className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-white font-semibold rounded"
+                                  title="Reset Password"
+                                >
+                                  Reset Pwd
+                                </button>
+                              </>
+                            )}
+                          </td>
                         </tr>
                       ))}
                     </tbody>

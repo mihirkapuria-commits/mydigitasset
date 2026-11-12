@@ -27,8 +27,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [mobileNumber, setMobileNumber] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('startups');
   const [newPassword, setNewPassword] = useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmNewPassword, setShowConfirmNewPassword] = useState(false);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [loading, setLoading] = useState(false);
@@ -124,18 +127,29 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           onClose();
         }, 4000);
       } else if (mode === 'recover') {
-        const res = await fetch('/api/auth/recover', {
+        if (newPassword.length !== 8) {
+          setError('Password must be exactly 8 characters.');
+          return;
+        }
+        if (newPassword !== confirmNewPassword) {
+          setError('Passwords do not match.');
+          return;
+        }
+        const res = await fetch('/api/auth/reset-password', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, mobile: fullMobile, newPassword })
+          body: JSON.stringify({ email, newPassword })
         });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Password recovery failed');
-        setSuccessMsg(data.message);
+        if (!res.ok) throw new Error(data.error || 'Password reset failed');
+        setSuccessMsg(data.message || 'Password successfully reset! You can now sign in immediately with your new 8-character password.');
         setTimeout(() => {
           setMode('login');
           setSuccessMsg('');
-        }, 2000);
+          setEmail('');
+          setNewPassword('');
+          setConfirmNewPassword('');
+        }, 3500);
       }
     } catch (err: any) {
       setError(err.message);
@@ -343,23 +357,84 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           )}
 
           {mode === 'recover' && (
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">
-                New Password *
-              </label>
-              <div className="relative">
-                <Lock className="absolute left-3.5 top-3.5 w-4 h-4 text-slate-400" />
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  required
-                  maxLength={8}
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder="8 characters"
-                  className="w-full pl-10 pr-12 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-slate-900"
-                />
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">
+                  Registered Email Address *
+                </label>
+                <div className="relative">
+                  <Mail className="absolute left-3.5 top-3.5 w-4 h-4 text-slate-400" />
+                  <input
+                    type="email"
+                    required
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="you@domain.com"
+                    className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-slate-900"
+                  />
+                </div>
               </div>
-              <p className="text-[11px] text-slate-500 mt-1">Password must be exactly 8 characters</p>
+
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">
+                  New Password *
+                </label>
+                <div className="relative">
+                  <Lock className="absolute left-3.5 top-3.5 w-4 h-4 text-slate-400" />
+                  <input
+                    type={showNewPassword ? 'text' : 'password'}
+                    required
+                    maxLength={8}
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    placeholder="8 characters"
+                    className="w-full pl-10 pr-12 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-slate-900"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowNewPassword(!showNewPassword)}
+                    className="absolute right-3.5 top-3.5 text-slate-400 hover:text-slate-600"
+                  >
+                    {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-1">Password must be exactly 8 characters</p>
+                {newPassword.length > 0 && newPassword.length !== 8 && (
+                  <p className="text-[11px] text-red-600 font-semibold mt-0.5">Password must be exactly 8 characters</p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">
+                  Confirm New Password *
+                </label>
+                <div className="relative">
+                  <Lock className="absolute left-3.5 top-3.5 w-4 h-4 text-slate-400" />
+                  <input
+                    type={showConfirmNewPassword ? 'text' : 'password'}
+                    required
+                    maxLength={8}
+                    value={confirmNewPassword}
+                    onChange={(e) => setConfirmNewPassword(e.target.value)}
+                    placeholder="Confirm new password"
+                    className="w-full pl-10 pr-12 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-slate-900"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmNewPassword(!showConfirmNewPassword)}
+                    className="absolute right-3.5 top-3.5 text-slate-400 hover:text-slate-600"
+                  >
+                    {showConfirmNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-1">Password must be exactly 8 characters</p>
+                {confirmNewPassword.length > 0 && confirmNewPassword.length !== 8 && (
+                  <p className="text-[11px] text-red-600 font-semibold mt-0.5">Password must be exactly 8 characters</p>
+                )}
+                {newPassword.length === 8 && confirmNewPassword.length === 8 && newPassword !== confirmNewPassword && (
+                  <p className="text-[11px] text-red-600 font-semibold mt-0.5">Passwords do not match</p>
+                )}
+              </div>
             </div>
           )}
 
@@ -388,7 +463,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
           <button
             type="submit"
-            disabled={loading || (mode === 'register' && (!isPasswordValid || !isConfirmValid || !isPasswordMatch || mobileNumber.length !== 10 || !firstName.trim() || !surname.trim()))}
+            disabled={loading || (mode === 'register' && (!isPasswordValid || !isConfirmValid || !isPasswordMatch || mobileNumber.length !== 10 || !firstName.trim() || !surname.trim())) || (mode === 'recover' && (newPassword.length !== 8 || confirmNewPassword.length !== 8 || newPassword !== confirmNewPassword || !email))}
             className="w-full py-3.5 bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-xl transition-colors text-sm shadow-md mt-4 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {loading ? 'Processing...' : mode === 'login' ? 'Sign In' : mode === 'register' ? 'Start Free Trial' : 'Reset Password'}

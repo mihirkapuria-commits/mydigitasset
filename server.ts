@@ -362,12 +362,32 @@ async function startServer() {
     res.json(safeUser);
   });
 
-  // Self-service recovery disabled per security requirements
-  app.post('/api/auth/recover', (req, res) => {
-    return res.status(400).json({ error: 'Self-service password recovery is disabled for security. Please contact the administrator at mihirkapuria@gmail.com for manual account recovery.' });
+  app.post('/api/auth/reset-password', (req, res) => {
+    const { email, newPassword } = req.body;
+    if (!email || !newPassword) {
+      return res.status(400).json({ error: 'Email and new password are required' });
+    }
+    if (newPassword.length !== 8) {
+      return res.status(400).json({ error: 'Password must be exactly 8 characters' });
+    }
+
+    const normalizedEmail = email.toLowerCase().trim();
+    const db = readDb();
+    const userIndex = db.users.findIndex((u: any) => u.email.toLowerCase() === normalizedEmail);
+    if (userIndex === -1) {
+      return res.status(404).json({ error: 'Email address not found in our records' });
+    }
+
+    db.users[userIndex].passwordHash = crypto.createHash('sha256').update(newPassword).digest('hex');
+    writeDb(db);
+
+    res.json({
+      success: true,
+      message: 'Password successfully reset! You can now sign in immediately with your new 8-character password.'
+    });
   });
 
-  app.put('/api/profile', authenticateUser, (req: any, res) => {
+  app.put('/api/profile', authenticateUser, async (req: any, res) => {
     const { countryCode, mobileNumber, mobile } = req.body;
     const cCode = countryCode || req.user.countryCode || '+91';
     const mNum = mobileNumber || (mobile ? mobile.replace(/^\+91/, '') : '');
@@ -378,12 +398,43 @@ async function startServer() {
     const index = db.users.findIndex((u: any) => u.id === req.user.id);
     if (index === -1) return res.status(404).json({ error: 'User not found' });
 
+    const oldMobile = db.users[index].mobile || 'N/A';
     db.users[index].countryCode = cCode;
     db.users[index].mobileNumber = mNum;
     db.users[index].mobile = fullMobile;
     writeDb(db);
 
-    const { passwordHash, ...safeUser } = db.users[index];
+    const updatedUser = db.users[index];
+
+    // Send Telegram Alert to Owner (+91 7021923124 / OWNER_TELEGRAM_CHAT_ID)
+    const botToken = process.env.TELEGRAM_BOT_TOKEN;
+    const ownerChatId = process.env.OWNER_TELEGRAM_CHAT_ID || '7021923124';
+    if (botToken) {
+      const telegramMessage = [
+        `<b>📱 Customer Mobile Number Updated</b>`,
+        `• First Name: ${updatedUser.firstName || updatedUser.name?.split(' ')[0] || 'N/A'}`,
+        `• Surname: ${updatedUser.surname || updatedUser.name?.split(' ').slice(1).join(' ') || 'N/A'}`,
+        `• Email: ${updatedUser.email}`,
+        `• Old Number: ${oldMobile}`,
+        `• New Number: ${fullMobile}`
+      ].join('\n');
+
+      try {
+        await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: ownerChatId,
+            text: telegramMessage,
+            parse_mode: 'HTML'
+          })
+        });
+      } catch (err) {
+        console.error('Failed to send Telegram alert on mobile update:', err);
+      }
+    }
+
+    const { passwordHash, ...safeUser } = updatedUser;
     res.json(safeUser);
   });
 
@@ -410,7 +461,7 @@ async function startServer() {
   });
 
   // Submit Payment UTR (Category-specific pricing fetched from DB)
-  app.post('/api/payments/submit', authenticateUser, (req: any, res) => {
+  app.post('/api/payments/submit', authenticateUser, async (req: any, res) => {
     const { categoryId, utr, notes } = req.body;
     if (!utr || !categoryId) return res.status(400).json({ error: 'Category selection and payment UTR reference number are required' });
 
@@ -442,10 +493,158 @@ async function startServer() {
     const userIndex = db.users.findIndex((u: any) => u.id === req.user.id);
     if (userIndex !== -1) {
       db.users[userIndex].paymentStatus = 'pending';
+      db.users[userIndex].subscriptionStatus = 'pending_approval';
+      db.users[userIndex].category = categoryId;
+      if (!db.users[userIndex].categories) db.users[userIndex].categories = [categoryId];
+      else if (!db.users[userIndex].categories.includes(categoryId)) db.users[userIndex].categories.push(categoryId);
     }
 
     writeDb(db);
-    res.json({ success: true, payment: paymentRecord, message: 'Payment UTR submitted successfully. Awaiting manual administrator verification.' });
+
+    // Send Telegram Notification to Owner with Approve / Stop inline buttons
+    const botToken = process.env.TELEGRAM_BOT_TOKEN;
+    const ownerChatId = process.env.OWNER_TELEGRAM_CHAT_ID || '7021923124';
+    if (botToken) {
+      const user = db.users[userIndex];
+      const categoryTitle = cat.title || categoryId;
+      const messageText = [
+        `<b>🔔 New Annual Payment UTR Submitted</b>`,
+        `• First Name: ${user.firstName || user.name?.split(' ')[0] || 'N/A'}`,
+        `• Surname: ${user.surname || user.name?.split(' ').slice(1).join(' ') || 'N/A'}`,
+        `• Email: ${user.email}`,
+        `• Mobile: ${user.mobile || 'N/A'}`,
+        `• Category: ${categoryTitle}`,
+        `• UTR Number: <code>${utr}</code>`,
+        `• Total Amount: ₹${totalAmount}`
+      ].join('\n');
+
+      const inlineKeyboard = {
+        inline_keyboard: [
+          [
+            { text: '✅ Approve', callback_data: `approve_payment_${paymentRecord.id}` },
+            { text: '🛑 Stop', callback_data: `stop_payment_${paymentRecord.id}` }
+          ]
+        ]
+      };
+
+      try {
+        await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: ownerChatId,
+            text: messageText,
+            parse_mode: 'HTML',
+            reply_markup: inlineKeyboard
+          })
+        });
+      } catch (err) {
+        console.error('Failed to send Telegram UTR submission alert to owner:', err);
+      }
+    }
+
+    res.json({ success: true, payment: paymentRecord, message: 'Payment UTR submitted successfully. Status is pending approval.' });
+  });
+
+  // Telegram Webhook for Owner Inline Buttons (Approve / Stop)
+  app.post('/api/telegram/webhook', async (req, res) => {
+    try {
+      const update = req.body;
+      if (update && update.callback_query) {
+        const callbackQuery = update.callback_query;
+        const queryId = callbackQuery.id;
+        const data = String(callbackQuery.data || '');
+        const chatId = callbackQuery.message?.chat?.id;
+
+        const botToken = process.env.TELEGRAM_BOT_TOKEN;
+        const db = readDb();
+
+        if (data.startsWith('approve_payment_') || data.startsWith('stop_payment_')) {
+          const paymentId = data.replace('approve_payment_', '').replace('stop_payment_', '');
+          const paymentIndex = db.payments.findIndex((p: any) => p.id === paymentId);
+
+          if (paymentIndex !== -1) {
+            const payment = db.payments[paymentIndex];
+            const userIndex = db.users.findIndex((u: any) => u.id === payment.userId);
+            const now = new Date();
+            const istDates = calculateIstSubscriptionDates(now);
+
+            if (data.startsWith('approve_payment_')) {
+              payment.status = 'verified';
+              payment.verifiedAt = now.toISOString();
+              payment.verifiedBy = 'Telegram Webhook (Owner)';
+
+              if (userIndex !== -1) {
+                db.users[userIndex].paymentStatus = 'verified';
+                db.users[userIndex].subscriptionStatus = 'active_paid';
+                db.users[userIndex].trialStart = istDates.startIso;
+                db.users[userIndex].trialExpiry = istDates.expiryIso;
+                db.users[userIndex].trialExpiresAt = istDates.expiryIso;
+              }
+
+              writeDb(db);
+
+              if (botToken && chatId) {
+                await fetch(`https://api.telegram.org/bot${botToken}/answerCallbackQuery`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    callback_query_id: queryId,
+                    text: 'Subscription Approved & Activated!'
+                  })
+                }).catch(() => {});
+
+                await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    chat_id: chatId,
+                    text: `✅ <b>Subscription Approved & Activated</b>\nCustomer: ${payment.userName} (${payment.userEmail})\nUTR: ${payment.utr}\nStatus: Active (Paid) until ${new Date(istDates.expiryIso).toLocaleDateString()}`,
+                    parse_mode: 'HTML'
+                  })
+                }).catch(() => {});
+              }
+            } else if (data.startsWith('stop_payment_')) {
+              payment.status = 'rejected';
+              payment.verifiedAt = now.toISOString();
+              payment.verifiedBy = 'Telegram Webhook (Owner)';
+
+              if (userIndex !== -1) {
+                db.users[userIndex].paymentStatus = 'rejected';
+                db.users[userIndex].subscriptionStatus = 'stopped';
+              }
+
+              writeDb(db);
+
+              if (botToken && chatId) {
+                await fetch(`https://api.telegram.org/bot${botToken}/answerCallbackQuery`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    callback_query_id: queryId,
+                    text: 'Subscription Stopped.'
+                  })
+                }).catch(() => {});
+
+                await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    chat_id: chatId,
+                    text: `🛑 <b>Subscription Stopped</b>\nCustomer: ${payment.userName} (${payment.userEmail})\nUTR: ${payment.utr}\nStatus: Stopped / Excluded from news delivery.`,
+                    parse_mode: 'HTML'
+                  })
+                }).catch(() => {});
+              }
+            }
+          }
+        }
+      }
+      res.json({ ok: true });
+    } catch (err) {
+      console.error('Telegram webhook error:', err);
+      res.status(200).json({ ok: true });
+    }
   });
 
   app.get('/api/payments', authenticateUser, (req: any, res) => {
@@ -509,6 +708,86 @@ async function startServer() {
 
     writeDb(db);
     res.json({ success: true, message: 'Password successfully reset by administrator.' });
+  });
+
+  // Admin: Update any customer field
+  app.put('/api/admin/customers/:customerId', authenticateUser, requireAdmin, (req: any, res) => {
+    const { customerId } = req.params;
+    const { firstName, surname, email, mobile, category, subscriptionStatus, paymentStatus, telegramConnected } = req.body;
+
+    const db = readDb();
+    const userIndex = db.users.findIndex((u: any) => u.id === customerId);
+    if (userIndex === -1) return res.status(404).json({ error: 'Customer not found' });
+
+    const user = db.users[userIndex];
+    if (firstName !== undefined) user.firstName = firstName;
+    if (surname !== undefined) user.surname = surname;
+    if (firstName !== undefined || surname !== undefined) {
+      user.name = `${user.firstName || ''} ${user.surname || ''}`.trim();
+    }
+    if (email !== undefined) user.email = email.toLowerCase().trim();
+    if (mobile !== undefined) {
+      user.mobile = mobile;
+      user.countryCode = mobile.startsWith('+') ? mobile.slice(0, 3) : '+91';
+      user.mobileNumber = mobile.replace(/^\+\d+/, '');
+    }
+    if (category !== undefined) {
+      user.category = category;
+      user.categories = [category];
+    }
+    if (subscriptionStatus !== undefined) user.subscriptionStatus = subscriptionStatus;
+    if (paymentStatus !== undefined) user.paymentStatus = paymentStatus;
+    if (telegramConnected !== undefined) user.telegramConnected = Boolean(telegramConnected);
+
+    db.auditLogs.push({
+      id: 'log-' + crypto.randomBytes(3).toString('hex'),
+      timestamp: new Date().toISOString(),
+      adminEmail: req.user.email,
+      action: 'ADMIN_UPDATE_CUSTOMER',
+      details: `Administrator updated customer profile for ${user.email}`
+    });
+
+    writeDb(db);
+    const { passwordHash, ...updated } = user;
+    res.json({ success: true, user: updated });
+  });
+
+  // Admin: Manually Approve / Stop subscription status
+  app.post('/api/admin/customers/:customerId/status', authenticateUser, requireAdmin, (req: any, res) => {
+    const { customerId } = req.params;
+    const { status } = req.body;
+
+    if (!['active_paid', 'stopped', 'expired', 'pending_approval', 'trial'].includes(status)) {
+      return res.status(400).json({ error: 'Invalid status' });
+    }
+
+    const db = readDb();
+    const userIndex = db.users.findIndex((u: any) => u.id === customerId);
+    if (userIndex === -1) return res.status(404).json({ error: 'Customer not found' });
+
+    const user = db.users[userIndex];
+    user.subscriptionStatus = status;
+    if (status === 'active_paid') {
+      user.paymentStatus = 'verified';
+      const istDates = calculateIstSubscriptionDates(new Date());
+      user.trialStart = istDates.startIso;
+      user.trialExpiry = istDates.expiryIso;
+      user.trialExpiresAt = istDates.expiryIso;
+    } else if (status === 'stopped' || status === 'expired') {
+      user.paymentStatus = 'rejected';
+    }
+
+    db.auditLogs.push({
+      id: 'log-' + crypto.randomBytes(3).toString('hex'),
+      timestamp: new Date().toISOString(),
+      adminEmail: req.user.email,
+      action: 'ADMIN_STATUS_CHANGE',
+      details: `Administrator set subscription status for ${user.email} to ${status}`
+    });
+
+    writeDb(db);
+    const { passwordHash, ...updated } = user;
+    res.json({ success: true, user: updated });
   });
 
   app.get('/api/admin/payments', authenticateUser, requireAdmin, (req: any, res) => {
