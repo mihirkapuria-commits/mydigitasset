@@ -21,8 +21,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [name, setName] = useState('');
-  const [mobile, setMobile] = useState('+91');
+  const [firstName, setFirstName] = useState('');
+  const [surname, setSurname] = useState('');
+  const [countryCode, setCountryCode] = useState('+91');
+  const [mobileNumber, setMobileNumber] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('startups');
   const [newPassword, setNewPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -38,36 +40,17 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       setSuccessMsg('');
       setPassword('');
       setConfirmPassword('');
-      setMobile('+91');
+      setMobileNumber('');
+      setFirstName('');
+      setSurname('');
     }
   }, [isOpen, initialMode]);
 
   if (!isOpen) return null;
 
-  const handleMobileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value;
-    if (!val.startsWith('+91')) {
-      setMobile('+91');
-      return;
-    }
-    const digits = val.slice(3).replace(/\D/g, '').slice(0, 10);
-    setMobile('+91' + digits);
-  };
-
   const isPasswordValid = password.length === 8;
   const isConfirmValid = confirmPassword.length === 8;
   const isPasswordMatch = password === confirmPassword;
-
-  const getRegisterValidationError = () => {
-    if (mode !== 'register') return '';
-    if (password.length > 0 && !isPasswordValid) return 'Password must be exactly 8 characters';
-    if (confirmPassword.length > 0 && !isConfirmValid) return 'Confirm password must be exactly 8 characters';
-    if (password.length === 8 && confirmPassword.length === 8 && !isPasswordMatch) return 'Passwords do not match';
-    if (mobile.replace(/\D/g, '').length !== 12) return 'Mobile number must be exactly 10 digits after +91';
-    return '';
-  };
-
-  const registerError = getRegisterValidationError();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -75,17 +58,23 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setSuccessMsg('');
 
     if (mode === 'register') {
-      if (!isPasswordValid || !isConfirmValid || !isPasswordMatch) {
-        setError('Password must be exactly 8 characters and match confirm password.');
+      if (!isPasswordValid) {
+        setError('Password must be exactly 8 characters.');
         return;
       }
-      if (mobile.replace(/\D/g, '').length !== 12) {
-        setError('Please enter a valid 10-digit mobile number after +91.');
+      if (!isConfirmValid || !isPasswordMatch) {
+        setError('Passwords do not match or are not 8 characters.');
+        return;
+      }
+      if (mobileNumber.replace(/\D/g, '').length !== 10) {
+        setError('Please enter a valid 10-digit mobile number.');
         return;
       }
     }
 
     setLoading(true);
+    const fullMobile = countryCode + mobileNumber;
+    const fullName = `${firstName.trim()} ${surname.trim()}`;
 
     try {
       if (mode === 'login') {
@@ -102,17 +91,33 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         const res = await fetch('/api/auth/register', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name, email, mobile, password, category: selectedCategory })
+          body: JSON.stringify({ name: fullName, email, mobile: fullMobile, password, category: selectedCategory })
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Registration failed');
-        onSuccess(data.token, data.user);
-        onClose();
+
+        // Calculate exact 3-day IST expiration date
+        const now = new Date();
+        const expiryMs = now.getTime() + 3 * 24 * 60 * 60 * 1000;
+        const expiryDate = new Date(expiryMs);
+        const formattedExpiry = new Intl.DateTimeFormat('en-US', {
+          weekday: 'long',
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+          timeZone: 'Asia/Kolkata'
+        }).format(expiryDate);
+
+        setSuccessMsg(`Your 3-day free trial is active and will expire on ${formattedExpiry}`);
+        setTimeout(() => {
+          onSuccess(data.token, data.user);
+          onClose();
+        }, 4000);
       } else if (mode === 'recover') {
         const res = await fetch('/api/auth/recover', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, mobile, newPassword })
+          body: JSON.stringify({ email, mobile: fullMobile, newPassword })
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Password recovery failed');
@@ -125,13 +130,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     } catch (err: any) {
       setError(err.message);
     } finally {
-      setLoading(false);
+      if (mode !== 'register') {
+        setLoading(false);
+      }
     }
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm overflow-y-auto">
-      <div className="bg-white rounded-3xl max-w-lg w-full p-8 pt-10 shadow-2xl relative border border-slate-100 my-8">
+      <div className="bg-white rounded-3xl max-w-lg w-full p-8 py-10 max-h-[90vh] overflow-y-auto shadow-2xl relative border border-slate-100 my-8">
         <button
           onClick={onClose}
           title="Close window"
@@ -154,6 +161,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               ? 'Select 1 news category to receive daily updates on Telegram (₹297.36/yr incl. GST).'
               : 'Recover access using your registered email and mobile number.'}
           </p>
+          {mode === 'register' && (
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 font-medium">
+              Note: News updates are currently circulated in India only.
+            </div>
+          )}
         </div>
 
         {error && (
@@ -164,34 +176,52 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         )}
 
         {successMsg && (
-          <div className="mb-6 p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-medium">
+          <div className="mb-6 p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold leading-relaxed">
             {successMsg}
           </div>
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           {mode === 'register' && (
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">
-                Full Name
-              </label>
-              <div className="relative">
-                <UserIcon className="absolute left-3.5 top-3.5 w-4 h-4 text-slate-400" />
-                <input
-                  type="text"
-                  required
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Mihir Kapuria"
-                  className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-slate-900"
-                />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">
+                  First Name *
+                </label>
+                <div className="relative">
+                  <UserIcon className="absolute left-3.5 top-3.5 w-4 h-4 text-slate-400" />
+                  <input
+                    type="text"
+                    required
+                    value={firstName}
+                    onChange={(e) => setFirstName(e.target.value)}
+                    placeholder="Mihir"
+                    className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-slate-900"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">
+                  Surname *
+                </label>
+                <div className="relative">
+                  <UserIcon className="absolute left-3.5 top-3.5 w-4 h-4 text-slate-400" />
+                  <input
+                    type="text"
+                    required
+                    value={surname}
+                    onChange={(e) => setSurname(e.target.value)}
+                    placeholder="Kapuria"
+                    className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-slate-900"
+                  />
+                </div>
               </div>
             </div>
           )}
 
           <div>
             <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">
-              Email Address
+              Email Address *
             </label>
             <div className="relative">
               <Mail className="absolute left-3.5 top-3.5 w-4 h-4 text-slate-400" />
@@ -209,21 +239,29 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           {(mode === 'register' || mode === 'recover') && (
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">
-                Mobile Number (Fixed +91 Country Code + 10 Digits)
+                Mobile Number *
               </label>
-              <div className="relative">
-                <Phone className="absolute left-3.5 top-3.5 w-4 h-4 text-slate-400" />
+              <div className="flex gap-2">
+                <select
+                  value={countryCode}
+                  onChange={(e) => setCountryCode(e.target.value)}
+                  className="px-3 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-slate-900 font-mono"
+                >
+                  <option value="+91">+91 (India)</option>
+                  <option value="+1">+1 (USA/Canada)</option>
+                  <option value="+44">+44 (UK)</option>
+                  <option value="+61">+61 (Australia)</option>
+                </select>
                 <input
                   type="text"
                   required
-                  value={mobile}
-                  onChange={handleMobileChange}
-                  maxLength={13}
-                  placeholder="+919876543210"
-                  className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-slate-900 font-mono"
+                  value={mobileNumber}
+                  onChange={(e) => setMobileNumber(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                  maxLength={10}
+                  placeholder="9876543210"
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-slate-900 font-mono"
                 />
               </div>
-              <p className="text-[11px] text-slate-500 mt-1">Country code +91 is locked. Enter 10 digits after +91.</p>
             </div>
           )}
 
@@ -231,7 +269,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             <div className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">
-                  Password (Exactly 8 Characters)
+                  Password *
                 </label>
                 <div className="relative">
                   <Lock className="absolute left-3.5 top-3.5 w-4 h-4 text-slate-400" />
@@ -253,7 +291,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   </button>
                 </div>
                 <p className="text-[11px] text-slate-500 mt-1">Password must be exactly 8 characters</p>
-                {mode === 'register' && password.length > 0 && !isPasswordValid && (
+                {mode === 'register' && password.length > 0 && password.length !== 8 && (
                   <p className="text-[11px] text-red-600 font-semibold mt-0.5">Password must be exactly 8 characters</p>
                 )}
               </div>
@@ -261,7 +299,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               {mode === 'register' && (
                 <div>
                   <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">
-                    Confirm Password (Exactly 8 Characters)
+                    Confirm Password *
                   </label>
                   <div className="relative">
                     <Lock className="absolute left-3.5 top-3.5 w-4 h-4 text-slate-400" />
@@ -283,7 +321,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     </button>
                   </div>
                   <p className="text-[11px] text-slate-500 mt-1">Password must be exactly 8 characters</p>
-                  {confirmPassword.length > 0 && !isConfirmValid && (
+                  {confirmPassword.length > 0 && confirmPassword.length !== 8 && (
                     <p className="text-[11px] text-red-600 font-semibold mt-0.5">Password must be exactly 8 characters</p>
                   )}
                   {password.length === 8 && confirmPassword.length === 8 && !isPasswordMatch && (
@@ -297,7 +335,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           {mode === 'recover' && (
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">
-                New Password (Exactly 8 Characters)
+                New Password *
               </label>
               <div className="relative">
                 <Lock className="absolute left-3.5 top-3.5 w-4 h-4 text-slate-400" />
@@ -340,7 +378,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
           <button
             type="submit"
-            disabled={loading || (mode === 'register' && (!isPasswordValid || !isConfirmValid || !isPasswordMatch || mobile.replace(/\D/g, '').length !== 12))}
+            disabled={loading || (mode === 'register' && (!isPasswordValid || !isConfirmValid || !isPasswordMatch || mobileNumber.length !== 10 || !firstName.trim() || !surname.trim()))}
             className="w-full py-3.5 bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-xl transition-colors text-sm shadow-md mt-4 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {loading ? 'Processing...' : mode === 'login' ? 'Sign In' : mode === 'register' ? 'Start Free Trial' : 'Reset Password'}
@@ -355,7 +393,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           </button>
         </form>
 
-        <div className="mt-6 pt-6 border-t border-slate-100 flex items-center justify-between text-xs">
+        <div className="mt-6 pt-6 border-t border-slate-100 flex items-center justify-between text-xs pb-2">
           {mode === 'login' ? (
             <button
               onClick={() => setMode('recover')}
