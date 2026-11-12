@@ -1,19 +1,19 @@
 const CATEGORIES = [
-  "India Startups & Funding",
-  "India Banking & FinTech",
-  "Indian Stock Market & Economy",
-  "Artificial Intelligence & Tech India",
-  "Government Schemes & Policy",
-  "Real Estate & Infrastructure India",
-  "Automobile Industry India",
-  "FMCG & Retail Market India",
-  "Renewable Energy & Electric Vehicles",
-  "Agriculture & AgriTech India",
-  "Pharma & Healthcare India",
-  "MSME & Manufacturing India",
-  "Telecom & Media India",
-  "Logistics & Supply Chain India",
-  "Global Economy & India Impact"
+  { id: 'banking-fintech', title: 'Banking and Fintech', telegramChatId: '-1004377330142' },
+  { id: 'consumer-fmcg', title: 'India Consumer & FMCG', telegramChatId: '-1004356285380' },
+  { id: 'economy-business', title: 'Economy and Business', telegramChatId: '-1003773612503' },
+  { id: 'energy-renewal', title: 'Energy and Renewal', telegramChatId: '-1004305076677' },
+  { id: 'hr-employment', title: 'HR and Employment', telegramChatId: '-1003756538856' },
+  { id: 'it-ai-cybersecurity', title: 'IT AI Cybersecurity', telegramChatId: '-1004404579614' },
+  { id: 'manufacturing-auto', title: 'Manufacturing and Auto', telegramChatId: '-1004328043113' },
+  { id: 'marketing-advertising', title: 'Marketing and Advertising', telegramChatId: '-1003914193738' },
+  { id: 'real-estate', title: 'Real Estate', telegramChatId: '-1004322510775' },
+  { id: 'bollywood', title: 'Bollywood', telegramChatId: '-1004339246354' },
+  { id: 'kids', title: 'Kids', telegramChatId: '-1004312693379' },
+  { id: 'women', title: 'Women', telegramChatId: '-1003821497200' },
+  { id: 'politics', title: 'Politics', telegramChatId: '-1004350871154' },
+  { id: 'stock-market', title: 'Stock Market', telegramChatId: '-1004343493425' },
+  { id: 'startup', title: 'Startup', telegramChatId: '-1003720483555' }
 ];
 
 async function sendTelegramMessage(token, chatId, text, replyMarkup = null) {
@@ -52,12 +52,12 @@ var worker_default = {
     }
 
     // 2. Customer Registration / Trial API
-    if (url.pathname === "/api/register" && request.method === "POST") {
+    if (url.pathname === "/api/auth/register" && request.method === "POST") {
       try {
         const data = await request.json();
-        const { first_name, surname, email, country_code, mobile_number, password, category } = data;
+        const { firstName, surname, email, countryCode, mobileNumber, password, category } = data;
 
-        if (!email || !password || !mobile_number || !category) {
+        if (!email || !password || !mobileNumber || !category) {
           return new Response(JSON.stringify({ error: "Missing required fields" }), {
             status: 400,
             headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
@@ -66,19 +66,41 @@ var worker_default = {
 
         const trialExpires = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
 
-        await env.DB.prepare(
+        const insertResult = await env.DB.prepare(
           `INSERT INTO users (first_name, surname, email, country_code, mobile_number, password, category, trial_expires_at, status) 
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'trial')`
-        ).bind(first_name || "", surname || "", email, country_code || "+91", mobile_number, password, category, trialExpires).run();
+        ).bind(firstName || "", surname || "", email, countryCode || "+91", mobileNumber, password, category, trialExpires).run();
 
+        const userId = insertResult.meta.last_row_id;
+        const tokenVal = "dummy_token_" + userId;
+
+        // Match category to find correct Telegram Channel ID
+        const matchedCat = CATEGORIES.find(c => c.id === category || c.title === category);
+        const catTitle = matchedCat ? matchedCat.title : category;
+        const targetChatId = matchedCat ? matchedCat.telegramChatId : env.OWNER_TELEGRAM_CHAT_ID;
+
+        // Notify via Telegram with Approval Buttons
         const token = env.TELEGRAM_BOT_TOKEN;
-        const chatId = env.OWNER_TELEGRAM_CHAT_ID;
-        if (token && chatId) {
-          const msg = `🚀 *New Trial Signup!*\n\n*Name:* ${first_name} ${surname}\n*Mobile:* ${country_code} ${mobile_number}\n*Email:* ${email}\n*Category:* ${category}`;
-          await sendTelegramMessage(token, chatId, msg);
+        if (token && targetChatId) {
+          const msg = `🚀 *New Trial Signup!*\n\n*Name:* ${firstName || ""} ${surname || ""}\n*Mobile:* ${countryCode || "+91"} ${mobileNumber}\n*Email:* ${email}\n*Category:* ${catTitle}`;
+          
+          const keyboard = {
+            inline_keyboard: [
+              [
+                { text: "✅ Approve", callback_data: `APPROVE_${userId}` },
+                { text: "❌ Stop", callback_data: `STOP_${userId}` }
+              ]
+            ]
+          };
+
+          await sendTelegramMessage(token, targetChatId, msg, keyboard);
         }
 
-        return new Response(JSON.stringify({ success: true, trial_expires_at: trialExpires }), {
+        return new Response(JSON.stringify({ 
+          success: true, 
+          token: tokenVal, 
+          user: { id: userId, email, first_name: firstName, surname, category, status: 'trial', role: 'customer' } 
+        }), {
           status: 200,
           headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
         });
