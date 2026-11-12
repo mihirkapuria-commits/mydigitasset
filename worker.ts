@@ -1,112 +1,137 @@
-interface D1PreparedStatement {
-  bind(...args: any[]): D1PreparedStatement;
-  all(): Promise<{ results: any[] }>;
-  run(): Promise<{ meta?: { changes?: number } }>;
-  first(): Promise<any>;
-}
+const CATEGORIES = [
+  "India Startups & Funding",
+  "India Banking & FinTech",
+  "Indian Stock Market & Economy",
+  "Artificial Intelligence & Tech India",
+  "Government Schemes & Policy",
+  "Real Estate & Infrastructure India",
+  "Automobile Industry India",
+  "FMCG & Retail Market India",
+  "Renewable Energy & Electric Vehicles",
+  "Agriculture & AgriTech India",
+  "Pharma & Healthcare India",
+  "MSME & Manufacturing India",
+  "Telecom & Media India",
+  "Logistics & Supply Chain India",
+  "Global Economy & India Impact"
+];
 
-interface D1Database {
-  prepare(query: string): D1PreparedStatement;
-}
-
-interface ScheduledEvent {
-  scheduledTime: number;
-  cron: string;
-}
-
-interface ExecutionContext {
-  waitUntil(promise: Promise<any>): void;
-  passThroughOnException(): void;
-}
-
-export interface Env {
-  DB: D1Database;
-  ASSETS: {
-    fetch: (request: Request) => Promise<Response>;
+async function sendTelegramMessage(token, chatId, text, replyMarkup = null) {
+  if (!token || !chatId) return;
+  const url = `https://api.telegram.org/bot${token}/sendMessage`;
+  const body = {
+    chat_id: chatId,
+    text: text,
+    parse_mode: "Markdown"
   };
+  if (replyMarkup) {
+    body.reply_markup = replyMarkup;
+  }
+  await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
 }
 
-export default {
-  // Handles incoming browser requests & API calls
-  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+var worker_default = {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
-    // API route to get dynamic content from D1
-    if (url.pathname === '/api/content') {
-      if (request.method === 'GET') {
-        try {
-          const { results } = await env.DB.prepare(
-            'SELECT key, value FROM site_content'
-          ).all();
-
-          const contentMap: Record<string, string> = {};
-          if (results) {
-            for (const row of results as { key: string; value: string }[]) {
-              contentMap[row.key] = row.value;
-            }
+    // 1. Categories API
+    if (url.pathname === "/api/categories") {
+      if (request.method === "GET") {
+        return new Response(JSON.stringify(CATEGORIES), {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*"
           }
-
-          return new Response(JSON.stringify(contentMap), {
-            status: 200,
-            headers: {
-              'Content-Type': 'application/json',
-              'Access-Control-Allow-Origin': '*',
-              'Cache-Control': 'no-cache',
-            },
-          });
-        } catch (error: any) {
-          return new Response(
-            JSON.stringify({ error: 'Failed to retrieve content', details: error.message }),
-            {
-              status: 500,
-              headers: { 'Content-Type': 'application/json' },
-            }
-          );
-        }
-      }
-
-      // API route to update dynamic content via POST
-      if (request.method === 'POST') {
-        try {
-          const body = (await request.json()) as { key: string; value: string };
-          if (!body.key || body.value === undefined) {
-            return new Response(JSON.stringify({ error: 'Missing key or value' }), { status: 400 });
-          }
-
-          await env.DB.prepare(
-            'INSERT INTO site_content (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP'
-          ).bind(body.key, body.value).run();
-
-          return new Response(JSON.stringify({ success: true, key: body.key }), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-          });
-        } catch (error: any) {
-          return new Response(
-            JSON.stringify({ error: 'Failed to update content', details: error.message }),
-            {
-              status: 500,
-              headers: { 'Content-Type': 'application/json' },
-            }
-          );
-        }
+        });
       }
     }
 
-    // Attempt to fetch static asset from ./dist
-    let response = await env.ASSETS.fetch(request);
+    // 2. Customer Registration / Trial API
+    if (url.pathname === "/api/register" && request.method === "POST") {
+      try {
+        const data = await request.json();
+        const { first_name, surname, email, country_code, mobile_number, password, category } = data;
 
-    // Single-Page Application (SPA) fallback: serve index.html on 404
+        if (!email || !password || !mobile_number || !category) {
+          return new Response(JSON.stringify({ error: "Missing required fields" }), {
+            status: 400,
+            headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
+          });
+        }
+
+        const trialExpires = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
+
+        await env.DB.prepare(
+          `INSERT INTO users (first_name, surname, email, country_code, mobile_number, password, category, trial_expires_at, status) 
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'trial')`
+        ).bind(first_name || "", surname || "", email, country_code || "+91", mobile_number, password, category, trialExpires).run();
+
+        const token = env.TELEGRAM_BOT_TOKEN;
+        const chatId = env.OWNER_TELEGRAM_CHAT_ID;
+        if (token && chatId) {
+          const msg = `🚀 *New Trial Signup!*\n\n*Name:* ${first_name} ${surname}\n*Mobile:* ${country_code} ${mobile_number}\n*Email:* ${email}\n*Category:* ${category}`;
+          await sendTelegramMessage(token, chatId, msg);
+        }
+
+        return new Response(JSON.stringify({ success: true, trial_expires_at: trialExpires }), {
+          status: 200,
+          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
+        });
+      } catch (err) {
+        return new Response(JSON.stringify({ error: err.message }), {
+          status: 500,
+          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
+        });
+      }
+    }
+
+    // 3. Telegram Webhook Handler
+    if (url.pathname === "/api/telegram/webhook" && request.method === "POST") {
+      try {
+        const update = await request.json();
+        const token = env.TELEGRAM_BOT_TOKEN;
+
+        if (update.callback_query) {
+          const callback = update.callback_query;
+          const data = callback.data; 
+          const chatId = callback.message.chat.id;
+
+          const [action, userId] = data.split("_");
+
+          if (action === "APPROVE") {
+            await env.DB.prepare("UPDATE users SET status = 'active' WHERE id = ?").bind(userId).run();
+            await sendTelegramMessage(token, chatId, `✅ User #${userId} has been approved and activated!`);
+          } else if (action === "STOP") {
+            await env.DB.prepare("UPDATE users SET status = 'stopped' WHERE id = ?").bind(userId).run();
+            await sendTelegramMessage(token, chatId, `❌ User #${userId} subscription has been stopped.`);
+          }
+        }
+
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      } catch (e) {
+        return new Response(JSON.stringify({ ok: false, error: e.message }), { status: 500 });
+      }
+    }
+
+    let response = await env.ASSETS.fetch(request);
     if (response.status === 404) {
-      const indexUrl = new URL('/index.html', request.url);
+      const indexUrl = new URL("/index.html", request.url);
       response = await env.ASSETS.fetch(new Request(indexUrl, request));
     }
-
     return response;
   },
 
-  // Daily cron trigger
-  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
-    console.log('Cron triggered at:', new Date(event.scheduledTime).toISOString());
-  },
+  async scheduled(event, env, ctx) {
+    console.log("Cron triggered");
+  }
 };
+
+export { worker_default as default };
