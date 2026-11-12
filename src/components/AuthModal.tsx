@@ -112,7 +112,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Registration failed');
 
-        // Calculate exact 3-day IST expiration date
         const now = new Date();
         const expiryMs = now.getTime() + 3 * 24 * 60 * 60 * 1000;
         const expiryDate = new Date(expiryMs);
@@ -124,9 +123,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           timeZone: 'Asia/Kolkata'
         }).format(expiryDate);
 
-        // Safe Telegram link generation without phone number mapping issues
+        // Generate direct Telegram channel link using the category's chat ID
         const matchedCategoryObj = categories.find(c => c.id === selectedCategory);
-        const telegramLink = matchedCategoryObj?.telegramChatId ? `https://t.me/` : 'https://t.me/';
+        let chatIdStr = matchedCategoryObj?.telegramChatId || '';
+        if (chatIdStr.startsWith('-100')) {
+          chatIdStr = chatIdStr.replace('-100', '');
+        }
+        const telegramLink = chatIdStr ? `https://t.me/c/${chatIdStr}/1` : 'https://t.me/';
 
         setSuccessData({
           user: data.user,
@@ -210,16 +213,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               <div className="bg-white p-4 rounded-xl text-left space-y-2 text-xs text-slate-700 shadow-sm border border-emerald-100">
                 <div className="flex justify-between">
                   <span className="font-semibold text-slate-500">User ID (Serial No):</span>
-                  {/* Clean User ID without # symbol */}
-                  <span className="font-mono font-bold text-slate-900">{successData.user?.id || '1'}</span>[cite: 1]
+                  <span className="font-mono font-bold text-slate-900">{successData.user?.id || '1'}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="font-semibold text-slate-500">Registered Email:</span>
-                  <span className="font-medium text-slate-900">{email}</span>[cite: 1]
+                  <span className="font-medium text-slate-900">{email}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="font-semibold text-slate-500">Trial Expires On:</span>
-                  <span className="font-semibold text-emerald-700">{successData.expiryText}</span>[cite: 1]
+                  <span className="font-semibold text-emerald-700">{successData.expiryText}</span>
                 </div>
               </div>
             </div>
@@ -232,7 +234,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 className="w-full py-4 bg-sky-500 hover:bg-sky-600 text-white font-bold rounded-xl transition-colors text-sm shadow-lg flex items-center justify-center gap-3"
               >
                 <Send className="w-5 h-5" />
-                Click Here to Join Telegram News Channel[cite: 1]
+                Click Here to Join Telegram News Channel
               </a>
               <button
                 onClick={() => {
