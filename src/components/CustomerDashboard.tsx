@@ -84,6 +84,13 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
   const selectedCatObj = categories.find(c => c.id === (currentUser.category || currentUser.categories?.[0]));
   const categoryTitle = selectedCatObj ? selectedCatObj.title : (currentUser.category || 'No category selected');
 
+  // Generate direct Telegram Link for the user's category
+  let rawChatId = selectedCatObj?.telegramChatId || '';
+  if (rawChatId.startsWith('-100')) {
+    rawChatId = rawChatId.replace('-100', '');
+  }
+  const categoryTelegramLink = rawChatId ? `https://t.me/+${rawChatId}` : 'https://t.me/';
+
   return (
     <div className="py-12 bg-slate-50 min-h-screen">
       <div className="max-w-7xl mx-auto px-6 space-y-8">
@@ -128,6 +135,31 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
           </div>
         </div>
 
+        {/* Telegram Access & User ID Banner */}
+        <div className="bg-gradient-to-r from-slate-900 to-indigo-950 text-white rounded-3xl p-8 shadow-lg flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+          <div className="space-y-2">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 text-indigo-200 text-xs font-semibold">
+              Subscriber Access & Telegram Channel
+            </div>
+            <h3 className="text-2xl font-extrabold text-white">
+              User ID: <span className="font-mono text-indigo-400">#{currentUser.id || '1'}</span>
+            </h3>
+            <p className="text-sm text-slate-300 max-w-xl">
+              Category: <span className="font-semibold text-white">{categoryTitle}</span>. Click the button to access your category Telegram news channel instantly.
+            </p>
+          </div>
+
+          <a
+            href={categoryTelegramLink}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="px-6 py-4 bg-sky-500 hover:bg-sky-600 text-white font-bold rounded-2xl transition-all shadow-lg flex items-center gap-3 text-sm shrink-0"
+          >
+            <Send className="w-5 h-5" />
+            Join Telegram Channel
+          </a>
+        </div>
+
         {/* Trial & First News Info Banner */}
         {isTrialActive && (
           <div className="bg-indigo-900 text-white rounded-3xl p-6 shadow-md flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
@@ -138,7 +170,7 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
               <div className="space-y-1">
                 <h4 className="font-bold text-base text-white">Your News Schedule & Trial Status</h4>
                 <p className="text-xs text-indigo-200">
-                  • Your first news will arrive on {firstNewsDateStr} at 10:00 AM IST via Telegram
+                  • Your first news will arrive on {firstNewsDateStr} at 6:15 AM IST via Telegram
                 </p>
                 <p className="text-xs text-indigo-200">
                   • Your 3-day free trial ends on {formattedExpiryDayDate} ({daysLeft} {daysLeft === 1 ? 'day' : 'days'} left)
@@ -164,7 +196,7 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
             <div className="space-y-3 text-sm">
               <div className="flex justify-between py-2 border-b border-slate-100">
                 <span className="text-slate-500">Status</span>
-                <span className="font-semibold text-slate-900 capitalize">{currentUser.subscriptionStatus.replace('_', ' ')}</span>
+                <span className="font-semibold text-slate-900 capitalize">{currentUser.subscriptionStatus?.replace('_', ' ') || 'Trial'}</span>
               </div>
               <div className="flex justify-between py-2 border-b border-slate-100">
                 <span className="text-slate-500">Trial Expiry</span>
@@ -172,7 +204,7 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
               </div>
               <div className="flex justify-between py-2">
                 <span className="text-slate-500">Payment Status</span>
-                <span className="font-semibold text-slate-900 capitalize">{currentUser.paymentStatus}</span>
+                <span className="font-semibold text-slate-900 capitalize">{currentUser.paymentStatus || 'Pending'}</span>
               </div>
             </div>
 
@@ -189,7 +221,7 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
 
           {/* Telegram Connection Status */}
           <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-sm space-y-4">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">Telegram Channel</h3>
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">Telegram Bot</h3>
             <div className="space-y-3 text-sm">
               <div className="flex justify-between py-2 border-b border-slate-100">
                 <span className="text-slate-500">Connection</span>
@@ -228,7 +260,7 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
           </div>
         </div>
 
-        {/* Profile Settings (Read-Only Customer Details + Editable Mobile Number) */}
+        {/* Profile Settings */}
         <div className="bg-white rounded-3xl p-8 border border-slate-200/80 shadow-sm space-y-6">
           <div className="flex items-center justify-between border-b border-slate-100 pb-4">
             <div>
