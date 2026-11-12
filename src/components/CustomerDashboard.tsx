@@ -64,7 +64,6 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
   const trialExpiryDate = new Date(currentUser.trialExpiry || currentUser.trialExpiresAt || Date.now() + 3 * 24 * 60 * 60 * 1000);
   const isTrialActive = new Date() < trialExpiryDate && currentUser.subscriptionStatus === 'trial';
 
-  // First news arrives on trial start + 1 day at 10:00 AM IST
   const firstNewsDateObj = new Date(trialStart.getTime() + 24 * 60 * 60 * 1000);
   const firstNewsDateStr = firstNewsDateObj.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
   
@@ -84,12 +83,12 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
   const selectedCatObj = categories.find(c => c.id === (currentUser.category || currentUser.categories?.[0]));
   const categoryTitle = selectedCatObj ? selectedCatObj.title : (currentUser.category || 'No category selected');
 
-  // Generate direct Telegram Link for the user's category
-  let rawChatId = selectedCatObj?.telegramChatId || '';
-  if (rawChatId.startsWith('-100')) {
-    rawChatId = rawChatId.replace('-100', '');
+  // Correct direct channel link generator
+  let chatIdStr = selectedCatObj?.telegramChatId || '';
+  if (chatIdStr.startsWith('-100')) {
+    chatIdStr = chatIdStr.replace('-100', '');
   }
-  const categoryTelegramLink = rawChatId ? `https://t.me/+${rawChatId}` : 'https://t.me/';
+  const categoryTelegramLink = chatIdStr ? `https://t.me/c/${chatIdStr}/1` : 'https://t.me/';
 
   return (
     <div className="py-12 bg-slate-50 min-h-screen">
@@ -142,7 +141,7 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
               Subscriber Access & Telegram Channel
             </div>
             <h3 className="text-2xl font-extrabold text-white">
-              User ID: <span className="font-mono text-indigo-400">#{currentUser.id || '1'}</span>
+              User ID: <span className="font-mono text-indigo-400">{currentUser.id || '1'}</span>
             </h3>
             <p className="text-sm text-slate-300 max-w-xl">
               Category: <span className="font-semibold text-white">{categoryTitle}</span>. Click the button to access your category Telegram news channel instantly.
@@ -190,7 +189,6 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
 
         {/* Status Grid */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {/* Trial & Subscription Status */}
           <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-sm space-y-4">
             <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">Subscription & Trial</h3>
             <div className="space-y-3 text-sm">
@@ -219,7 +217,6 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
             )}
           </div>
 
-          {/* Telegram Connection Status */}
           <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-sm space-y-4">
             <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">Telegram Bot</h3>
             <div className="space-y-3 text-sm">
@@ -248,7 +245,6 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
             </button>
           </div>
 
-          {/* Selected Category */}
           <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-sm space-y-4">
             <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">Selected News Category (1 Category)</h3>
             <div className="p-3 bg-indigo-50/60 rounded-xl text-xs font-semibold text-slate-900 border border-indigo-100">
@@ -284,7 +280,6 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
             </div>
           )}
 
-          {/* Read-Only Fields Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">
@@ -347,7 +342,6 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
             </div>
           </div>
 
-          {/* Editable Mobile Number Form */}
           <form onSubmit={handleUpdateMobile} className="space-y-4 pt-6 border-t border-slate-100">
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">
