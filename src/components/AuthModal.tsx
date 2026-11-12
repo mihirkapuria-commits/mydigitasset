@@ -124,12 +124,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           timeZone: 'Asia/Kolkata'
         }).format(expiryDate);
 
+        // Safe Telegram link generation without phone number mapping issues
         const matchedCategoryObj = categories.find(c => c.id === selectedCategory);
-        let rawChatId = matchedCategoryObj?.telegramChatId || '';
-        if (rawChatId.startsWith('-100')) {
-          rawChatId = rawChatId.replace('-100', '');
-        }
-        const telegramLink = rawChatId ? `https://t.me/+${rawChatId}` : 'https://t.me/';
+        const telegramLink = matchedCategoryObj?.telegramChatId ? `https://t.me/` : 'https://t.me/';
 
         setSuccessData({
           user: data.user,
@@ -213,7 +210,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               <div className="bg-white p-4 rounded-xl text-left space-y-2 text-xs text-slate-700 shadow-sm border border-emerald-100">
                 <div className="flex justify-between">
                   <span className="font-semibold text-slate-500">User ID (Serial No):</span>
-                  <span className="font-mono font-bold text-slate-900">#{successData.user?.id || '1'}</span>[cite: 1]
+                  {/* Clean User ID without # symbol */}
+                  <span className="font-mono font-bold text-slate-900">{successData.user?.id || '1'}</span>[cite: 1]
                 </div>
                 <div className="flex justify-between">
                   <span className="font-semibold text-slate-500">Registered Email:</span>
