@@ -19,7 +19,10 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
   onUpdateUser,
   onLogout
 }) => {
-  const [mobile, setMobile] = useState(currentUser.mobile || '+91');
+  const [countryCode, setCountryCode] = useState(currentUser.countryCode || '+91');
+  const [mobileNumber, setMobileNumber] = useState(
+    currentUser.mobileNumber || (currentUser.mobile ? currentUser.mobile.replace(/^\+91/, '') : '')
+  );
   const [profileMsg, setProfileMsg] = useState('');
   const [profileErr, setProfileErr] = useState('');
   const [savingProfile, setSavingProfile] = useState(false);
@@ -27,22 +30,12 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
   const [isPaymentOpen, setIsPaymentOpen] = useState(false);
   const [isTelegramOpen, setIsTelegramOpen] = useState(false);
 
-  const handleMobileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value;
-    if (!val.startsWith('+91')) {
-      setMobile('+91');
-      return;
-    }
-    const digits = val.slice(3).replace(/\D/g, '').slice(0, 10);
-    setMobile('+91' + digits);
-  };
-
   const handleUpdateMobile = async (e: React.FormEvent) => {
     e.preventDefault();
     setProfileMsg('');
     setProfileErr('');
-    if (mobile.replace(/\D/g, '').length !== 12) {
-      setProfileErr('Please enter a valid 10-digit mobile number after +91.');
+    if (mobileNumber.replace(/\D/g, '').length !== 10) {
+      setProfileErr('Please enter a valid 10-digit mobile number.');
       return;
     }
     setSavingProfile(true);
@@ -54,7 +47,7 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ mobile })
+        body: JSON.stringify({ countryCode, mobileNumber, mobile: countryCode + mobileNumber })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to update mobile number');
@@ -68,14 +61,28 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
   };
 
   const trialStart = new Date(currentUser.trialStart || currentUser.createdAt || Date.now());
-  const trialExpiryDate = new Date(currentUser.trialExpiry);
+  const trialExpiryDate = new Date(currentUser.trialExpiry || currentUser.trialExpiresAt || Date.now() + 3 * 24 * 60 * 60 * 1000);
   const isTrialActive = new Date() < trialExpiryDate && currentUser.subscriptionStatus === 'trial';
 
   // First news arrives on trial start + 1 day at 10:00 AM IST
   const firstNewsDateObj = new Date(trialStart.getTime() + 24 * 60 * 60 * 1000);
   const firstNewsDateStr = firstNewsDateObj.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+  
   const expiryDateStr = trialExpiryDate.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+  const formattedExpiryDayDate = new Intl.DateTimeFormat('en-US', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    timeZone: 'Asia/Kolkata'
+  }).format(trialExpiryDate);
+
   const daysLeft = Math.max(0, Math.ceil((trialExpiryDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24)));
+
+  const firstNameVal = currentUser.firstName || currentUser.name?.split(' ')[0] || '';
+  const surnameVal = currentUser.surname || currentUser.name?.split(' ').slice(1).join(' ') || '';
+  const selectedCatObj = categories.find(c => c.id === (currentUser.category || currentUser.categories?.[0]));
+  const categoryTitle = selectedCatObj ? selectedCatObj.title : (currentUser.category || 'No category selected');
 
   return (
     <div className="py-12 bg-slate-50 min-h-screen">
@@ -87,7 +94,7 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
               Customer Account Dashboard
             </div>
             <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">
-              Welcome back, {currentUser.name}
+              Welcome back, {firstNameVal} {surnameVal}
             </h1>
             <p className="text-sm text-slate-600 mt-1">
               Manage your subscription, Telegram bot connection, and mobile profile settings.
@@ -134,7 +141,7 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
                   • Your first news will arrive on {firstNewsDateStr} at 10:00 AM IST via Telegram
                 </p>
                 <p className="text-xs text-indigo-200">
-                  • Your 3-day free trial ends on {expiryDateStr} — {daysLeft} {daysLeft === 1 ? 'day' : 'days'} left
+                  • Your 3-day free trial ends on {formattedExpiryDayDate} ({daysLeft} {daysLeft === 1 ? 'day' : 'days'} left)
                 </p>
               </div>
             </div>
@@ -161,7 +168,7 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
               </div>
               <div className="flex justify-between py-2 border-b border-slate-100">
                 <span className="text-slate-500">Trial Expiry</span>
-                <span className="font-mono text-xs text-slate-900">{new Date(currentUser.trialExpiry).toLocaleDateString()}</span>
+                <span className="font-mono text-xs text-slate-900">{expiryDateStr}</span>
               </div>
               <div className="flex justify-between py-2">
                 <span className="text-slate-500">Payment Status</span>
@@ -213,11 +220,7 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
           <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-sm space-y-4">
             <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">Selected News Category (1 Category)</h3>
             <div className="p-3 bg-indigo-50/60 rounded-xl text-xs font-semibold text-slate-900 border border-indigo-100">
-              {(() => {
-                const catId = currentUser.category || currentUser.categories?.[0];
-                const catObj = categories.find(c => c.id === catId);
-                return catObj ? catObj.title : catId || 'No category selected';
-              })()}
+              {categoryTitle}
             </div>
             <p className="text-xs text-slate-500 pt-1">
               Your ₹297.36 annual subscription covers daily Telegram news delivery for this category.
@@ -225,13 +228,13 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
           </div>
         </div>
 
-        {/* Profile Settings (Mobile editable only, Name/Email/Country Code locked) */}
+        {/* Profile Settings (Read-Only Customer Details + Editable Mobile Number) */}
         <div className="bg-white rounded-3xl p-8 border border-slate-200/80 shadow-sm space-y-6">
           <div className="flex items-center justify-between border-b border-slate-100 pb-4">
             <div>
               <h3 className="text-lg font-bold text-slate-900">Account Profile & Security Rules</h3>
               <p className="text-xs text-slate-500">
-                Only mobile number can be changed. Name, email address, and country code (+91) are locked.
+                Only mobile number can be changed. First name, surname, email address, category, and trial expiration are strictly read-only.
               </p>
             </div>
             <Lock className="w-5 h-5 text-slate-400" />
@@ -249,22 +252,35 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
             </div>
           )}
 
+          {/* Read-Only Fields Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">
-                Registered Name (Read-Only)
+                First Name (Read-Only)
               </label>
               <input
                 type="text"
                 disabled
-                value={currentUser.name}
+                value={firstNameVal}
                 className="w-full px-4 py-3 bg-slate-100 border border-slate-200 rounded-xl text-sm text-slate-600 cursor-not-allowed"
               />
             </div>
 
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">
-                Registered Email (Read-Only)
+                Surname (Read-Only)
+              </label>
+              <input
+                type="text"
+                disabled
+                value={surnameVal}
+                className="w-full px-4 py-3 bg-slate-100 border border-slate-200 rounded-xl text-sm text-slate-600 cursor-not-allowed"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">
+                Email Address (Read-Only)
               </label>
               <input
                 type="email"
@@ -273,25 +289,63 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
                 className="w-full px-4 py-3 bg-slate-100 border border-slate-200 rounded-xl text-sm text-slate-600 cursor-not-allowed"
               />
             </div>
+
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">
+                Selected News Category (Read-Only)
+              </label>
+              <input
+                type="text"
+                disabled
+                value={categoryTitle}
+                className="w-full px-4 py-3 bg-slate-100 border border-slate-200 rounded-xl text-sm text-slate-600 cursor-not-allowed"
+              />
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">
+                3-Day Trial Expiration Day & Date (Read-Only)
+              </label>
+              <input
+                type="text"
+                disabled
+                value={formattedExpiryDayDate}
+                className="w-full px-4 py-3 bg-slate-100 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 cursor-not-allowed font-mono"
+              />
+            </div>
           </div>
 
-          <form onSubmit={handleUpdateMobile} className="space-y-4 pt-4 border-t border-slate-100">
+          {/* Editable Mobile Number Form */}
+          <form onSubmit={handleUpdateMobile} className="space-y-4 pt-6 border-t border-slate-100">
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">
-                Mobile Number (+91 Locked + 10 Digits Editable)
+                Mobile Phone Number (Only Editable Field)
               </label>
-              <div className="relative max-w-md">
-                <Phone className="absolute left-3.5 top-3.5 w-4 h-4 text-slate-400" />
-                <input
-                  type="text"
-                  required
-                  value={mobile}
-                  onChange={handleMobileChange}
-                  maxLength={13}
-                  className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-slate-900 font-mono"
-                />
+              <div className="flex gap-2 max-w-md">
+                <select
+                  value={countryCode}
+                  onChange={(e) => setCountryCode(e.target.value)}
+                  className="px-3 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-slate-900 font-mono"
+                >
+                  <option value="+91">+91 (India)</option>
+                  <option value="+1">+1 (USA/Canada)</option>
+                  <option value="+44">+44 (UK)</option>
+                  <option value="+61">+61 (Australia)</option>
+                </select>
+                <div className="relative flex-1">
+                  <Phone className="absolute left-3.5 top-3.5 w-4 h-4 text-slate-400" />
+                  <input
+                    type="text"
+                    required
+                    value={mobileNumber}
+                    onChange={(e) => setMobileNumber(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                    maxLength={10}
+                    placeholder="9876543210"
+                    className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-slate-900 font-mono"
+                  />
+                </div>
               </div>
-              <p className="text-[11px] text-slate-500 mt-1">Only mobile number can be changed.</p>
+              <p className="text-[11px] text-slate-500 mt-1">Only mobile number can be changed. Enter 10 digits.</p>
             </div>
 
             <button

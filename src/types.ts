@@ -8,13 +8,18 @@ export interface Category {
 export interface User {
   id: string;
   name: string;
+  firstName?: string;
+  surname?: string;
   email: string;
+  countryCode?: string;
+  mobileNumber?: string;
   mobile: string;
   role: 'admin' | 'customer';
   category: string;
   categories: string[];
   trialStart: string;
   trialExpiry: string;
+  trialExpiresAt?: string;
   subscriptionStatus: 'trial' | 'active_paid' | 'expired';
   paymentStatus: 'none' | 'pending' | 'verified' | 'rejected';
   telegramConnected: boolean;

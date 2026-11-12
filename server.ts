@@ -102,7 +102,11 @@ const INITIAL_DB = {
     {
       id: 'admin-user-1',
       name: 'Mihir Kapuria',
+      firstName: 'Mihir',
+      surname: 'Kapuria',
       email: 'mihirkapuria@gmail.com',
+      countryCode: '+91',
+      mobileNumber: '9876543210',
       mobile: '+919876543210',
       passwordHash: crypto.createHash('sha256').update('admin123').digest('hex'),
       role: 'admin',
@@ -110,6 +114,7 @@ const INITIAL_DB = {
       categories: ['startups'],
       trialStart: new Date().toISOString(),
       trialExpiry: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+      trialExpiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
       subscriptionStatus: 'active_paid',
       paymentStatus: 'verified',
       accessOverride: false,
@@ -270,9 +275,16 @@ async function startServer() {
   });
 
   app.post('/api/auth/register', (req, res) => {
-    const { name, email, mobile, password, category } = req.body;
-    if (!name || !email || !mobile || !password || !category) {
-      return res.status(400).json({ error: 'Missing required registration fields or category selection' });
+    const { firstName, surname, name, email, countryCode, mobileNumber, mobile, password, category } = req.body;
+    const fName = firstName || (name ? name.split(' ')[0] : '');
+    const sName = surname || (name ? name.split(' ').slice(1).join(' ') : '');
+    const fullName = `${fName} ${sName}`.trim() || name || '';
+    const cCode = countryCode || '+91';
+    const mNum = mobileNumber || (mobile ? mobile.replace(/^\+91/, '') : '');
+    const fullMobile = mobile || (cCode + mNum);
+
+    if (!fName || !sName || !email || !fullMobile || !password || !category) {
+      return res.status(400).json({ error: 'Missing required registration fields (First Name, Surname, Email, Mobile, Password, Category)' });
     }
 
     const normalizedEmail = email.toLowerCase().trim();
@@ -289,15 +301,20 @@ async function startServer() {
     const trialExpiry = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
     const newUser = {
       id: 'user-' + crypto.randomBytes(4).toString('hex'),
-      name,
+      name: fullName,
+      firstName: fName,
+      surname: sName,
       email: normalizedEmail,
-      mobile,
+      countryCode: cCode,
+      mobileNumber: mNum,
+      mobile: fullMobile,
       passwordHash: crypto.createHash('sha256').update(password).digest('hex'),
       role: 'customer',
       category,
       categories: [category],
       trialStart: now.toISOString(),
       trialExpiry: trialExpiry.toISOString(),
+      trialExpiresAt: trialExpiry.toISOString(),
       subscriptionStatus: 'trial',
       paymentStatus: 'none',
       accessOverride: false,
@@ -351,14 +368,19 @@ async function startServer() {
   });
 
   app.put('/api/profile', authenticateUser, (req: any, res) => {
-    const { mobile } = req.body;
-    if (!mobile) return res.status(400).json({ error: 'Mobile number is required' });
+    const { countryCode, mobileNumber, mobile } = req.body;
+    const cCode = countryCode || req.user.countryCode || '+91';
+    const mNum = mobileNumber || (mobile ? mobile.replace(/^\+91/, '') : '');
+    const fullMobile = mobile || (cCode + mNum);
+    if (!fullMobile) return res.status(400).json({ error: 'Mobile number is required' });
 
     const db = readDb();
     const index = db.users.findIndex((u: any) => u.id === req.user.id);
     if (index === -1) return res.status(404).json({ error: 'User not found' });
 
-    db.users[index].mobile = mobile;
+    db.users[index].countryCode = cCode;
+    db.users[index].mobileNumber = mNum;
+    db.users[index].mobile = fullMobile;
     writeDb(db);
 
     const { passwordHash, ...safeUser } = db.users[index];

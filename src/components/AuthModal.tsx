@@ -91,7 +91,17 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         const res = await fetch('/api/auth/register', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: fullName, email, mobile: fullMobile, password, category: selectedCategory })
+          body: JSON.stringify({
+            firstName,
+            surname,
+            name: fullName,
+            email,
+            countryCode,
+            mobileNumber,
+            mobile: fullMobile,
+            password,
+            category: selectedCategory
+          })
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Registration failed');

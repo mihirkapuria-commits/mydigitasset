@@ -5,7 +5,11 @@
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
+  first_name TEXT,
+  surname TEXT,
   email TEXT UNIQUE NOT NULL,
+  country_code TEXT DEFAULT '+91',
+  mobile_number TEXT,
   mobile TEXT NOT NULL,
   password_hash TEXT NOT NULL,
   role TEXT NOT NULL DEFAULT 'customer',
@@ -13,6 +17,7 @@ CREATE TABLE IF NOT EXISTS users (
   categories TEXT NOT NULL, -- Stored as JSON array string
   trial_start TEXT NOT NULL,
   trial_expiry TEXT NOT NULL,
+  trial_expires_at TEXT,
   subscription_status TEXT NOT NULL DEFAULT 'trial', -- 'trial', 'active_paid', 'expired'
   payment_status TEXT NOT NULL DEFAULT 'none', -- 'none', 'pending', 'verified', 'rejected'
   access_override INTEGER NOT NULL DEFAULT 0, -- 0 or 1 for manual access override without changing payment status
