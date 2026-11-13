@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-"build": "vite build && esbuild worker.ts --bundle --format=esm --target=esnext --outfile=dist/_worker.js && touch dist/.assetsignore",
+    "build": "vite build && esbuild worker.ts --bundle --format=esm --target=esnext --outfile=dist/_worker.js && touch dist/.assetsignore",
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit"
@@ -31,6 +31,11 @@
     "@types/react-dom": "^19.3.0",
     "autoprefixer": "^10.4.21",
     "tailwindcss": "^4.3.3",
-    "typescript": "^7.0.2"
-  }
+    "typescript": "^7.0.2",
+    "wrangler": "^4.0.0"
+  },
+  "trustedDependencies": [
+    "esbuild",
+    "workerd"
+  ]
 }
