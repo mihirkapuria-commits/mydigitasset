@@ -34,7 +34,6 @@ async function sendTelegramMessage(token, chatId, text, replyMarkup = null) {
   });
 }
 
-// Helper to safely parse incoming request body (handles JSON or fallback)
 async function parseRequestBody(request) {
   const contentType = request.headers.get("content-type") || "";
   try {
@@ -48,7 +47,6 @@ async function parseRequestBody(request) {
       }
       return obj;
     } else {
-      // Try JSON by default, fallback to text/empty object
       const text = await request.text();
       return text ? JSON.parse(text) : {};
     }
@@ -61,27 +59,42 @@ var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
-    // Initialize required database tables automatically
+    // Initialize Database Tables
     try {
       await env.DB.prepare(`
-        CREATE TABLE IF NOT EXISTS news_briefings (
+        CREATE TABLE IF NOT EXISTS users (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
-          category_id TEXT NOT NULL,
-          content TEXT NOT NULL,
-          date_str TEXT NOT NULL,
+          first_name TEXT,
+          surname TEXT,
+          email TEXT UNIQUE,
+          country_code TEXT,
+          mobile_number TEXT,
+          password TEXT,
+          category TEXT,
+          trial_expires_at TEXT,
+          status TEXT DEFAULT 'trial',
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `).run();
+
+      await env.DB.prepare(`
+        CREATE TABLE IF NOT EXISTS payments (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER,
+          utr_number TEXT,
+          payment_proof TEXT,
+          status TEXT DEFAULT 'pending',
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
       `).run();
     } catch (e) {}
 
     // 1. Categories API
-    if (url.pathname === "/api/categories") {
-      if (request.method === "GET") {
-        return new Response(JSON.stringify(CATEGORIES), {
-          status: 200,
-          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
-        });
-      }
+    if (url.pathname === "/api/categories" && request.method === "GET") {
+      return new Response(JSON.stringify(CATEGORIES), {
+        status: 200,
+        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
+      });
     }
 
     // 2. Admin Stats API
@@ -93,8 +106,8 @@ var worker_default = {
         
         let totalReceipts = 0;
         try {
-          const payments = await env.DB.prepare(`SELECT SUM(amount) as total FROM payments WHERE status = 'approved'`).first();
-          totalReceipts = payments?.total || 0;
+          const paymentsSum = await env.DB.prepare(`SELECT SUM(amount) as total FROM payments WHERE status = 'approved'`).first();
+          totalReceipts = paymentsSum?.total || 0;
         } catch (err) {}
 
         return new Response(JSON.stringify({
@@ -113,14 +126,14 @@ var worker_default = {
       }
     }
 
-    // 3. Customer Registration / Trial API (Safe Parser)
+    // 3. Customer Trial Registration API (Sends Trial Alert with Category to Admin)
     if (url.pathname === "/api/auth/register" && request.method === "POST") {
       try {
         const data = await parseRequestBody(request);
         const { firstName, surname, email, countryCode, mobileNumber, password, category } = data || {};
 
         if (!email || !password || !mobileNumber || !category) {
-          return new Response(JSON.stringify({ error: "Missing required fields in request", received: data }), {
+          return new Response(JSON.stringify({ error: "Missing required fields" }), {
             status: 400,
             headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
           });
@@ -138,29 +151,25 @@ var worker_default = {
 
         const matchedCat = CATEGORIES.find(c => c.id === category || c.title === category);
         const catTitle = matchedCat ? matchedCat.title : category;
-        
+
+        // Admin Message #1: Trial Start Alert (Name, User ID, Mobile Number, and News Category)
         const token = env.TELEGRAM_BOT_TOKEN;
         const adminChatId = env.OWNER_TELEGRAM_CHAT_ID;
 
         if (token && adminChatId) {
-          const msg = `🚀 *New Trial Signup!*\n\n*User ID:* ${userId}\n*Name:* ${firstName || ""} ${surname || ""}\n*Mobile:* ${countryCode || "+91"} ${mobileNumber}\n*Email:* ${email}\n*Category:* ${catTitle}`;
-          
-          const keyboard = {
-            inline_keyboard: [
-              [
-                { text: "✅ Approve", callback_data: `APPROVE_${userId}` },
-                { text: "❌ Stop", callback_data: `STOP_${userId}` }
-              ]
-            ]
-          };
-
-          await sendTelegramMessage(token, adminChatId, msg, keyboard);
+          const msg = `⏳ *New Trial Started!*\n\n` +
+            `*User ID:* #${userId}\n` +
+            `*Name:* ${firstName || ""} ${surname || ""}\n` +
+            `*Mobile:* ${countryCode || "+91"} ${mobileNumber}\n` +
+            `*Email:* ${email}\n` +
+            `*Category:* ${catTitle}`;
+          await sendTelegramMessage(token, adminChatId, msg);
         }
 
         return new Response(JSON.stringify({ 
           success: true, 
           token: tokenVal, 
-          user: { id: userId, email, first_name: firstName, surname, category, status: 'trial', role: 'customer' } 
+          user: { id: userId, email, first_name: firstName, surname, category, status: 'trial' } 
         }), {
           status: 200,
           headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
@@ -173,7 +182,63 @@ var worker_default = {
       }
     }
 
-    // 4. Telegram Webhook Handler
+    // 4. Annual Subscription Payment & Proof Submission API (Sends Message #2 to Admin with Buttons)
+    if (url.pathname === "/api/auth/submit-payment" && request.method === "POST") {
+      try {
+        const data = await parseRequestBody(request);
+        const { userId, utrNumber, paymentProof } = data || {};
+
+        if (!userId || !utrNumber) {
+          return new Response(JSON.stringify({ error: "Missing user ID or UTR number" }), {
+            status: 400,
+            headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
+          });
+        }
+
+        const user = await env.DB.prepare(`SELECT first_name, surname, email, mobile_number, category FROM users WHERE id = ?`).bind(userId).first();
+
+        await env.DB.prepare(
+          `INSERT INTO payments (user_id, utr_number, payment_proof, status) VALUES (?, ?, ?, 'pending')`
+        ).bind(userId, utrNumber, paymentProof || "").run();
+
+        const token = env.TELEGRAM_BOT_TOKEN;
+        const adminChatId = env.OWNER_TELEGRAM_CHAT_ID;
+
+        if (token && adminChatId && user) {
+          const matchedCat = CATEGORIES.find(c => c.id === user.category || c.title === user.category);
+          const catTitle = matchedCat ? matchedCat.title : user.category;
+
+          const msg = `💳 *Annual Subscription Payment Submitted!*\n\n` +
+            `*User ID:* #${userId}\n` +
+            `*Name:* ${user.first_name} ${user.surname}\n` +
+            `*Mobile:* ${user.mobile_number}\n` +
+            `*Email:* ${user.email}\n` +
+            `*Category:* ${catTitle}\n` +
+            `*UTR / Ref No:* \`${utrNumber}\`\n` +
+            `*Payment Proof:* ${paymentProof ? "Attached / Uploaded" : "Not Provided"}`;
+
+          const keyboard = {
+            inline_keyboard: [
+              [
+                { text: "✅ Approve", callback_data: `APPROVE_${userId}` },
+                { text: "❌ Stop", callback_data: `STOP_${userId}` }
+              ]
+            ]
+          };
+
+          await sendTelegramMessage(token, adminChatId, msg, keyboard);
+        }
+
+        return new Response(JSON.stringify({ success: true, message: "Payment submitted successfully for verification." }), {
+          status: 200,
+          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
+        });
+      } catch (err) {
+        return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } });
+      }
+    }
+
+    // 5. Telegram Webhook Handler (Processes Approve / Stop button clicks)
     if (url.pathname === "/api/telegram/webhook" && request.method === "POST") {
       try {
         const update = await parseRequestBody(request);
@@ -188,10 +253,12 @@ var worker_default = {
 
           if (action === "APPROVE") {
             await env.DB.prepare("UPDATE users SET status = 'active' WHERE id = ?").bind(userId).run();
-            await sendTelegramMessage(token, chatId, `✅ User #${userId} has been approved and activated!`);
+            await env.DB.prepare("UPDATE payments SET status = 'approved' WHERE user_id = ?").bind(userId).run();
+            await sendTelegramMessage(token, chatId, `✅ User #${userId} subscription has been approved and activated for the full year!`);
           } else if (action === "STOP") {
             await env.DB.prepare("UPDATE users SET status = 'stopped' WHERE id = ?").bind(userId).run();
-            await sendTelegramMessage(token, chatId, `❌ User #${userId} subscription has been stopped.`);
+            await env.DB.prepare("UPDATE payments SET status = 'rejected' WHERE user_id = ?").bind(userId).run();
+            await sendTelegramMessage(token, chatId, `❌ User #${userId} subscription has been stopped/rejected.`);
           }
         }
 
@@ -210,41 +277,6 @@ var worker_default = {
       response = await env.ASSETS.fetch(new Request(indexUrl, request));
     }
     return response;
-  },
-
-  async scheduled(event, env, ctx) {
-    try {
-      const token = env.TELEGRAM_BOT_TOKEN;
-      if (!token) return;
-
-      const todayStr = new Date().toISOString().split('T')[0];
-
-      for (const cat of CATEGORIES) {
-        if (!cat.telegramChatId) continue;
-
-        let briefingContent = "";
-        try {
-          const record = await env.DB.prepare(
-            `SELECT content FROM news_briefings WHERE category_id = ? AND date_str = ? ORDER BY id DESC LIMIT 1`
-          ).bind(cat.id, todayStr).first();
-
-          if (record && record.content) {
-            briefingContent = record.content;
-          }
-        } catch (dbErr) {}
-
-        if (!briefingContent) {
-          briefingContent = `🚀 *${cat.title.toUpperCase()} — DAILY BRIEF*\n` +
-            `📅 ${new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })} • Market & Ecosystem Updates\n\n` +
-            `1. Key sector developments show robust growth and expanded enterprise partnerships.\n` +
-            `Major stakeholders report positive quarterly momentum and strategic expansions. [MyDigitAsset]\n\n` +
-            `2. Regulatory updates and policy shifts align with long-term industry projections.\n` +
-            `Stakeholders are advised to monitor upcoming compliance frameworks. [Industry Watch]`;
-        }
-
-        await sendTelegramMessage(token, cat.telegramChatId, briefingContent);
-      }
-    } catch (err) {}
   }
 };
 
