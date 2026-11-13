@@ -34,6 +34,29 @@ async function sendTelegramMessage(token, chatId, text, replyMarkup = null) {
   });
 }
 
+// Helper to safely parse incoming request body (handles JSON or fallback)
+async function parseRequestBody(request) {
+  const contentType = request.headers.get("content-type") || "";
+  try {
+    if (contentType.includes("application/json")) {
+      return await request.json();
+    } else if (contentType.includes("form")) {
+      const formData = await request.formData();
+      const obj = {};
+      for (let [key, value] of formData.entries()) {
+        obj[key] = value;
+      }
+      return obj;
+    } else {
+      // Try JSON by default, fallback to text/empty object
+      const text = await request.text();
+      return text ? JSON.parse(text) : {};
+    }
+  } catch (e) {
+    return {};
+  }
+}
+
 var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -49,9 +72,7 @@ var worker_default = {
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
       `).run();
-    } catch (e) {
-      // Table already exists
-    }
+    } catch (e) {}
 
     // 1. Categories API
     if (url.pathname === "/api/categories") {
@@ -63,7 +84,7 @@ var worker_default = {
       }
     }
 
-    // 2. Admin Stats API (Secure backend check)
+    // 2. Admin Stats API
     if (url.pathname === "/api/admin/stats" && request.method === "GET") {
       try {
         const userCount = await env.DB.prepare(`SELECT COUNT(*) as count FROM users`).first();
@@ -74,9 +95,7 @@ var worker_default = {
         try {
           const payments = await env.DB.prepare(`SELECT SUM(amount) as total FROM payments WHERE status = 'approved'`).first();
           totalReceipts = payments?.total || 0;
-        } catch (err) {
-          // payments table pending creation
-        }
+        } catch (err) {}
 
         return new Response(JSON.stringify({
           totalUsers: userCount?.count || 0,
@@ -94,23 +113,14 @@ var worker_default = {
       }
     }
 
-    // 3. Customer Registration / Trial API with Safe Request Handling
+    // 3. Customer Registration / Trial API (Safe Parser)
     if (url.pathname === "/api/auth/register" && request.method === "POST") {
       try {
-        let data;
-        try {
-          data = await request.json();
-        } catch (jsonErr) {
-          return new Response(JSON.stringify({ error: "Invalid request body: Expected JSON format" }), {
-            status: 400,
-            headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
-          });
-        }
-
+        const data = await parseRequestBody(request);
         const { firstName, surname, email, countryCode, mobileNumber, password, category } = data || {};
 
         if (!email || !password || !mobileNumber || !category) {
-          return new Response(JSON.stringify({ error: "Missing required fields in request body" }), {
+          return new Response(JSON.stringify({ error: "Missing required fields in request", received: data }), {
             status: 400,
             headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
           });
@@ -129,7 +139,6 @@ var worker_default = {
         const matchedCat = CATEGORIES.find(c => c.id === category || c.title === category);
         const catTitle = matchedCat ? matchedCat.title : category;
         
-        // Send Admin Approval Request with Approve/Stop buttons strictly to your private chat ID
         const token = env.TELEGRAM_BOT_TOKEN;
         const adminChatId = env.OWNER_TELEGRAM_CHAT_ID;
 
@@ -164,10 +173,10 @@ var worker_default = {
       }
     }
 
-    // 4. Telegram Webhook Handler (Processes Approve / Stop button clicks)
+    // 4. Telegram Webhook Handler
     if (url.pathname === "/api/telegram/webhook" && request.method === "POST") {
       try {
-        const update = await request.json();
+        const update = await parseRequestBody(request);
         const token = env.TELEGRAM_BOT_TOKEN;
 
         if (update.callback_query) {
@@ -205,7 +214,6 @@ var worker_default = {
 
   async scheduled(event, env, ctx) {
     try {
-      console.log("Automated 6:15 AM IST news broadcast triggered.");
       const token = env.TELEGRAM_BOT_TOKEN;
       if (!token) return;
 
@@ -223,9 +231,7 @@ var worker_default = {
           if (record && record.content) {
             briefingContent = record.content;
           }
-        } catch (dbErr) {
-          console.error("Error fetching news briefing from DB:", dbErr);
-        }
+        } catch (dbErr) {}
 
         if (!briefingContent) {
           briefingContent = `🚀 *${cat.title.toUpperCase()} — DAILY BRIEF*\n` +
@@ -238,9 +244,7 @@ var worker_default = {
 
         await sendTelegramMessage(token, cat.telegramChatId, briefingContent);
       }
-    } catch (err) {
-      console.error("Cron broadcast error:", err.message);
-    }
+    } catch (err) {}
   }
 };
 
