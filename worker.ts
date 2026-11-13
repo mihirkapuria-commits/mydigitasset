@@ -74,15 +74,15 @@ var worker_default = {
         const userId = insertResult.meta.last_row_id;
         const tokenVal = "dummy_token_" + userId;
 
-        // Match category to find correct Telegram Channel ID
         const matchedCat = CATEGORIES.find(c => c.id === category || c.title === category);
         const catTitle = matchedCat ? matchedCat.title : category;
-        const targetChatId = matchedCat ? matchedCat.telegramChatId : env.OWNER_TELEGRAM_CHAT_ID;
-
-        // Notify via Telegram with Approval Buttons
+        
+        // Send Admin Approval Request strictly to Owner/Admin Chat ID (not the public news channel)
         const token = env.TELEGRAM_BOT_TOKEN;
-        if (token && targetChatId) {
-          const msg = `🚀 *New Trial Signup!*\n\n*Name:* ${firstName || ""} ${surname || ""}\n*Mobile:* ${countryCode || "+91"} ${mobileNumber}\n*Email:* ${email}\n*Category:* ${catTitle}`;
+        const adminChatId = env.OWNER_TELEGRAM_CHAT_ID;
+
+        if (token && adminChatId) {
+          const msg = `🚀 *New Trial Signup!*\n\n*User ID:* ${userId}\n*Name:* ${firstName || ""} ${surname || ""}\n*Mobile:* ${countryCode || "+91"} ${mobileNumber}\n*Email:* ${email}\n*Category:* ${catTitle}`;
           
           const keyboard = {
             inline_keyboard: [
@@ -93,7 +93,7 @@ var worker_default = {
             ]
           };
 
-          await sendTelegramMessage(token, targetChatId, msg, keyboard);
+          await sendTelegramMessage(token, adminChatId, msg, keyboard);
         }
 
         return new Response(JSON.stringify({ 
@@ -160,7 +160,7 @@ var worker_default = {
         return;
       }
 
-      // Loop through all 15 categories to broadcast morning briefings automatically
+      // Loop through all 15 categories to broadcast morning briefings automatically at 6:15 AM IST
       for (const cat of CATEGORIES) {
         if (!cat.telegramChatId) continue;
 
