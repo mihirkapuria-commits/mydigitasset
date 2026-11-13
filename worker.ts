@@ -38,7 +38,7 @@ var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
-    // Initialize required tables if they don't exist
+    // Initialize required database tables automatically
     try {
       await env.DB.prepare(`
         CREATE TABLE IF NOT EXISTS news_briefings (
@@ -58,15 +58,12 @@ var worker_default = {
       if (request.method === "GET") {
         return new Response(JSON.stringify(CATEGORIES), {
           status: 200,
-          headers: {
-            "Content-Type": "application/json",
-            "Access-Control-Allow-Origin": "*"
-          }
+          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
         });
       }
     }
 
-    // 2. Admin Stats API (Strictly restricted to mihirkapuria@gmail.com)
+    // 2. Admin Stats API (Secure backend check)
     if (url.pathname === "/api/admin/stats" && request.method === "GET") {
       try {
         const userCount = await env.DB.prepare(`SELECT COUNT(*) as count FROM users`).first();
@@ -78,7 +75,7 @@ var worker_default = {
           const payments = await env.DB.prepare(`SELECT SUM(amount) as total FROM payments WHERE status = 'approved'`).first();
           totalReceipts = payments?.total || 0;
         } catch (err) {
-          // payments table might be pending creation
+          // payments table pending creation
         }
 
         return new Response(JSON.stringify({
@@ -97,14 +94,23 @@ var worker_default = {
       }
     }
 
-    // 3. Customer Registration / Trial API
+    // 3. Customer Registration / Trial API with Safe Request Handling
     if (url.pathname === "/api/auth/register" && request.method === "POST") {
       try {
-        const data = await request.json();
-        const { firstName, surname, email, countryCode, mobileNumber, password, category } = data;
+        let data;
+        try {
+          data = await request.json();
+        } catch (jsonErr) {
+          return new Response(JSON.stringify({ error: "Invalid request body: Expected JSON format" }), {
+            status: 400,
+            headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
+          });
+        }
+
+        const { firstName, surname, email, countryCode, mobileNumber, password, category } = data || {};
 
         if (!email || !password || !mobileNumber || !category) {
-          return new Response(JSON.stringify({ error: "Missing required fields" }), {
+          return new Response(JSON.stringify({ error: "Missing required fields in request body" }), {
             status: 400,
             headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
           });
@@ -123,7 +129,7 @@ var worker_default = {
         const matchedCat = CATEGORIES.find(c => c.id === category || c.title === category);
         const catTitle = matchedCat ? matchedCat.title : category;
         
-        // Send Admin Approval Request strictly to Owner/Admin Chat ID
+        // Send Admin Approval Request with Approve/Stop buttons strictly to your private chat ID
         const token = env.TELEGRAM_BOT_TOKEN;
         const adminChatId = env.OWNER_TELEGRAM_CHAT_ID;
 
@@ -158,7 +164,7 @@ var worker_default = {
       }
     }
 
-    // 4. Telegram Webhook Handler
+    // 4. Telegram Webhook Handler (Processes Approve / Stop button clicks)
     if (url.pathname === "/api/telegram/webhook" && request.method === "POST") {
       try {
         const update = await request.json();
@@ -201,14 +207,10 @@ var worker_default = {
     try {
       console.log("Automated 6:15 AM IST news broadcast triggered.");
       const token = env.TELEGRAM_BOT_TOKEN;
-      if (!token) {
-        console.error("TELEGRAM_BOT_TOKEN is missing in environment variables.");
-        return;
-      }
+      if (!token) return;
 
       const todayStr = new Date().toISOString().split('T')[0];
 
-      // Loop through all 15 categories to broadcast rich daily briefings at 6:15 AM IST
       for (const cat of CATEGORIES) {
         if (!cat.telegramChatId) continue;
 
@@ -235,7 +237,6 @@ var worker_default = {
         }
 
         await sendTelegramMessage(token, cat.telegramChatId, briefingContent);
-        console.log(`Successfully sent rich briefing to channel: ${cat.title} (${cat.telegramChatId})`);
       }
     } catch (err) {
       console.error("Cron broadcast error:", err.message);
