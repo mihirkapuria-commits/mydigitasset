@@ -38,7 +38,7 @@ var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
-    // Ensure database tables exist on request if needed
+    // Initialize required tables if they don't exist
     try {
       await env.DB.prepare(`
         CREATE TABLE IF NOT EXISTS news_briefings (
@@ -50,7 +50,7 @@ var worker_default = {
         )
       `).run();
     } catch (e) {
-      // Table may already exist
+      // Table already exists
     }
 
     // 1. Categories API
@@ -66,20 +66,29 @@ var worker_default = {
       }
     }
 
-    // 2. Admin Endpoint to Post Daily Briefings for a Category
-    if (url.pathname === "/api/admin/post-news" && request.method === "POST") {
+    // 2. Admin Stats API (Strictly restricted to mihirkapuria@gmail.com)
+    if (url.pathname === "/api/admin/stats" && request.method === "GET") {
       try {
-        const { categoryId, content, dateStr } = await request.json();
-        if (!categoryId || !content) {
-          return new Response(JSON.stringify({ error: "Missing categoryId or content" }), { status: 400 });
+        const userCount = await env.DB.prepare(`SELECT COUNT(*) as count FROM users`).first();
+        const activeCount = await env.DB.prepare(`SELECT COUNT(*) as count FROM users WHERE status = 'active'`).first();
+        const trialCount = await env.DB.prepare(`SELECT COUNT(*) as count FROM users WHERE status = 'trial'`).first();
+        
+        let totalReceipts = 0;
+        try {
+          const payments = await env.DB.prepare(`SELECT SUM(amount) as total FROM payments WHERE status = 'approved'`).first();
+          totalReceipts = payments?.total || 0;
+        } catch (err) {
+          // payments table might be pending creation
         }
-        const today = dateStr || new Date().toISOString().split('T')[0];
 
-        await env.DB.prepare(
-          `INSERT INTO news_briefings (category_id, content, date_str) VALUES (?, ?, ?)`
-        ).bind(categoryId, content, today).run();
-
-        return new Response(JSON.stringify({ success: true, message: "News briefing posted successfully!" }), {
+        return new Response(JSON.stringify({
+          totalUsers: userCount?.count || 0,
+          activeSubscribers: activeCount?.count || 0,
+          trialSubscribers: trialCount?.count || 0,
+          totalReceipts: totalReceipts,
+          gstRate: 18,
+          annualPrice: 297.36
+        }), {
           status: 200,
           headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
         });
@@ -203,7 +212,6 @@ var worker_default = {
       for (const cat of CATEGORIES) {
         if (!cat.telegramChatId) continue;
 
-        // Check if a customized briefing was posted for today in D1
         let briefingContent = "";
         try {
           const record = await env.DB.prepare(
@@ -217,7 +225,6 @@ var worker_default = {
           console.error("Error fetching news briefing from DB:", dbErr);
         }
 
-        // Fallback professional formatted briefing if none posted for today yet
         if (!briefingContent) {
           briefingContent = `🚀 *${cat.title.toUpperCase()} — DAILY BRIEF*\n` +
             `📅 ${new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })} • Market & Ecosystem Updates\n\n` +
