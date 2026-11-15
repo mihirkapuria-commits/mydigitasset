@@ -1,3 +1,4 @@
+
 name: Repair MyDigitAsset Lockfile
 
 on:
@@ -32,24 +33,17 @@ jobs:
         run: |
           npm ci --include=optional --ignore-scripts --no-audit --no-fund
 
-      - name: Verify missing platform packages
+      - name: Verify Cloudflare Linux package
         run: |
           node --input-type=module -e "
           import fs from 'node:fs';
           const lock = JSON.parse(fs.readFileSync('package-lock.json', 'utf8'));
-          const packages = [
-            '@tailwindcss/oxide-linux-x64-musl',
-            '@tailwindcss/oxide-darwin-arm64',
-            '@tailwindcss/oxide-android-arm64',
-            'lightningcss-darwin-x64',
-            'lightningcss-android-arm64'
-          ];
-          const missing = packages.filter(p => !lock.packages?.['node_modules/' + p]);
-          if (missing.length) {
-            console.error('Missing packages:', missing);
+          const pkg = '@tailwindcss/oxide-linux-x64-gnu';
+          if (!lock.packages?.['node_modules/' + pkg]) {
+            console.error('Missing Cloudflare Linux package:', pkg);
             process.exit(1);
           }
-          console.log('All checked platform packages are present.');
+          console.log('Cloudflare Linux package is present.');
           "
 
       - name: Commit corrected lockfile
