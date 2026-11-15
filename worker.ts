@@ -59,7 +59,6 @@ var worker_default = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
-    // Initialize Database Tables
     try {
       await env.DB.prepare(`
         CREATE TABLE IF NOT EXISTS users (
@@ -89,7 +88,6 @@ var worker_default = {
       `).run();
     } catch (e) {}
 
-    // 1. Categories API
     if (url.pathname === "/api/categories" && request.method === "GET") {
       return new Response(JSON.stringify(CATEGORIES), {
         status: 200,
@@ -97,36 +95,7 @@ var worker_default = {
       });
     }
 
-    // 2. Admin Stats API
-    if (url.pathname === "/api/admin/stats" && request.method === "GET") {
-      try {
-        const userCount = await env.DB.prepare(`SELECT COUNT(*) as count FROM users`).first();
-        const activeCount = await env.DB.prepare(`SELECT COUNT(*) as count FROM users WHERE status = 'active'`).first();
-        const trialCount = await env.DB.prepare(`SELECT COUNT(*) as count FROM users WHERE status = 'trial'`).first();
-        
-        let totalReceipts = 0;
-        try {
-          const paymentsSum = await env.DB.prepare(`SELECT SUM(amount) as total FROM payments WHERE status = 'approved'`).first();
-          totalReceipts = paymentsSum?.total || 0;
-        } catch (err) {}
-
-        return new Response(JSON.stringify({
-          totalUsers: userCount?.count || 0,
-          activeSubscribers: activeCount?.count || 0,
-          trialSubscribers: trialCount?.count || 0,
-          totalReceipts: totalReceipts,
-          gstRate: 18,
-          annualPrice: 297.36
-        }), {
-          status: 200,
-          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
-        });
-      } catch (err) {
-        return new Response(JSON.stringify({ error: err.message }), { status: 500 });
-      }
-    }
-
-    // 3. Customer Trial Registration API (Sends Trial Alert with Category to Admin)
+    // Customer Trial Registration API
     if (url.pathname === "/api/auth/register" && request.method === "POST") {
       try {
         const data = await parseRequestBody(request);
@@ -152,7 +121,7 @@ var worker_default = {
         const matchedCat = CATEGORIES.find(c => c.id === category || c.title === category);
         const catTitle = matchedCat ? matchedCat.title : category;
 
-        // Admin Message #1: Trial Start Alert (Name, User ID, Mobile Number, and News Category)
+        // Send Telegram Trial Alert to Admin
         const token = env.TELEGRAM_BOT_TOKEN;
         const adminChatId = env.OWNER_TELEGRAM_CHAT_ID;
 
@@ -182,7 +151,7 @@ var worker_default = {
       }
     }
 
-    // 4. Annual Subscription Payment & Proof Submission API (Sends Message #2 to Admin with Buttons)
+    // Annual Subscription Payment & Proof Submission API
     if (url.pathname === "/api/auth/submit-payment" && request.method === "POST") {
       try {
         const data = await parseRequestBody(request);
@@ -215,7 +184,7 @@ var worker_default = {
             `*Email:* ${user.email}\n` +
             `*Category:* ${catTitle}\n` +
             `*UTR / Ref No:* \`${utrNumber}\`\n` +
-            `*Payment Proof:* ${paymentProof ? "Attached / Uploaded" : "Not Provided"}`;
+            `*Payment Proof:* ${paymentProof ? paymentProof : "Not Provided"}`;
 
           const keyboard = {
             inline_keyboard: [
@@ -238,7 +207,7 @@ var worker_default = {
       }
     }
 
-    // 5. Telegram Webhook Handler (Processes Approve / Stop button clicks)
+    // Telegram Webhook Handler
     if (url.pathname === "/api/telegram/webhook" && request.method === "POST") {
       try {
         const update = await parseRequestBody(request);
