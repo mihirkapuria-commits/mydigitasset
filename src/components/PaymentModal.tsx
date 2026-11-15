@@ -14,7 +14,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({ isOpen, onClose, onS
   const [selectedCategoryId, setSelectedCategoryId] = useState('');
   const [settings, setSettings] = useState<any>({});
   const [utr, setUtr] = useState('');
-  const [notes, setNotes] = useState('');
+  const [paymentProof, setPaymentProof] = useState('');
   const [copied, setCopied] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -71,6 +71,10 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({ isOpen, onClose, onS
       setError('Please select a news category for subscription.');
       return;
     }
+    if (!utr.trim() || !paymentProof.trim()) {
+      setError('Both UTR / Reference Number and Payment Proof (Screenshot / text/file link) are required.');
+      return;
+    }
     if (!upiId) {
       setError('Administrator has not yet configured UPI/Bank payment details.');
       return;
@@ -84,10 +88,10 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({ isOpen, onClose, onS
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ categoryId: selectedCategoryId, utr, notes })
+        body: JSON.stringify({ categoryId: selectedCategoryId, utr, paymentProof, notes: paymentProof })
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to submit UTR');
+      if (!res.ok) throw new Error(data.error || 'Failed to submit payment details');
       setSuccess(true);
       setTimeout(() => {
         onSubmitted();
@@ -114,7 +118,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({ isOpen, onClose, onS
         <div className="space-y-2 mb-6">
           <h3 className="text-2xl font-extrabold text-slate-900">Annual Subscription Payment</h3>
           <p className="text-sm text-slate-600">
-            Select category, pay via UPI, and submit your UTR / transaction reference for manual verification.
+            Select category, pay via UPI, and submit your UTR reference number and payment proof for immediate verification.
           </p>
         </div>
 
@@ -174,7 +178,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({ isOpen, onClose, onS
                 <p className="font-semibold text-slate-700">Payment Instructions:</p>
                 <p>1. Open your UPI app (GPay, PhonePe, Paytm, BHIM).</p>
                 <p>2. Transfer exact amount: <strong>₹{totalAmount.toFixed(2)}</strong> to <strong>{upiId}</strong>.</p>
-                <p>3. Copy the 12-digit UPI Transaction Reference (UTR) and submit below.</p>
+                <p>3. Enter your UTR reference number and payment proof below.</p>
               </div>
             </>
           ) : (
@@ -193,14 +197,14 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({ isOpen, onClose, onS
 
         {success && (
           <div className="mb-6 p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-medium">
-            Payment UTR submitted successfully! Awaiting manual administrator verification.
+            Payment details and proof submitted successfully! Sent to private Telegram chat for approval.
           </div>
         )}
 
         <form onSubmit={handleSubmitUtr} className="space-y-4">
           <div>
             <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">
-              UPI UTR / Transaction Reference Number *
+              UTR / Reference Number *
             </label>
             <input
               type="text"
@@ -214,13 +218,14 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({ isOpen, onClose, onS
 
           <div>
             <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">
-              Payment Notes (Optional)
+              Payment Proof (Screenshot / text/file link) *
             </label>
             <input
               type="text"
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="e.g. Paid via PhonePe from 9876543210"
+              required
+              value={paymentProof}
+              onChange={(e) => setPaymentProof(e.target.value)}
+              placeholder="Paste screenshot URL, Dropbox/Google Drive link, or text reference"
               className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-slate-900"
             />
           </div>
@@ -230,7 +235,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({ isOpen, onClose, onS
             disabled={loading || success || !upiId}
             className="w-full py-3.5 bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-xl transition-colors text-sm shadow-md mt-4 disabled:opacity-50"
           >
-            {loading ? 'Submitting...' : 'Submit UTR for Verification'}
+            {loading ? 'Submitting...' : 'Submit Payment'}
           </button>
 
           <button

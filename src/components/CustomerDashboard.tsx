@@ -100,7 +100,7 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
               Customer Account Dashboard
             </div>
             <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">
-              Welcome back, {firstNameVal} {surnameVal}
+              Welcome back, {(currentUser.firstName && currentUser.surname) ? `${currentUser.firstName} ${currentUser.surname}` : (currentUser.name && !currentUser.name.includes('@') ? currentUser.name : `${firstNameVal} ${surnameVal}`.trim() || 'Customer')}
             </h1>
             <p className="text-sm text-slate-600 mt-1">
               Manage your subscription, Telegram bot connection, and mobile profile settings.

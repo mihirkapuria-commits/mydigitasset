@@ -462,8 +462,11 @@ async function startServer() {
 
   // Submit Payment UTR (Category-specific pricing fetched from DB)
   app.post('/api/payments/submit', authenticateUser, async (req: any, res) => {
-    const { categoryId, utr, notes } = req.body;
-    if (!utr || !categoryId) return res.status(400).json({ error: 'Category selection and payment UTR reference number are required' });
+    const { categoryId, utr, paymentProof, notes } = req.body;
+    const proofText = paymentProof || notes;
+    if (!utr || !categoryId || !proofText) {
+      return res.status(400).json({ error: 'Category, UTR reference number, and Payment Proof (Screenshot / text/file link) are required' });
+    }
 
     const db = readDb();
     const cat = db.categories.find((c: any) => c.id === categoryId && c.active);
@@ -484,7 +487,8 @@ async function startServer() {
       gst,
       totalAmount,
       utr,
-      notes: notes || 'UPI payment submission',
+      paymentProof: proofText,
+      notes: proofText,
       status: 'pending',
       submittedAt: new Date().toISOString()
     };
@@ -508,13 +512,14 @@ async function startServer() {
       const user = db.users[userIndex];
       const categoryTitle = cat.title || categoryId;
       const messageText = [
-        `<b>🔔 New Annual Payment UTR Submitted</b>`,
+        `<b>🔔 New Annual Payment & Proof Submitted</b>`,
         `• First Name: ${user.firstName || user.name?.split(' ')[0] || 'N/A'}`,
         `• Surname: ${user.surname || user.name?.split(' ').slice(1).join(' ') || 'N/A'}`,
         `• Email: ${user.email}`,
         `• Mobile: ${user.mobile || 'N/A'}`,
         `• Category: ${categoryTitle}`,
         `• UTR Number: <code>${utr}</code>`,
+        `• Payment Proof: ${proofText}`,
         `• Total Amount: ₹${totalAmount}`
       ].join('\n');
 
@@ -539,11 +544,11 @@ async function startServer() {
           })
         });
       } catch (err) {
-        console.error('Failed to send Telegram UTR submission alert to owner:', err);
+        console.error('Failed to send Telegram payment submission alert to owner:', err);
       }
     }
 
-    res.json({ success: true, payment: paymentRecord, message: 'Payment UTR submitted successfully. Status is pending approval.' });
+    res.json({ success: true, payment: paymentRecord, message: 'Payment details and proof submitted successfully. Sent to private Telegram chat.' });
   });
 
   // Telegram Webhook for Owner Inline Buttons (Approve / Stop)
