@@ -16,35 +16,57 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: main
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '24'
 
-      - name: Use the same npm version as Cloudflare
+      - name: Use Cloudflare npm version
         run: npm install --global npm@10.9.2
 
-      - name: Regenerate package lock with optional dependencies
+      - name: Generate a fresh lockfile with optional dependencies
         run: |
+          rm -f package-lock.json
           npm install --package-lock-only --include=optional --ignore-scripts --no-audit --no-fund
 
-      - name: Verify clean installation
+      - name: Verify all Tailwind platform packages
         run: |
-          npm ci --include=optional --ignore-scripts --no-audit --no-fund
-
-      - name: Verify Cloudflare Linux package
-        run: |
-          node --input-type=module -e "
+          node --input-type=module <<'NODE'
           import fs from 'node:fs';
+
           const lock = JSON.parse(fs.readFileSync('package-lock.json', 'utf8'));
-          const pkg = '@tailwindcss/oxide-linux-x64-gnu';
-          if (!lock.packages?.['node_modules/' + pkg]) {
-            console.error('Missing Cloudflare Linux package:', pkg);
+
+          const platforms = [
+            '@tailwindcss/oxide-android-arm64',
+            '@tailwindcss/oxide-darwin-arm64',
+            '@tailwindcss/oxide-darwin-x64',
+            '@tailwindcss/oxide-freebsd-x64',
+            '@tailwindcss/oxide-linux-arm-gnueabihf',
+            '@tailwindcss/oxide-linux-arm64-gnu',
+            '@tailwindcss/oxide-linux-arm64-musl',
+            '@tailwindcss/oxide-linux-x64-gnu',
+            '@tailwindcss/oxide-linux-x64-musl',
+            '@tailwindcss/oxide-wasm32-wasi',
+            '@tailwindcss/oxide-win32-arm64-msvc',
+            '@tailwindcss/oxide-win32-x64-msvc'
+          ];
+
+          const missing = platforms.filter(
+            name => !lock.packages?.[`node_modules/${name}`]
+          );
+
+          if (missing.length) {
+            console.error('Missing platform packages:', missing);
             process.exit(1);
           }
-          console.log('Cloudflare Linux package is present.');
-          "
+
+          console.log('All 12 Tailwind platform packages are present.');
+          NODE
+
+      - name: Verify clean installation
+        run: npm ci --include=optional --ignore-scripts --no-audit --no-fund
 
       - name: Commit corrected lockfile
         run: |
@@ -52,8 +74,9 @@ jobs:
             echo "No lockfile changes were needed."
             exit 0
           fi
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add package-lock.json
-          git commit -m "fix: regenerate npm lockfile with optional dependencies"
+          git commit -m "fix: regenerate complete npm lockfile"
           git push origin HEAD:main
