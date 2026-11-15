@@ -1,0 +1,66 @@
+
+name: Repair MyDigitAsset Lockfile
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout main branch
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Use the same npm version as Cloudflare
+        run: npm install --global npm@10.9.2
+
+      - name: Regenerate package lock with optional dependencies
+        run: |
+          npm install --package-lock-only --include=optional --ignore-scripts --no-audit --no-fund
+
+      - name: Verify clean installation
+        run: |
+          npm ci --include=optional --ignore-scripts --no-audit --no-fund
+
+      - name: Verify missing platform packages
+        run: |
+          node --input-type=module -e "
+          import fs from 'node:fs';
+          const lock = JSON.parse(fs.readFileSync('package-lock.json', 'utf8'));
+          const packages = [
+            '@tailwindcss/oxide-linux-x64-musl',
+            '@tailwindcss/oxide-darwin-arm64',
+            '@tailwindcss/oxide-android-arm64',
+            'lightningcss-darwin-x64',
+            'lightningcss-android-arm64'
+          ];
+          const missing = packages.filter(p => !lock.packages?.['node_modules/' + p]);
+          if (missing.length) {
+            console.error('Missing packages:', missing);
+            process.exit(1);
+          }
+          console.log('All checked platform packages are present.');
+          "
+
+      - name: Commit corrected lockfile
+        run: |
+          if git diff --quiet -- package-lock.json; then
+            echo "No lockfile changes were needed."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package-lock.json
+          git commit -m "fix: regenerate npm lockfile with optional dependencies"
+          git push origin HEAD:main
