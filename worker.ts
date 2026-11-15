@@ -1,3 +1,4 @@
+// @ts-nocheck
 const CATEGORIES = [
   { id: 'banking-fintech', title: 'Banking and Fintech', telegramChatId: '-1004377330142' },
   { id: 'consumer-fmcg', title: 'India Consumer & FMCG', telegramChatId: '-1004356285380' },

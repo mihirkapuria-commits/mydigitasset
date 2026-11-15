@@ -3,6 +3,7 @@ export interface Category {
   title: string;
   description: string;
   active: boolean;
+  telegramChatId?: string;
 }
 
 export interface User {
