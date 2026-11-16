@@ -254,7 +254,7 @@ var worker_default = {
         status: 204,
         headers: {
           'Access-Control-Allow-Origin': url.origin,
-          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+          'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
           'Access-Control-Allow-Headers': 'Content-Type, Authorization',
           'Access-Control-Max-Age': '86400'
         }
@@ -262,8 +262,6 @@ var worker_default = {
     }
 
     try {
-      // Separate authentication session table.
-      // Existing customer, payment and subscription records are not replaced.
       await env.DB.prepare(`
         CREATE TABLE IF NOT EXISTS auth_sessions (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -274,8 +272,25 @@ var worker_default = {
         )
       `).run();
 
+      // PUBLIC CATEGORY LIST
       if (url.pathname === '/api/categories' && method === 'GET') {
         return json(CATEGORIES);
+      }
+
+      // PUBLIC PAYMENT DETAILS
+      if (url.pathname === '/api/settings' && method === 'GET') {
+        const settings = await env.DB.prepare(`
+          SELECT account_name, account_number, bank_name, upi_id
+          FROM settings
+          LIMIT 1
+        `).first();
+
+        return json({
+          accountName: settings?.account_name || '',
+          accountNumber: settings?.account_number || '',
+          bankName: settings?.bank_name || '',
+          upiId: settings?.upi_id || ''
+        });
       }
 
       // CUSTOMER REGISTRATION
@@ -288,8 +303,6 @@ var worker_default = {
         const mobileNumber = String(data.mobileNumber || '').replace(/\D/g, '');
         const password = String(data.password || '');
         const category = String(data.category || '').trim();
-
-        // Country code is fixed to India (+91).
         const countryCode = '+91';
 
         if (!firstName || !surname || !email || !mobileNumber || !password || !category) {
@@ -304,7 +317,7 @@ var worker_default = {
           return json({ error: 'Please enter a valid email address.' }, 400);
         }
 
-        if (mobileNumber.length !== 10) {
+        if (!/^[6-9]\d{9}$/.test(mobileNumber)) {
           return json({ error: 'Please enter a valid 10-digit Indian mobile number.' }, 400);
         }
 
@@ -324,6 +337,14 @@ var worker_default = {
           return json({ error: 'An account with this email already exists.' }, 409);
         }
 
+        const existingMobile = await env.DB.prepare(
+          'SELECT id FROM users WHERE mobile_number = ? LIMIT 1'
+        ).bind(mobileNumber).first();
+
+        if (existingMobile) {
+          return json({ error: 'This mobile number is already registered.' }, 409);
+        }
+
         const passwordHash = await hashPassword(password);
         const trialExpires = new Date(
           Date.now() + 3 * 24 * 60 * 60 * 1000
@@ -331,16 +352,8 @@ var worker_default = {
 
         const insert = await env.DB.prepare(`
           INSERT INTO users (
-            first_name,
-            surname,
-            email,
-            country_code,
-            mobile_number,
-            password,
-            category,
-            trial_expires_at,
-            status,
-            role
+            first_name, surname, email, country_code, mobile_number,
+            password, category, trial_expires_at, status, role
           )
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'trial', 'customer')
         `).bind(
@@ -364,7 +377,6 @@ var worker_default = {
         `).bind(userId).first();
 
         const sessionToken = await createSession(env, userId);
-
         const selectedCategory = CATEGORIES.find(item => item.id === category);
 
         await sendTelegramMessage(
@@ -414,7 +426,6 @@ var worker_default = {
           return json({ error: 'Invalid email or password.' }, 401);
         }
 
-        // Upgrade a legacy plain-text password after successful verification.
         if (verification.needsUpgrade) {
           const upgradedHash = await hashPassword(password);
           await env.DB.prepare(
@@ -428,6 +439,58 @@ var worker_default = {
           success: true,
           token,
           user: publicUser(user)
+        });
+      }
+
+      // SECURE MOBILE NUMBER UPDATE
+      if (url.pathname === '/api/profile' && method === 'PUT') {
+        const authenticatedUser = await getAuthenticatedUser(request, env);
+
+        if (!authenticatedUser) {
+          return json({ error: 'Please sign in again.' }, 401);
+        }
+
+        const data = await parseRequestBody(request);
+        const mobileNumber = String(data.mobileNumber || '').replace(/\D/g, '');
+
+        if (!/^[6-9]\d{9}$/.test(mobileNumber)) {
+          return json({
+            error: 'Please enter a valid 10-digit Indian mobile number.'
+          }, 400);
+        }
+
+        const duplicate = await env.DB.prepare(`
+          SELECT id FROM users
+          WHERE mobile_number = ?
+            AND id != ?
+          LIMIT 1
+        `).bind(mobileNumber, authenticatedUser.id).first();
+
+        if (duplicate) {
+          return json({
+            error: 'This mobile number is already registered to another account.'
+          }, 409);
+        }
+
+        await env.DB.prepare(`
+          UPDATE users
+          SET country_code = '+91',
+              mobile_number = ?
+          WHERE id = ?
+        `).bind(mobileNumber, authenticatedUser.id).run();
+
+        const updatedUser = await env.DB.prepare(`
+          SELECT id, first_name, surname, email, country_code,
+                 mobile_number, category, trial_expires_at,
+                 status, role, created_at
+          FROM users
+          WHERE id = ?
+          LIMIT 1
+        `).bind(authenticatedUser.id).first();
+
+        return json({
+          success: true,
+          user: publicUser(updatedUser)
         });
       }
 
@@ -456,7 +519,7 @@ var worker_default = {
         return json({ success: true });
       }
 
-      // PASSWORD RECOVERY: registered email AND registered mobile must match.
+      // PASSWORD RECOVERY
       if (url.pathname === '/api/auth/reset-password' && method === 'POST') {
         const data = await parseRequestBody(request);
         const email = String(data.email || '').trim().toLowerCase();
@@ -488,7 +551,6 @@ var worker_default = {
           'UPDATE users SET password = ? WHERE id = ?'
         ).bind(passwordHash, user.id).run();
 
-        // Revoke all existing sessions after a password reset.
         await env.DB.prepare(
           'DELETE FROM auth_sessions WHERE user_id = ?'
         ).bind(user.id).run();
@@ -499,7 +561,7 @@ var worker_default = {
         });
       }
 
-      // SUBMIT PAYMENT: UTR/reference number only.
+      // SUBMIT PAYMENT: UTR / REFERENCE NUMBER ONLY
       if (url.pathname === '/api/auth/submit-payment' && method === 'POST') {
         const data = await parseRequestBody(request);
         const userId = Number(data.userId);
@@ -507,6 +569,10 @@ var worker_default = {
 
         if (!Number.isInteger(userId) || userId <= 0 || !utrNumber) {
           return json({ error: 'Missing user ID or UTR/reference number.' }, 400);
+        }
+
+        if (utrNumber.length < 6 || utrNumber.length > 100) {
+          return json({ error: 'Please enter a valid UTR/reference number.' }, 400);
         }
 
         const authenticatedUser = await getAuthenticatedUser(request, env);
@@ -613,12 +679,12 @@ var worker_default = {
         return json({ ok: true });
       }
 
-      // Security test endpoint must not be publicly available.
+      // SECURITY TEST ENDPOINT MUST NOT BE PUBLIC
       if (url.pathname === '/api/security-test-suite') {
         return json({ error: 'Not found' }, 404);
       }
 
-      // Serve the website.
+      // SERVE WEBSITE
       if (env.ASSETS) {
         let response = await env.ASSETS.fetch(request);
 
