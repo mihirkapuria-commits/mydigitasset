@@ -1,4 +1,3 @@
-```tsx
 import React, { useState, useEffect } from 'react';
 import { X, Copy, Check, AlertCircle } from 'lucide-react';
 
@@ -430,4 +429,3 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
     </div>
   );
 };
-```
