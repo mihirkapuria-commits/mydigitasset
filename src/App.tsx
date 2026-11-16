@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Navbar } from './components/Navbar';
 import { Hero } from './components/Hero';
@@ -26,27 +27,33 @@ export default function App() {
   const [authMode, setAuthMode] = useState<'login' | 'register'>('register');
   const [loading, setLoading] = useState(true);
 
-  // Fetch categories & current user on mount
   useEffect(() => {
     async function init() {
       try {
         const catRes = await fetch('/api/categories');
+
         if (catRes.ok) {
           const catData = await catRes.json();
           setCategories(catData);
         }
 
         const savedToken = localStorage.getItem('mydigitasset_token');
+
         if (savedToken) {
           const userRes = await fetch('/api/auth/me', {
-            headers: { 'Authorization': `Bearer ${savedToken}` }
+            headers: {
+              Authorization: `Bearer ${savedToken}`
+            }
           });
+
           if (userRes.ok) {
             const userData = await userRes.json();
             setCurrentUser(userData);
             setToken(savedToken);
           } else {
             localStorage.removeItem('mydigitasset_token');
+            setToken(null);
+            setCurrentUser(null);
           }
         }
       } catch (err) {
@@ -55,6 +62,7 @@ export default function App() {
         setLoading(false);
       }
     }
+
     init();
   }, []);
 
@@ -62,6 +70,7 @@ export default function App() {
     localStorage.setItem('mydigitasset_token', newToken);
     setToken(newToken);
     setCurrentUser(user);
+
     if (user.email === 'mihirkapuria@gmail.com' && user.role === 'admin') {
       setCurrentView('admin');
     } else {
@@ -69,11 +78,26 @@ export default function App() {
     }
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('mydigitasset_token');
-    setToken(null);
-    setCurrentUser(null);
-    setCurrentView('home');
+  const handleLogout = async () => {
+    const currentToken = token || localStorage.getItem('mydigitasset_token');
+
+    try {
+      if (currentToken) {
+        await fetch('/api/auth/logout', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${currentToken}`
+          }
+        });
+      }
+    } catch (err) {
+      console.error('Server logout request failed:', err);
+    } finally {
+      localStorage.removeItem('mydigitasset_token');
+      setToken(null);
+      setCurrentUser(null);
+      setCurrentView('home');
+    }
   };
 
   if (loading) {
@@ -100,23 +124,30 @@ export default function App() {
       <main className="flex-grow">
         {currentView === 'home' && (
           <>
-            <Hero onStartTrial={() => {
-              if (currentUser) {
-                setCurrentView('dashboard');
-              } else {
-                setAuthMode('register');
-                setIsAuthOpen(true);
-              }
-            }} />
+            <Hero
+              onStartTrial={() => {
+                if (currentUser) {
+                  setCurrentView('dashboard');
+                } else {
+                  setAuthMode('register');
+                  setIsAuthOpen(true);
+                }
+              }}
+            />
+
             <CategoriesSection categories={categories} />
-            <PricingSection onStartTrial={() => {
-              if (currentUser) {
-                setCurrentView('dashboard');
-              } else {
-                setAuthMode('register');
-                setIsAuthOpen(true);
-              }
-            }} />
+
+            <PricingSection
+              onStartTrial={() => {
+                if (currentUser) {
+                  setCurrentView('dashboard');
+                } else {
+                  setAuthMode('register');
+                  setIsAuthOpen(true);
+                }
+              }}
+            />
+
             <HowItWorks />
             <FAQSection />
           </>
