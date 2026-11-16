@@ -1,4 +1,3 @@
-```tsx
 import React, { useState, useEffect } from 'react';
 import { User, PaymentRecord, AuditLog } from '../types';
 import {
@@ -838,4 +837,3 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     </div>
   );
 };
-```
