@@ -190,6 +190,20 @@ async function getAuthenticatedUser(request, env) {
   return result || null;
 }
 
+async function getAuthorizedAdmin(request, env) {
+  const user = await getAuthenticatedUser(request, env);
+
+  if (
+    !user ||
+    user.role !== 'admin' ||
+    String(user.email || '').toLowerCase() !== ADMIN_EMAIL
+  ) {
+    return null;
+  }
+
+  return user;
+}
+
 function publicUser(user) {
   const category = user.category || '';
   const trialExpiry = user.trial_expires_at || '';
@@ -220,6 +234,72 @@ function publicUser(user) {
     telegramConnected: false,
     createdAt: user.created_at || ''
   };
+}
+
+function roundMoney(value) {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+// Read the current pricing values from D1.
+// There are deliberately no hardcoded customer-facing price fallbacks.
+async function getPricingSettings(env) {
+  const result = await env.DB.prepare(`
+    SELECT setting_key, setting_value
+    FROM system_settings
+    WHERE setting_key IN ('monthly_price', 'gst_rate')
+  `).all();
+
+  const values = {};
+
+  for (const row of (result.results || [])) {
+    values[row.setting_key] = row.setting_value;
+  }
+
+  const monthlyPrice = Number(values.monthly_price);
+  const gstRate = Number(values.gst_rate);
+
+  if (
+    !Number.isFinite(monthlyPrice) ||
+    monthlyPrice <= 0 ||
+    !Number.isFinite(gstRate) ||
+    gstRate < 0 ||
+    gstRate > 100
+  ) {
+    throw new Error('Monthly price or GST rate is missing or invalid in system_settings.');
+  }
+
+  const annualBasePrice = roundMoney(monthlyPrice * 12);
+  const gstAmount = roundMoney(annualBasePrice * gstRate / 100);
+  const totalAmount = roundMoney(annualBasePrice + gstAmount);
+
+  return {
+    monthlyPrice,
+    annualBasePrice,
+    gstRate,
+    gstAmount,
+    totalAmount
+  };
+}
+
+async function saveSystemSetting(env, key, value, adminEmail) {
+  await env.DB.prepare(`
+    INSERT INTO system_settings (
+      setting_key,
+      setting_value,
+      updated_at,
+      updated_by
+    )
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(setting_key) DO UPDATE SET
+      setting_value = excluded.setting_value,
+      updated_at = excluded.updated_at,
+      updated_by = excluded.updated_by
+  `).bind(
+    key,
+    String(value),
+    new Date().toISOString(),
+    adminEmail
+  ).run();
 }
 
 async function sendTelegramMessage(token, chatId, message, replyMarkup = null) {
@@ -277,19 +357,103 @@ var worker_default = {
         return json(CATEGORIES);
       }
 
-      // PUBLIC PAYMENT DETAILS
+      // PUBLIC PAYMENT DETAILS AND CURRENT PRICING
       if (url.pathname === '/api/settings' && method === 'GET') {
-        const settings = await env.DB.prepare(`
-          SELECT account_name, account_number, bank_name, upi_id
+        const settingsResult = await env.DB.prepare(`
+          SELECT key, value
           FROM settings
-          LIMIT 1
-        `).first();
+          WHERE key IN (
+            'account_name',
+            'account_number',
+            'bank_name',
+            'upi_id'
+          )
+        `).all();
+
+        const paymentSettings = {};
+
+        for (const row of (settingsResult.results || [])) {
+          paymentSettings[row.key] = row.value;
+        }
+
+        const pricing = await getPricingSettings(env);
 
         return json({
-          accountName: settings?.account_name || '',
-          accountNumber: settings?.account_number || '',
-          bankName: settings?.bank_name || '',
-          upiId: settings?.upi_id || ''
+          accountName: paymentSettings.account_name || '',
+          accountNumber: paymentSettings.account_number || '',
+          bankName: paymentSettings.bank_name || '',
+          upiId: paymentSettings.upi_id || '',
+          ...pricing
+        });
+      }
+
+      // ADMIN: READ CURRENT PRICING
+      if (url.pathname === '/api/admin/pricing' && method === 'GET') {
+        const admin = await getAuthorizedAdmin(request, env);
+
+        if (!admin) {
+          return json({ error: 'Administrator access required.' }, 403);
+        }
+
+        const pricing = await getPricingSettings(env);
+        return json(pricing);
+      }
+
+      // ADMIN: UPDATE MONTHLY PRICE AND GST RATE
+      if (url.pathname === '/api/admin/pricing' && method === 'PUT') {
+        const admin = await getAuthorizedAdmin(request, env);
+
+        if (!admin) {
+          return json({ error: 'Administrator access required.' }, 403);
+        }
+
+        const data = await parseRequestBody(request);
+        const monthlyPrice = Number(data.monthlyPrice);
+        const gstRate = Number(data.gstRate);
+
+        if (
+          !Number.isFinite(monthlyPrice) ||
+          monthlyPrice <= 0 ||
+          monthlyPrice > 100000
+        ) {
+          return json({
+            error: 'Monthly price must be greater than zero and no more than 100000.'
+          }, 400);
+        }
+
+        if (
+          !Number.isFinite(gstRate) ||
+          gstRate < 0 ||
+          gstRate > 100
+        ) {
+          return json({
+            error: 'GST rate must be between 0 and 100.'
+          }, 400);
+        }
+
+        const roundedMonthlyPrice = roundMoney(monthlyPrice);
+        const roundedGstRate = roundMoney(gstRate);
+
+        await saveSystemSetting(
+          env,
+          'monthly_price',
+          roundedMonthlyPrice,
+          admin.email
+        );
+
+        await saveSystemSetting(
+          env,
+          'gst_rate',
+          roundedGstRate,
+          admin.email
+        );
+
+        const updatedPricing = await getPricingSettings(env);
+
+        return json({
+          success: true,
+          message: 'Pricing settings updated successfully.',
+          ...updatedPricing
         });
       }
 
@@ -561,7 +725,8 @@ var worker_default = {
         });
       }
 
-      // SUBMIT PAYMENT: UTR / REFERENCE NUMBER ONLY
+      // SUBMIT PAYMENT: UTR / REFERENCE NUMBER ONLY.
+      // The server calculates the amount using the current D1 pricing settings.
       if (url.pathname === '/api/auth/submit-payment' && method === 'POST') {
         const data = await parseRequestBody(request);
         const userId = Number(data.userId);
@@ -590,10 +755,13 @@ var worker_default = {
           return json({ error: 'Customer account not found.' }, 404);
         }
 
+        const pricing = await getPricingSettings(env);
+        const paymentAmount = pricing.totalAmount;
+
         await env.DB.prepare(`
-          INSERT INTO payments (user_id, utr_number, status)
-          VALUES (?, ?, 'pending')
-        `).bind(userId, utrNumber).run();
+          INSERT INTO payments (user_id, amount, utr_number, status)
+          VALUES (?, ?, ?, 'pending')
+        `).bind(userId, paymentAmount, utrNumber).run();
 
         const selectedCategory = CATEGORIES.find(
           item => item.id === user.category
@@ -619,12 +787,16 @@ var worker_default = {
           `*Mobile:* ${user.mobile_number || ''}\n` +
           `*Email:* ${user.email}\n` +
           `*Category:* ${categoryTitle}\n` +
+          `*Annual Base Price:* ₹${pricing.annualBasePrice.toFixed(2)}\n` +
+          `*GST (${pricing.gstRate}%):* ₹${pricing.gstAmount.toFixed(2)}\n` +
+          `*Total Amount:* ₹${paymentAmount.toFixed(2)}\n` +
           `*UTR / Reference No:* \`${utrNumber}\``,
           keyboard
         );
 
         return json({
           success: true,
+          amount: paymentAmount,
           message: 'Payment reference submitted successfully for verification.'
         });
       }
