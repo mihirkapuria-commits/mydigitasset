@@ -1,3 +1,4 @@
+
 // @ts-nocheck
 const CATEGORIES = [
   { id: 'banking-fintech', title: 'Banking and Fintech', telegramChatId: '-1004377330142' },
@@ -19,15 +20,18 @@ const CATEGORIES = [
 
 async function sendTelegramMessage(token, chatId, text, replyMarkup = null) {
   if (!token || !chatId) return;
+
   const url = `https://api.telegram.org/bot${token}/sendMessage`;
   const body = {
     chat_id: chatId,
     text: text,
     parse_mode: "Markdown"
   };
+
   if (replyMarkup) {
     body.reply_markup = replyMarkup;
   }
+
   await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -37,15 +41,18 @@ async function sendTelegramMessage(token, chatId, text, replyMarkup = null) {
 
 async function parseRequestBody(request) {
   const contentType = request.headers.get("content-type") || "";
+
   try {
     if (contentType.includes("application/json")) {
       return await request.json();
     } else if (contentType.includes("form")) {
       const formData = await request.formData();
       const obj = {};
+
       for (let [key, value] of formData.entries()) {
         obj[key] = value;
       }
+
       return obj;
     } else {
       const text = await request.text();
@@ -82,7 +89,6 @@ var worker_default = {
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           user_id INTEGER,
           utr_number TEXT,
-          payment_proof TEXT,
           status TEXT DEFAULT 'pending',
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
@@ -92,7 +98,10 @@ var worker_default = {
     if (url.pathname === "/api/categories" && request.method === "GET") {
       return new Response(JSON.stringify(CATEGORIES), {
         status: 200,
-        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
+        headers: {
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": "*"
+        }
       });
     }
 
@@ -100,26 +109,56 @@ var worker_default = {
     if (url.pathname === "/api/auth/register" && request.method === "POST") {
       try {
         const data = await parseRequestBody(request);
-        const { firstName, surname, email, countryCode, mobileNumber, password, category } = data || {};
+
+        const {
+          firstName,
+          surname,
+          email,
+          countryCode,
+          mobileNumber,
+          password,
+          category
+        } = data || {};
 
         if (!email || !password || !mobileNumber || !category) {
-          return new Response(JSON.stringify({ error: "Missing required fields" }), {
+          return new Response(JSON.stringify({
+            error: "Missing required fields"
+          }), {
             status: 400,
-            headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
+            headers: {
+              "Content-Type": "application/json",
+              "Access-Control-Allow-Origin": "*"
+            }
           });
         }
 
-        const trialExpires = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
+        const trialExpires = new Date(
+          Date.now() + 3 * 24 * 60 * 60 * 1000
+        ).toISOString();
 
         const insertResult = await env.DB.prepare(
-          `INSERT INTO users (first_name, surname, email, country_code, mobile_number, password, category, trial_expires_at, status) 
+          `INSERT INTO users
+          (first_name, surname, email, country_code, mobile_number,
+           password, category, trial_expires_at, status)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'trial')`
-        ).bind(firstName || "", surname || "", email, countryCode || "+91", mobileNumber, password, category, trialExpires).run();
+        ).bind(
+          firstName || "",
+          surname || "",
+          email,
+          countryCode || "+91",
+          mobileNumber,
+          password,
+          category,
+          trialExpires
+        ).run();
 
         const userId = insertResult.meta.last_row_id;
         const tokenVal = "dummy_token_" + userId;
 
-        const matchedCat = CATEGORIES.find(c => c.id === category || c.title === category);
+        const matchedCat = CATEGORIES.find(
+          c => c.id === category || c.title === category
+        );
+
         const catTitle = matchedCat ? matchedCat.title : category;
 
         // Send Telegram Trial Alert to Admin
@@ -127,84 +166,156 @@ var worker_default = {
         const adminChatId = env.OWNER_TELEGRAM_CHAT_ID;
 
         if (token && adminChatId) {
-          const msg = `⏳ *New Trial Started!*\n\n` +
+          const msg =
+            `⏳ *New Trial Started!*\n\n` +
             `*User ID:* #${userId}\n` +
             `*Name:* ${firstName || ""} ${surname || ""}\n` +
             `*Mobile:* ${countryCode || "+91"} ${mobileNumber}\n` +
             `*Email:* ${email}\n` +
             `*Category:* ${catTitle}`;
+
           await sendTelegramMessage(token, adminChatId, msg);
         }
 
-        return new Response(JSON.stringify({ 
-          success: true, 
-          token: tokenVal, 
-          user: { id: userId, email, first_name: firstName, surname, category, status: 'trial' } 
+        return new Response(JSON.stringify({
+          success: true,
+          token: tokenVal,
+          user: {
+            id: userId,
+            email,
+            first_name: firstName,
+            surname,
+            category,
+            status: 'trial'
+          }
         }), {
           status: 200,
-          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
+          headers: {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*"
+          }
         });
+
       } catch (err) {
-        return new Response(JSON.stringify({ error: err.message }), {
+        return new Response(JSON.stringify({
+          error: err.message
+        }), {
           status: 500,
-          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
+          headers: {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*"
+          }
         });
       }
     }
 
-    // Annual Subscription Payment & Proof Submission API
+    // Annual Subscription Payment API
+    // UTR/reference number only. No payment-proof uploads.
     if (url.pathname === "/api/auth/submit-payment" && request.method === "POST") {
       try {
         const data = await parseRequestBody(request);
-        const { userId, utrNumber, paymentProof } = data || {};
+        const { userId, utrNumber } = data || {};
 
-        if (!userId || !utrNumber) {
-          return new Response(JSON.stringify({ error: "Missing user ID or UTR number" }), {
+        if (!userId || !utrNumber || !String(utrNumber).trim()) {
+          return new Response(JSON.stringify({
+            error: "Missing user ID or UTR/reference number"
+          }), {
             status: 400,
-            headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
+            headers: {
+              "Content-Type": "application/json",
+              "Access-Control-Allow-Origin": "*"
+            }
           });
         }
 
-        const user = await env.DB.prepare(`SELECT first_name, surname, email, mobile_number, category FROM users WHERE id = ?`).bind(userId).first();
+        const user = await env.DB.prepare(`
+          SELECT first_name, surname, email, mobile_number, category
+          FROM users
+          WHERE id = ?
+        `).bind(userId).first();
 
-        await env.DB.prepare(
-          `INSERT INTO payments (user_id, utr_number, payment_proof, status) VALUES (?, ?, ?, 'pending')`
-        ).bind(userId, utrNumber, paymentProof || "").run();
+        if (!user) {
+          return new Response(JSON.stringify({
+            error: "Customer account not found"
+          }), {
+            status: 404,
+            headers: {
+              "Content-Type": "application/json",
+              "Access-Control-Allow-Origin": "*"
+            }
+          });
+        }
+
+        await env.DB.prepare(`
+          INSERT INTO payments (user_id, utr_number, status)
+          VALUES (?, ?, 'pending')
+        `).bind(
+          userId,
+          String(utrNumber).trim()
+        ).run();
 
         const token = env.TELEGRAM_BOT_TOKEN;
         const adminChatId = env.OWNER_TELEGRAM_CHAT_ID;
 
-        if (token && adminChatId && user) {
-          const matchedCat = CATEGORIES.find(c => c.id === user.category || c.title === user.category);
+        if (token && adminChatId) {
+          const matchedCat = CATEGORIES.find(
+            c => c.id === user.category || c.title === user.category
+          );
+
           const catTitle = matchedCat ? matchedCat.title : user.category;
 
-          const msg = `💳 *Annual Subscription Payment Submitted!*\n\n` +
+          const msg =
+            `💳 *Annual Subscription Payment Submitted!*\n\n` +
             `*User ID:* #${userId}\n` +
-            `*Name:* ${user.first_name} ${user.surname}\n` +
-            `*Mobile:* ${user.mobile_number}\n` +
+            `*Name:* ${user.first_name || ""} ${user.surname || ""}\n` +
+            `*Mobile:* ${user.mobile_number || ""}\n` +
             `*Email:* ${user.email}\n` +
             `*Category:* ${catTitle}\n` +
-            `*UTR / Ref No:* \`${utrNumber}\`\n` +
-            `*Payment Proof:* ${paymentProof ? paymentProof : "Not Provided"}`;
+            `*UTR / Reference No:* \`${String(utrNumber).trim()}\`\n` +
+            `*Payment Proof:* Not requested or accepted.`;
 
           const keyboard = {
-            inline_keyboard: [
-              [
-                { text: "✅ Approve", callback_data: `APPROVE_${userId}` },
-                { text: "❌ Stop", callback_data: `STOP_${userId}` }
-              ]
-            ]
+            inline_keyboard: [[
+              {
+                text: "✅ Approve",
+                callback_data: `APPROVE_${userId}`
+              },
+              {
+                text: "❌ Stop",
+                callback_data: `STOP_${userId}`
+              }
+            ]]
           };
 
-          await sendTelegramMessage(token, adminChatId, msg, keyboard);
+          await sendTelegramMessage(
+            token,
+            adminChatId,
+            msg,
+            keyboard
+          );
         }
 
-        return new Response(JSON.stringify({ success: true, message: "Payment submitted successfully for verification." }), {
+        return new Response(JSON.stringify({
+          success: true,
+          message: "Payment reference submitted successfully for verification."
+        }), {
           status: 200,
-          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
+          headers: {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*"
+          }
         });
+
       } catch (err) {
-        return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } });
+        return new Response(JSON.stringify({
+          error: err.message
+        }), {
+          status: 500,
+          headers: {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*"
+          }
+        });
       }
     }
 
@@ -216,36 +327,69 @@ var worker_default = {
 
         if (update.callback_query) {
           const callback = update.callback_query;
-          const data = callback.data; 
+          const data = callback.data;
           const chatId = callback.message.chat.id;
 
           const [action, userId] = data.split("_");
 
           if (action === "APPROVE") {
-            await env.DB.prepare("UPDATE users SET status = 'active' WHERE id = ?").bind(userId).run();
-            await env.DB.prepare("UPDATE payments SET status = 'approved' WHERE user_id = ?").bind(userId).run();
-            await sendTelegramMessage(token, chatId, `✅ User #${userId} subscription has been approved and activated for the full year!`);
+            await env.DB.prepare(
+              "UPDATE users SET status = 'active' WHERE id = ?"
+            ).bind(userId).run();
+
+            await env.DB.prepare(
+              "UPDATE payments SET status = 'approved' WHERE user_id = ?"
+            ).bind(userId).run();
+
+            await sendTelegramMessage(
+              token,
+              chatId,
+              `✅ User #${userId} subscription has been approved and activated for the full year!`
+            );
+
           } else if (action === "STOP") {
-            await env.DB.prepare("UPDATE users SET status = 'stopped' WHERE id = ?").bind(userId).run();
-            await env.DB.prepare("UPDATE payments SET status = 'rejected' WHERE user_id = ?").bind(userId).run();
-            await sendTelegramMessage(token, chatId, `❌ User #${userId} subscription has been stopped/rejected.`);
+            await env.DB.prepare(
+              "UPDATE users SET status = 'stopped' WHERE id = ?"
+            ).bind(userId).run();
+
+            await env.DB.prepare(
+              "UPDATE payments SET status = 'rejected' WHERE user_id = ?"
+            ).bind(userId).run();
+
+            await sendTelegramMessage(
+              token,
+              chatId,
+              `❌ User #${userId} subscription has been stopped/rejected.`
+            );
           }
         }
 
         return new Response(JSON.stringify({ ok: true }), {
           status: 200,
-          headers: { "Content-Type": "application/json" }
+          headers: {
+            "Content-Type": "application/json"
+          }
         });
+
       } catch (e) {
-        return new Response(JSON.stringify({ ok: false, error: e.message }), { status: 500 });
+        return new Response(JSON.stringify({
+          ok: false,
+          error: e.message
+        }), {
+          status: 500
+        });
       }
     }
 
     let response = await env.ASSETS.fetch(request);
+
     if (response.status === 404) {
       const indexUrl = new URL("/index.html", request.url);
-      response = await env.ASSETS.fetch(new Request(indexUrl, request));
+      response = await env.ASSETS.fetch(
+        new Request(indexUrl, request)
+      );
     }
+
     return response;
   }
 };
