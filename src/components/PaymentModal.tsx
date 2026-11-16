@@ -1,113 +1,145 @@
+<CodeBlock language="tsx" editable>
 import React, { useState, useEffect } from 'react';
-import { X, Copy, Check, ShieldCheck, AlertCircle } from 'lucide-react';
-import { Category } from '../types';
+import { X, Copy, Check, AlertCircle } from 'lucide-react';
 
 interface PaymentModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSubmitted: () => void;
   token: string;
+  userId: number;
 }
 
-export const PaymentModal: React.FC<PaymentModalProps> = ({ isOpen, onClose, onSubmitted, token }) => {
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [selectedCategoryId, setSelectedCategoryId] = useState('');
+export const PaymentModal: React.FC<PaymentModalProps> = ({
+  isOpen,
+  onClose,
+  onSubmitted,
+  token,
+  userId
+}) => {
   const [settings, setSettings] = useState<any>({});
   const [utr, setUtr] = useState('');
-  const [paymentProof, setPaymentProof] = useState('');
   const [copied, setCopied] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
 
-  useEffect(() => {
-    if (isOpen) {
-      async function fetchModalData() {
-        try {
-          const [catRes, setRes] = await Promise.all([
-            fetch('/api/categories'),
-            fetch('/api/settings')
-          ]);
-          if (catRes.ok) {
-            const catData = await catRes.json();
-            setCategories(catData);
-            if (catData.length > 0 && !selectedCategoryId) {
-              setSelectedCategoryId(catData[0].id);
-            }
-          }
-          if (setRes.ok) {
-            const setData = await setRes.json();
-            setSettings(setData);
-          }
-        } catch (err) {
-          console.error('Failed to load payment modal data:', err);
+useEffect(() => {
+    if (!isOpen) return;
+
+setError('');
+    setSuccess(false);
+    setUtr('');
+
+async function fetchSettings() {
+      try {
+        const response = await fetch('/api/settings');
+
+if (response.ok) {
+          const data = await response.json();
+          setSettings(data);
+        } else {
+          setError('Unable to load payment details. Please try again later.');
         }
+      } catch (err) {
+        setError('Unable to load payment details. Please try again later.');
       }
-      fetchModalData();
     }
+
+fetchSettings();
   }, [isOpen]);
 
   if (!isOpen) return null;
 
-  const currentCategory = categories.find(c => c.id === selectedCategoryId) || categories[0];
-  const basePrice = currentCategory ? (currentCategory as any).basePrice || 252.00 : 252.00;
-  const gstRate = currentCategory ? (currentCategory as any).gstRate || 18.00 : 18.00;
-  const gstAmount = parseFloat((basePrice * (gstRate / 100)).toFixed(2));
-  const totalAmount = parseFloat((basePrice + gstAmount).toFixed(2));
-
   const upiId = settings.upiId || '';
 
-  const handleCopyUpi = () => {
+const basePrice = Number(settings.annualBasePrice ?? 252);
+  const gstRate = Number(settings.gstRate ?? 18);
+  const gstAmount = Number((basePrice * gstRate / 100).toFixed(2));
+  const totalAmount = Number((basePrice + gstAmount).toFixed(2));
+
+const handleCopyUpi = async () => {
     if (!upiId) return;
-    navigator.clipboard.writeText(upiId);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+
+try {
+      await navigator.clipboard.writeText(upiId);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setError('Unable to copy the UPI ID. Please copy it manually.');
+    }
   };
 
-  const handleSubmitUtr = async (e: React.FormEvent) => {
+const handleSubmitUtr = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    if (!selectedCategoryId) {
-      setError('Please select a news category for subscription.');
+
+    const cleanUtr = utr.trim();
+
+if (!cleanUtr) {
+      setError('Please enter your UTR/reference number.');
       return;
     }
-    if (!utr.trim() || !paymentProof.trim()) {
-      setError('Both UTR / Reference Number and Payment Proof (Screenshot / text/file link) are required.');
+
+if (cleanUtr.length < 6 || cleanUtr.length > 100) {
+      setError('Please enter a valid UTR/reference number.');
       return;
     }
-    if (!upiId) {
-      setError('Administrator has not yet configured UPI/Bank payment details.');
+
+if (!userId || !token) {
+      setError('Your login session is missing. Please sign in again.');
       return;
     }
+
+if (!upiId) {
+      setError('Payment details have not been configured by the administrator.');
+      return;
+    }
+
     setLoading(true);
 
-    try {
-      const res = await fetch('/api/payments/submit', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ categoryId: selectedCategoryId, utr, paymentProof, notes: paymentProof })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to submit payment details');
-      setSuccess(true);
-      setTimeout(() => {
+try {
+const response = await fetch('/api/auth/submit-payment', {
+method: 'POST',
+headers: {
+'Content-Type': 'application/json',
+Authorization: Bearer $DIL0
+},
+body: JSON.stringify({
+userId,
+utrNumber: cleanUtr
+})
+});
+
+      const data = await response.json();
+
+if (!response.ok) {
+        throw new Error(data.error || 'Failed to submit payment reference.');
+      }
+
+setSuccess(true);
+      setUtr('');
+
+window.setTimeout(() => {
         onSubmitted();
         onClose();
       }, 2000);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Unable to submit payment reference.'
+      );
     } finally {
       setLoading(false);
     }
   };
 
-  return (
+return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm overflow-y-auto">
       <div className="bg-white rounded-3xl max-w-lg w-full p-8 shadow-2xl relative border border-slate-100 my-8">
-        <button
+
+<button
           onClick={onClose}
           title="Close window"
           className="absolute top-6 right-6 p-2.5 text-slate-500 hover:text-red-600 rounded-full bg-slate-100 hover:bg-red-50 transition-colors shadow-sm flex items-center justify-center"
@@ -115,130 +147,121 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({ isOpen, onClose, onS
           <X className="w-5 h-5" />
         </button>
 
-        <div className="space-y-2 mb-6">
-          <h3 className="text-2xl font-extrabold text-slate-900">Annual Subscription Payment</h3>
-          <p className="text-sm text-slate-600">
-            Select category, pay via UPI, and submit your UTR reference number and payment proof for immediate verification.
+<div className="space-y-2 mb-6">
+          <h3 className="text-2xl font-extrabold text-slate-900">
+            Annual Subscription Payment
+          </h3>
+
+<p className="text-sm text-slate-600">
+            Make your payment using UPI and submit only the UTR/reference number.
+            No screenshot, file or payment-proof upload is required.
           </p>
         </div>
 
-        {/* Category selector */}
-        <div className="mb-6 space-y-1.5">
-          <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600">
-            Select Subscription Category *
-          </label>
-          <select
-            value={selectedCategoryId}
-            onChange={(e) => setSelectedCategoryId(e.target.value)}
-            className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:outline-none focus:border-slate-900"
-          >
-            {categories.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.title} (₹{( (c as any).basePrice ? (c as any).basePrice * (1 + ((c as any).gstRate || 18)/100) : 297.36 ).toFixed(2) })
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {/* Pricing breakdown box */}
-        <div className="bg-slate-50 rounded-2xl p-5 border border-slate-200/80 mb-6 space-y-2">
+<div className="bg-slate-50 rounded-2xl p-5 border border-slate-200 mb-6 space-y-3">
           <div className="flex justify-between text-xs text-slate-600">
-            <span>Base Annual Subscription</span>
-            <span className="font-mono font-semibold">₹{basePrice.toFixed(2)}</span>
+            <span>Annual Subscription</span>
+            <span className="font-mono font-semibold">
+              ₹{basePrice.toFixed(2)}
+            </span>
           </div>
-          <div className="flex justify-between text-xs text-slate-600 pb-2 border-b border-slate-200">
-            <span>GST ({gstRate}% Applicable Tax)</span>
-            <span className="font-mono font-semibold">₹{gstAmount.toFixed(2)}</span>
+
+<div className="flex justify-between text-xs text-slate-600 pb-2 border-b border-slate-200">
+            <span>GST ({gstRate}%)</span>
+            <span className="font-mono font-semibold">
+              ₹{gstAmount.toFixed(2)}
+            </span>
           </div>
-          <div className="flex justify-between text-sm font-bold text-slate-900 pt-1">
+
+<div className="flex justify-between text-sm font-bold text-slate-900 pt-1">
             <span>Total Payable Amount</span>
-            <span className="font-mono text-indigo-600">₹{totalAmount.toFixed(2)}</span>
+            <span className="font-mono text-indigo-600">
+              ₹{totalAmount.toFixed(2)}
+            </span>
           </div>
         </div>
 
-        {/* UPI Details Box */}
-        <div className="bg-indigo-50/50 rounded-2xl p-5 border border-indigo-100 mb-6 space-y-4">
+<div className="bg-indigo-50/50 rounded-2xl p-5 border border-indigo-100 mb-6 space-y-4">
           {upiId ? (
             <>
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-3">
                 <div>
-                  <span className="text-xs font-bold uppercase tracking-wider text-indigo-600">Official UPI ID</span>
-                  <p className="text-lg font-mono font-bold text-slate-900 mt-0.5">{upiId}</p>
+                  <span className="text-xs font-bold uppercase tracking-wider text-indigo-600">
+                    Official UPI ID
+                  </span>
+
+<p className="text-lg font-mono font-bold text-slate-900 mt-0.5">
+                    {upiId}
+                  </p>
                 </div>
-                <button
+
+<button
+                  type="button"
                   onClick={handleCopyUpi}
                   className="flex items-center gap-1.5 px-3 py-2 bg-white border border-indigo-200 text-indigo-700 rounded-xl text-xs font-semibold hover:bg-indigo-50 transition-colors shadow-sm"
                 >
-                  {copied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                  {copied
+                    ? <Check className="w-3.5 h-3.5 text-emerald-600" />
+                    : <Copy className="w-3.5 h-3.5" />}
                   {copied ? 'Copied' : 'Copy UPI'}
                 </button>
               </div>
 
-              <div className="text-xs text-slate-600 space-y-1 pt-2 border-t border-indigo-100">
-                <p className="font-semibold text-slate-700">Payment Instructions:</p>
-                <p>1. Open your UPI app (GPay, PhonePe, Paytm, BHIM).</p>
-                <p>2. Transfer exact amount: <strong>₹{totalAmount.toFixed(2)}</strong> to <strong>{upiId}</strong>.</p>
-                <p>3. Enter your UTR reference number and payment proof below.</p>
+<div className="text-xs text-slate-600 space-y-1 pt-2 border-t border-indigo-100">
+                <p className="font-semibold text-slate-700">
+                  Payment Instructions:
+                </p>
+                <p>1. Open your UPI app (GPay, PhonePe, Paytm or BHIM).</p>
+                <p>2. Transfer exactly ₹{totalAmount.toFixed(2)}.</p>
+                <p>3. Enter the UTR/reference number below.</p>
               </div>
             </>
           ) : (
             <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs font-medium">
-              ⚠️ Administrator has not yet configured UPI/Bank payment details. Please check back later or contact support.
+              The administrator has not configured UPI payment details yet.
+              Payment submission is unavailable until those details are configured.
             </div>
           )}
         </div>
 
-        {error && (
-          <div className="mb-6 p-4 rounded-2xl bg-red-50 border-2 border-red-300 text-red-900 text-sm font-semibold flex items-center gap-3 shadow-sm">
+{error && (
+          <div className="mb-6 p-4 rounded-2xl bg-red-50 border-2 border-red-300 text-red-900 text-sm font-semibold flex items-center gap-3">
             <AlertCircle className="w-5 h-5 text-red-600 shrink-0" />
             <span>{error}</span>
           </div>
         )}
 
-        {success && (
+{success && (
           <div className="mb-6 p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-medium">
-            Payment details and proof submitted successfully! Sent to private Telegram chat for approval.
+            Your UTR/reference number has been submitted successfully for administrator verification.
           </div>
         )}
 
-        <form onSubmit={handleSubmitUtr} className="space-y-4">
+<form onSubmit={handleSubmitUtr} className="space-y-4">
           <div>
             <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">
               UTR / Reference Number *
             </label>
-            <input
+
+<input
               type="text"
               required
               value={utr}
-              onChange={(e) => setUtr(e.target.value)}
-              placeholder="e.g. 423567890123"
+              onChange={e => setUtr(e.target.value)}
+              placeholder="Enter your payment reference number"
               className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:border-slate-900"
             />
           </div>
 
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">
-              Payment Proof (Screenshot / text/file link) *
-            </label>
-            <input
-              type="text"
-              required
-              value={paymentProof}
-              onChange={(e) => setPaymentProof(e.target.value)}
-              placeholder="Paste screenshot URL, Dropbox/Google Drive link, or text reference"
-              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-slate-900"
-            />
-          </div>
-
-          <button
+<button
             type="submit"
             disabled={loading || success || !upiId}
             className="w-full py-3.5 bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-xl transition-colors text-sm shadow-md mt-4 disabled:opacity-50"
           >
-            {loading ? 'Submitting...' : 'Submit Payment'}
+            {loading ? 'Submitting...' : 'Submit UTR Reference'}
           </button>
 
-          <button
+<button
             type="button"
             onClick={onClose}
             className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl transition-colors text-xs mt-2"
@@ -250,3 +273,4 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({ isOpen, onClose, onS
     </div>
   );
 };
+</CodeBlock>
