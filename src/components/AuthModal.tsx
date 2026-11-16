@@ -1,13 +1,24 @@
+
 import React, { useState, useEffect } from 'react';
-import { X, Eye, EyeOff, Lock, Mail, User as UserIcon, AlertCircle, Send } from 'lucide-react';
-import { Category } from '../types';
+import {
+  X, Eye, EyeOff, Lock, Mail, User as UserIcon,
+  AlertCircle, Send, Smartphone
+} from 'lucide-react';
+import { Category, User } from '../types';
 
 interface AuthModalProps {
   isOpen: boolean;
   initialMode: 'login' | 'register' | 'recover';
   onClose: () => void;
-  onSuccess: (token: string, user: any) => void;
+  onSuccess: (token: string, user: User) => void;
   categories: Category[];
+}
+
+interface RegistrationSuccess {
+  user: User;
+  token: string;
+  telegramLink: string;
+  expiryText: string;
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({
@@ -23,9 +34,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [confirmPassword, setConfirmPassword] = useState('');
   const [firstName, setFirstName] = useState('');
   const [surname, setSurname] = useState('');
-  const [countryCode, setCountryCode] = useState('+91');
   const [mobileNumber, setMobileNumber] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<string>('startup');
+  const [selectedCategory, setSelectedCategory] = useState('startup');
   const [newPassword, setNewPassword] = useState('');
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -33,7 +43,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmNewPassword, setShowConfirmNewPassword] = useState(false);
   const [error, setError] = useState('');
-  const [successData, setSuccessData] = useState<{ user: any; telegramLink: string; expiryText: string } | null>(null);
+  const [successData, setSuccessData] = useState<RegistrationSuccess | null>(null);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -43,14 +53,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       setSuccessData(null);
       setPassword('');
       setConfirmPassword('');
+      setNewPassword('');
+      setConfirmNewPassword('');
       setMobileNumber('');
       setFirstName('');
       setSurname('');
-      if (categories.length > 0 && !selectedCategory) {
-        setSelectedCategory(categories[0].id);
-      }
     }
-  }, [isOpen, initialMode, categories]);
+  }, [isOpen, initialMode]);
 
   if (!isOpen) return null;
 
@@ -64,6 +73,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setSuccessData(null);
 
     if (mode === 'register') {
+      if (!firstName.trim() || !surname.trim()) {
+        setError('Please enter your first name and surname.');
+        return;
+      }
       if (!isPasswordValid) {
         setError('Password must be exactly 8 characters.');
         return;
@@ -73,49 +86,73 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         return;
       }
       if (mobileNumber.replace(/\D/g, '').length !== 10) {
-        setError('Please enter a valid 10-digit mobile number.');
+        setError('Please enter a valid 10-digit Indian mobile number.');
+        return;
+      }
+      if (!selectedCategory) {
+        setError('Please select one news category.');
+        return;
+      }
+    }
+
+    if (mode === 'recover') {
+      if (mobileNumber.replace(/\D/g, '').length !== 10) {
+        setError('Please enter your registered 10-digit mobile number.');
+        return;
+      }
+      if (newPassword.length !== 8) {
+        setError('New password must be exactly 8 characters.');
+        return;
+      }
+      if (newPassword !== confirmNewPassword) {
+        setError('New passwords do not match.');
         return;
       }
     }
 
     setLoading(true);
-    const fullMobile = countryCode + mobileNumber;
-    const fullName = `${firstName.trim()} ${surname.trim()}`;
 
     try {
       if (mode === 'login') {
         const res = await fetch('/api/auth/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, password })
+          body: JSON.stringify({ email: email.trim(), password })
         });
+
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Login failed');
+        if (!res.ok) throw new Error(data.error || 'Login failed.');
+
         onSuccess(data.token, data.user);
         onClose();
-      } else if (mode === 'register') {
+      }
+
+      if (mode === 'register') {
         const res = await fetch('/api/auth/register', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            firstName,
-            surname,
-            name: fullName,
-            email,
-            countryCode,
-            mobileNumber,
-            mobile: fullMobile,
+            firstName: firstName.trim(),
+            surname: surname.trim(),
+            email: email.trim(),
+            countryCode: '+91',
+            mobileNumber: mobileNumber.replace(/\D/g, ''),
             password,
             category: selectedCategory
           })
         });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Registration failed');
 
-        const now = new Date();
-        const expiryMs = now.getTime() + 3 * 24 * 60 * 60 * 1000;
-        const expiryDate = new Date(expiryMs);
-        const formattedExpiry = new Intl.DateTimeFormat('en-US', {
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Registration failed.');
+        if (!data.token || !data.user) {
+          throw new Error('Registration succeeded, but the secure login session was not returned. Please try signing in.');
+        }
+
+        const expiryDate = data.user.trialExpiresAt
+          ? new Date(data.user.trialExpiresAt)
+          : new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
+
+        const formattedExpiry = new Intl.DateTimeFormat('en-IN', {
           weekday: 'long',
           year: 'numeric',
           month: 'long',
@@ -123,49 +160,51 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           timeZone: 'Asia/Kolkata'
         }).format(expiryDate);
 
-        // Generate direct Telegram channel link using the category's chat ID
-        const matchedCategoryObj = categories.find(c => c.id === selectedCategory);
-        let chatIdStr = matchedCategoryObj?.telegramChatId || '';
-        if (chatIdStr.startsWith('-100')) {
-          chatIdStr = chatIdStr.replace('-100', '');
+        const matchedCategory = categories.find(c => c.id === selectedCategory);
+        let chatId = matchedCategory?.telegramChatId || '';
+
+        if (chatId.startsWith('-100')) {
+          chatId = chatId.substring(4);
         }
-        const telegramLink = chatIdStr ? `https://t.me/c/${chatIdStr}/1` : 'https://t.me/';
+
+        const telegramLink = chatId
+          ? `https://t.me/c/${chatId}/1`
+          : 'https://t.me/';
 
         setSuccessData({
           user: data.user,
+          token: data.token,
           telegramLink,
           expiryText: formattedExpiry
         });
-      } else if (mode === 'recover') {
-        if (newPassword.length !== 8) {
-          setError('Password must be exactly 8 characters.');
-          return;
-        }
-        if (newPassword !== confirmNewPassword) {
-          setError('Passwords do not match.');
-          return;
-        }
+      }
+
+      if (mode === 'recover') {
         const res = await fetch('/api/auth/reset-password', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, newPassword })
+          body: JSON.stringify({
+            email: email.trim(),
+            mobileNumber: mobileNumber.replace(/\D/g, ''),
+            newPassword
+          })
         });
+
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Password reset failed');
+        if (!res.ok) throw new Error(data.error || 'Password reset failed.');
+
         setError('');
-        setTimeout(() => {
-          setMode('login');
-          setEmail('');
-          setNewPassword('');
-          setConfirmNewPassword('');
-        }, 2000);
+        setMode('login');
+        setPassword('');
+        setNewPassword('');
+        setConfirmNewPassword('');
+        setMobileNumber('');
+        setError('Password reset successfully. Please sign in with your new password.');
       }
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.');
     } finally {
-      if (mode !== 'register' || successData) {
-        setLoading(false);
-      }
+      setLoading(false);
     }
   };
 
@@ -185,20 +224,28 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             MA
           </div>
           <h3 className="text-2xl font-extrabold text-slate-900">
-            {mode === 'login' ? 'Sign In to MyDigitAsset' : mode === 'register' ? 'Start Your 3-Day Free Trial' : 'Password Recovery'}
+            {mode === 'login'
+              ? 'Sign In to MyDigitAsset'
+              : mode === 'register'
+              ? 'Start Your 3-Day Free Trial'
+              : 'Password Recovery'}
           </h3>
           <p className="text-sm text-slate-600">
             {mode === 'login'
               ? 'Access your curated news subscription and Telegram settings.'
               : mode === 'register'
-              ? 'Select 1 news category to receive daily updates on Telegram (₹297.36/yr incl. GST).'
+              ? 'Select one news category to receive daily updates on Telegram (₹297.36/year incl. GST).'
               : 'Recover access using your registered email and mobile number.'}
           </p>
         </div>
 
         {error && (
-          <div className="mb-6 p-4 rounded-2xl bg-red-50 border-2 border-red-300 text-red-900 text-sm font-semibold flex items-center gap-3 shadow-sm">
-            <AlertCircle className="w-5 h-5 text-red-600 shrink-0" />
+          <div className={`mb-6 p-4 rounded-2xl border-2 text-sm font-semibold flex items-center gap-3 ${
+            error.toLowerCase().includes('successfully')
+              ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
+              : 'bg-red-50 border-red-300 text-red-900'
+          }`}>
+            <AlertCircle className="w-5 h-5 shrink-0" />
             <span>{error}</span>
           </div>
         )}
@@ -209,18 +256,20 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               <div className="w-12 h-12 bg-emerald-600 text-white rounded-full flex items-center justify-center mx-auto shadow-md">
                 <Send className="w-6 h-6" />
               </div>
-              <h4 className="text-lg font-bold text-emerald-900">Trial Activated Successfully!</h4>
+              <h4 className="text-lg font-bold text-emerald-900">
+                Trial Activated Successfully!
+              </h4>
               <div className="bg-white p-4 rounded-xl text-left space-y-2 text-xs text-slate-700 shadow-sm border border-emerald-100">
-                <div className="flex justify-between">
-                  <span className="font-semibold text-slate-500">User ID (Serial No):</span>
-                  <span className="font-mono font-bold text-slate-900">{successData.user?.id || '1'}</span>
+                <div className="flex justify-between gap-3">
+                  <span className="font-semibold text-slate-500">User ID:</span>
+                  <span className="font-mono font-bold text-slate-900">{successData.user.id}</span>
                 </div>
-                <div className="flex justify-between">
+                <div className="flex justify-between gap-3">
                   <span className="font-semibold text-slate-500">Registered Email:</span>
-                  <span className="font-medium text-slate-900">{email}</span>
+                  <span className="font-medium text-slate-900 break-all">{successData.user.email}</span>
                 </div>
-                <div className="flex justify-between">
-                  <span className="font-semibold text-slate-500">Trial Expires On:</span>
+                <div className="flex justify-between gap-3">
+                  <span className="font-semibold text-slate-500">Trial Expires:</span>
                   <span className="font-semibold text-emerald-700">{successData.expiryText}</span>
                 </div>
               </div>
@@ -234,11 +283,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 className="w-full py-4 bg-sky-500 hover:bg-sky-600 text-white font-bold rounded-xl transition-colors text-sm shadow-lg flex items-center justify-center gap-3"
               >
                 <Send className="w-5 h-5" />
-                Click Here to Join Telegram News Channel
+                Join Telegram News Channel
               </a>
               <button
                 onClick={() => {
-                  onSuccess('dummy_token_' + successData.user?.id, successData.user);
+                  onSuccess(successData.token, successData.user);
                   onClose();
                 }}
                 className="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-xl transition-colors text-xs"
@@ -261,8 +310,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                       type="text"
                       required
                       value={firstName}
-                      onChange={(e) => setFirstName(e.target.value)}
-                      placeholder="Mihir"
+                      onChange={e => setFirstName(e.target.value)}
+                      placeholder="First name"
                       className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-slate-900"
                     />
                   </div>
@@ -277,8 +326,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                       type="text"
                       required
                       value={surname}
-                      onChange={(e) => setSurname(e.target.value)}
-                      placeholder="Kapuria"
+                      onChange={e => setSurname(e.target.value)}
+                      placeholder="Surname"
                       className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-slate-900"
                     />
                   </div>
@@ -296,7 +345,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   type="email"
                   required
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={e => setEmail(e.target.value)}
                   placeholder="you@domain.com"
                   className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-slate-900"
                 />
@@ -306,26 +355,20 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             {(mode === 'register' || mode === 'recover') && (
               <div>
                 <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">
-                  Mobile Number *
+                  {mode === 'recover' ? 'Registered Mobile Number *' : 'Mobile Number *'}
                 </label>
                 <div className="flex gap-2">
-                  <select
-                    value={countryCode}
-                    onChange={(e) => setCountryCode(e.target.value)}
-                    className="px-3 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-slate-900 font-mono"
-                  >
-                    <option value="+91">+91 (India)</option>
-                    <option value="+1">+1 (USA/Canada)</option>
-                    <option value="+44">+44 (UK)</option>
-                    <option value="+61">+61 (Australia)</option>
-                  </select>
+                  <div className="flex items-center gap-2 px-3 py-3 bg-slate-100 border border-slate-200 rounded-xl text-sm font-mono">
+                    <Smartphone className="w-4 h-4 text-slate-500" />
+                    +91
+                  </div>
                   <input
-                    type="text"
+                    type="tel"
                     required
                     value={mobileNumber}
-                    onChange={(e) => setMobileNumber(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                    onChange={e => setMobileNumber(e.target.value.replace(/\D/g, '').slice(0, 10))}
                     maxLength={10}
-                    placeholder="9876543210"
+                    placeholder="10-digit mobile number"
                     className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-slate-900 font-mono"
                   />
                 </div>
@@ -345,7 +388,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                       required
                       maxLength={8}
                       value={password}
-                      onChange={(e) => setPassword(e.target.value)}
+                      onChange={e => setPassword(e.target.value)}
                       placeholder="8 characters"
                       className="w-full pl-10 pr-12 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-slate-900"
                     />
@@ -357,7 +400,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                       {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
                   </div>
-                  <p className="text-[11px] text-slate-500 mt-1">Password must be exactly 8 characters</p>
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    Password must be exactly 8 characters.
+                  </p>
                 </div>
 
                 {mode === 'register' && (
@@ -372,7 +417,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                         required
                         maxLength={8}
                         value={confirmPassword}
-                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        onChange={e => setConfirmPassword(e.target.value)}
                         placeholder="Confirm password"
                         className="w-full pl-10 pr-12 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-slate-900"
                       />
@@ -393,23 +438,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               <div className="space-y-4">
                 <div>
                   <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">
-                    Registered Email Address *
-                  </label>
-                  <div className="relative">
-                    <Mail className="absolute left-3.5 top-3.5 w-4 h-4 text-slate-400" />
-                    <input
-                      type="email"
-                      required
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="you@domain.com"
-                      className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-slate-900"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1">
                     New Password *
                   </label>
                   <div className="relative">
@@ -419,7 +447,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                       required
                       maxLength={8}
                       value={newPassword}
-                      onChange={(e) => setNewPassword(e.target.value)}
+                      onChange={e => setNewPassword(e.target.value)}
                       placeholder="8 characters"
                       className="w-full pl-10 pr-12 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-slate-900"
                     />
@@ -444,7 +472,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                       required
                       maxLength={8}
                       value={confirmNewPassword}
-                      onChange={(e) => setConfirmNewPassword(e.target.value)}
+                      onChange={e => setConfirmNewPassword(e.target.value)}
                       placeholder="Confirm new password"
                       className="w-full pl-10 pr-12 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-slate-900"
                     />
@@ -463,11 +491,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             {mode === 'register' && (
               <div className="space-y-2 pt-2">
                 <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600">
-                  Select Exactly ONE News Category (Subscription covers 1 category) *
+                  Select Exactly ONE News Category *
                 </label>
                 <div className="max-h-48 overflow-y-auto space-y-2 p-2 bg-slate-50 rounded-xl border border-slate-200">
-                  {categories.map((cat) => (
-                    <label key={cat.id} className="flex items-center gap-3 p-2 hover:bg-white rounded-lg cursor-pointer transition-colors text-xs">
+                  {categories.map(cat => (
+                    <label
+                      key={cat.id}
+                      className="flex items-center gap-3 p-2 hover:bg-white rounded-lg cursor-pointer transition-colors text-xs"
+                    >
                       <input
                         type="radio"
                         name="news_category"
@@ -488,7 +519,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               disabled={loading}
               className="w-full py-3.5 bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-xl transition-colors text-sm shadow-md mt-4 disabled:opacity-50"
             >
-              {loading ? 'Processing...' : mode === 'login' ? 'Sign In' : mode === 'register' ? 'Start Free Trial' : 'Reset Password'}
+              {loading
+                ? 'Processing...'
+                : mode === 'login'
+                ? 'Sign In'
+                : mode === 'register'
+                ? 'Start Free Trial'
+                : 'Reset Password'}
             </button>
 
             <button
@@ -505,7 +542,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           <div className="mt-6 pt-6 border-t border-slate-100 flex items-center justify-between text-xs pb-2">
             {mode === 'login' ? (
               <button
-                onClick={() => setMode('recover')}
+                onClick={() => {
+                  setMode('recover');
+                  setError('');
+                }}
                 className="text-slate-600 hover:text-slate-900 font-medium"
               >
                 Forgot Password?
@@ -513,13 +553,22 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             ) : mode === 'register' ? (
               <span className="text-slate-500">
                 Already have an account?{' '}
-                <button onClick={() => setMode('login')} className="text-indigo-600 font-semibold hover:underline">
+                <button
+                  onClick={() => {
+                    setMode('login');
+                    setError('');
+                  }}
+                  className="text-indigo-600 font-semibold hover:underline"
+                >
                   Sign In
                 </button>
               </span>
             ) : (
               <button
-                onClick={() => setMode('login')}
+                onClick={() => {
+                  setMode('login');
+                  setError('');
+                }}
                 className="text-indigo-600 font-semibold hover:underline"
               >
                 ← Back to Sign In
