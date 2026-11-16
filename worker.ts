@@ -801,14 +801,31 @@ var worker_default = {
         });
       }
 
+      
       // TELEGRAM WEBHOOK
       if (url.pathname === '/api/telegram/webhook' && method === 'POST') {
+        // Verify Telegram's configured webhook secret.
+        const configuredSecret = String(env.TELEGRAM_WEBHOOK_SECRET || '');
+        const receivedSecret =
+          request.headers.get('X-Telegram-Bot-Api-Secret-Token') || '';
+
+        if (!configuredSecret || receivedSecret !== configuredSecret) {
+          return json({ error: 'Unauthorized' }, 401);
+        }
+
         const update = await parseRequestBody(request);
 
         if (update.callback_query) {
           const callback = update.callback_query;
           const callbackData = String(callback.data || '');
           const chatId = callback.message?.chat?.id;
+
+          // Only accept approval buttons from the configured owner chat.
+          const expectedChatId = String(env.OWNER_TELEGRAM_CHAT_ID || '');
+
+          if (!expectedChatId || String(chatId ?? '') !== expectedChatId) {
+            return json({ error: 'Unauthorized' }, 403);
+          }
 
           const match = callbackData.match(/^(APPROVE|STOP)_(\d+)$/);
 
@@ -850,6 +867,7 @@ var worker_default = {
 
         return json({ ok: true });
       }
+
 
       // SECURITY TEST ENDPOINT MUST NOT BE PUBLIC
       if (url.pathname === '/api/security-test-suite') {
