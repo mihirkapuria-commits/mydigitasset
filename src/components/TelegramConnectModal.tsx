@@ -67,7 +67,7 @@ export const TelegramConnectModal: React.FC<TelegramConnectModalProps> = ({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to generate verification token');
       setVerificationToken(data.verificationToken);
-      startPolling();
+      startPolling(data.verificationToken);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -75,7 +75,7 @@ export const TelegramConnectModal: React.FC<TelegramConnectModalProps> = ({
     }
   };
 
-  const startPolling = () => {
+  const startPolling = (tokenValue: string) => {
     if (pollIntervalRef.current) return;
     setPolling(true);
 
@@ -103,7 +103,7 @@ export const TelegramConnectModal: React.FC<TelegramConnectModalProps> = ({
               'Content-Type': 'application/json',
               'Authorization': `Bearer ${token}`
             },
-            body: JSON.stringify({ verificationToken })
+            body: JSON.stringify({ verificationToken: tokenValue })
           });
           const connectData = await connectRes.json();
           if (connectRes.ok && connectData.user) {
