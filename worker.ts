@@ -20,7 +20,7 @@ const CATEGORIES = [
 ];
 
 const ADMIN_EMAIL = 'mihirkapuria@gmail.com';
-const PASSWORD_ITERATIONS = 210000;
+const PASSWORD_ITERATIONS = 100000;
 const SESSION_DAYS = 30;
 
 function json(data, status = 200) {
