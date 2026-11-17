@@ -179,7 +179,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
     try {
       const res = await fetch(
-        '/api/admin/test-india-startups-news',
+        '/api/admin/news/startup/test',
         {
           method: 'POST',
           headers: { Authorization: `Bearer ${token}` }
@@ -193,8 +193,9 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       }
 
       setTestResult(
-        'Test digest sent successfully. Telegram message ID: ' +
-        data.messageId
+        'Success: exactly ' + data.storyCount +
+        ' India Startups news stories sent to the Startup Telegram channel. Telegram message IDs: ' +
+        (data.messageIds || []).join(', ')
       );
     } catch (err: any) {
       setTestResult('Test failed: ' + err.message);
@@ -362,8 +363,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
               className="px-4 py-2 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white"
             >
               {testSending
-                ? 'Sending test…'
-                : 'Test India Startups News'}
+                ? 'Preparing and sending 10 stories…'
+                : 'Test 10 India Startups News'}
             </button>
 
             <div className="flex items-center gap-2 bg-slate-800 p-1 rounded-xl border border-slate-700 flex-wrap">
