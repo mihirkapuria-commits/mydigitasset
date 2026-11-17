@@ -132,16 +132,6 @@ async function runCategoryNewsDelivery(env: NewsEnv, source: CategoryNewsSource,
   }
 }
 
-async function getActiveTelegramCategory(env: NewsEnv, categoryId: string): Promise<any> {
-  const category = await env.DB.prepare(
-    "SELECT id, title, telegram_channel_id FROM categories WHERE id = ? AND active = 1"
-  ).bind(categoryId).first();
-  if (!category || !category.telegram_channel_id) {
-    throw new Error("The active category or its Telegram channel ID is missing in D1: " + categoryId);
-  }
-  return category;
-}
-
 export async function sendIndiaStartupsNewsTest(
   env: NewsEnv,
   telegramChannelId: string
