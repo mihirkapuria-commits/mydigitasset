@@ -486,11 +486,7 @@ function buildNewsMessage(
     year: "numeric"
   }).format(new Date());
 
-  let message = "<b>" + escapeTelegramHtml(categoryTitle) + " — Daily News</b>\\n<code>" +
-    escapeTelegramHtml(today) + "</code>\\n\\n";
-
-  for (let index = 0; index < stories.length; index++) {
-    const story = stories[index];
+  const prepared = stories.map((story, index) => {
     const article = articles[story.articleNumber - 1];
     if (!article) {
       throw new Error("A source article is missing for story " + (index + 1) + ". Nothing was sent.");
@@ -501,20 +497,59 @@ function buildNewsMessage(
       month: "short",
       year: "numeric"
     }).format(article.publishedAt);
-    const block = "<b>" + (index + 1) + ". " + escapeTelegramHtml(story.headline) + "</b>\\n" +
-      escapeTelegramHtml(story.explanation) + "\\n" +
-      '<a href="' + escapeTelegramHtml(article.url) + '">Source: ' +
-      escapeTelegramHtml(article.source) + " · " + escapeTelegramHtml(sourceDate) + "</a>\\n\\n";
-    message += block;
+    return {
+      headline: story.headline,
+      explanation: story.explanation,
+      sourceLine: '<a href="' + escapeTelegramHtml(article.url) + '">Source: ' +
+        escapeTelegramHtml(article.source) + " · " + escapeTelegramHtml(sourceDate) + "</a>"
+    };
+  });
+
+  const render = () => {
+    let output = "<b>" + escapeTelegramHtml(categoryTitle) + " — Daily News</b>\\n<code>" +
+      escapeTelegramHtml(today) + "</code>\\n\\n";
+    for (let index = 0; index < prepared.length; index++) {
+      const item = prepared[index];
+      output += "<b>" + (index + 1) + ". " + escapeTelegramHtml(item.headline) + "</b>\\n" +
+        escapeTelegramHtml(item.explanation) + "\\n" + item.sourceLine + "\\n\\n";
+    }
+    return output.trim();
+  };
+
+  let message = render();
+
+  // Telegram allows up to 4,096 characters after entity parsing. If needed,
+  // progressively shorten explanations first, then headlines, while retaining
+  // all 10 stories and every original source link/date.
+  let explanationIndex = 0;
+  while (Array.from(message).length > 4096 && explanationIndex < prepared.length * 40) {
+    const item = prepared[explanationIndex % prepared.length];
+    const chars = Array.from(item.explanation);
+    if (chars.length > 35) {
+      item.explanation = chars.slice(0, Math.max(35, chars.length - 12)).join("").replace(/[\\s,;:.!?-]+$/, "") + "…";
+    }
+    explanationIndex++;
+    message = render();
+    if (prepared.every(entry => Array.from(entry.explanation).length <= 36)) break;
   }
 
-  // Stay below Telegram's 4,096-character limit, allowing for conservative
-  // counting around HTML entities. Never split the digest into another message.
-  if (Array.from(message).length > 4000) {
-    throw new Error("All 10 Startup stories exceed the single-message Telegram limit. Nothing was sent.");
+  let headlineIndex = 0;
+  while (Array.from(message).length > 4096 && headlineIndex < prepared.length * 30) {
+    const item = prepared[headlineIndex % prepared.length];
+    const chars = Array.from(item.headline);
+    if (chars.length > 35) {
+      item.headline = chars.slice(0, Math.max(35, chars.length - 8)).join("").replace(/[\\s,;:.!?-]+$/, "") + "…";
+    }
+    headlineIndex++;
+    message = render();
+    if (prepared.every(entry => Array.from(entry.headline).length <= 36)) break;
   }
 
-  return message.trim();
+  if (Array.from(message).length > 4096) {
+    throw new Error("The 10 stories and their source links still exceed Telegram's 4,096-character limit after shortening. Nothing was sent.");
+  }
+
+  return message;
 }
 
 async function sendNewsMessage(
