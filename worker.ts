@@ -179,7 +179,14 @@ async function getAuthenticatedUser(request, env) {
       u.trial_expires_at,
       u.status,
       u.role,
-      u.created_at
+      u.created_at,
+      EXISTS (
+        SELECT 1 FROM telegram_connections tc WHERE tc.user_id = u.id
+      ) AS telegram_connected,
+      (
+        SELECT tc.telegram_username FROM telegram_connections tc
+        WHERE tc.user_id = u.id LIMIT 1
+      ) AS telegram_username
     FROM auth_sessions s
     JOIN users u ON u.id = s.user_id
     WHERE s.token_hash = ?
@@ -231,7 +238,8 @@ function publicUser(user) {
     trialExpiresAt: trialExpiry,
     subscriptionStatus,
     paymentStatus: 'none',
-    telegramConnected: false,
+    telegramConnected: Boolean(user.telegram_connected),
+    telegramUsername: user.telegram_username || '',
     createdAt: user.created_at || ''
   };
 }
@@ -303,7 +311,10 @@ async function saveSystemSetting(env, key, value, adminEmail) {
 }
 
 async function sendTelegramMessage(token, chatId, message, replyMarkup = null) {
-  if (!token || !chatId) return;
+  if (!token || !chatId) {
+    console.error('Telegram sendMessage skipped: bot token or chat ID is missing.');
+    return false;
+  }
 
   const body = {
     chat_id: chatId,
@@ -314,14 +325,82 @@ async function sendTelegramMessage(token, chatId, message, replyMarkup = null) {
   if (replyMarkup) body.reply_markup = replyMarkup;
 
   try {
-    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
     });
+    const result = await response.json().catch(() => ({}));
+
+    if (!response.ok || result.ok !== true) {
+      console.error('Telegram sendMessage rejected:', {
+        httpStatus: response.status,
+        description: result.description || 'Telegram returned an unsuccessful response.'
+      });
+      return false;
+    }
+
+    return true;
   } catch (error) {
-    console.error('Telegram notification failed:', error);
+    console.error('Telegram sendMessage network failure:', String(error));
+    return false;
   }
+}
+
+async function ensureTelegramTables(env) {
+  await env.DB.prepare(`
+    CREATE TABLE IF NOT EXISTS telegram_verification_tokens (
+      token TEXT PRIMARY KEY,
+      user_id INTEGER NOT NULL,
+      expires_at TEXT NOT NULL,
+      used INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `).run();
+
+  await env.DB.prepare(`
+    CREATE TABLE IF NOT EXISTS telegram_connections (
+      user_id INTEGER PRIMARY KEY,
+      telegram_chat_id TEXT NOT NULL UNIQUE,
+      telegram_username TEXT,
+      connected_at TEXT NOT NULL
+    )
+  `).run();
+}
+
+async function configureTelegramWebhook(env) {
+  const token = String(env.TELEGRAM_BOT_TOKEN || '');
+  const secret = String(env.TELEGRAM_WEBHOOK_SECRET || '');
+
+  if (!token || !secret) {
+    throw new Error('Telegram bot token or webhook secret is not configured.');
+  }
+
+  if (!/^[A-Za-z0-9_-]{1,256}$/.test(secret)) {
+    throw new Error('Telegram webhook secret must contain only letters, numbers, underscores or hyphens.');
+  }
+
+  const response = await fetch(`https://api.telegram.org/bot${token}/setWebhook`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      url: 'https://mydigitasset.com/api/telegram/webhook',
+      secret_token: secret,
+      allowed_updates: ['message', 'callback_query'],
+      drop_pending_updates: false
+    })
+  });
+  const result = await response.json().catch(() => ({}));
+
+  if (!response.ok || result.ok !== true) {
+    console.error('Telegram setWebhook rejected:', {
+      httpStatus: response.status,
+      description: result.description || 'Telegram returned an unsuccessful response.'
+    });
+    throw new Error(result.description || 'Telegram could not register the MyDigitAsset webhook.');
+  }
+
+  return true;
 }
 
 var worker_default = {
@@ -351,6 +430,8 @@ var worker_default = {
           created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
       `).run();
+
+      await ensureTelegramTables(env);
 
       // PUBLIC CATEGORY LIST
       if (url.pathname === '/api/categories' && method === 'GET') {
@@ -558,6 +639,84 @@ var worker_default = {
           success: true,
           token: sessionToken,
           user: publicUser(user)
+        });
+      }
+
+      // TELEGRAM: GENERATE A SINGLE-USE VERIFICATION TOKEN
+      if (url.pathname === '/api/telegram/request-token' && method === 'POST') {
+        const user = await getAuthenticatedUser(request, env);
+        if (!user) return json({ error: 'Please sign in again.' }, 401);
+
+        await configureTelegramWebhook(env);
+
+        const tokenBytes = crypto.getRandomValues(new Uint8Array(24));
+        const verificationToken = base64url(tokenBytes);
+        const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+
+        await env.DB.prepare(`
+          UPDATE telegram_verification_tokens
+          SET used = 1
+          WHERE user_id = ? AND used = 0
+        `).bind(user.id).run();
+
+        await env.DB.prepare(`
+          INSERT INTO telegram_verification_tokens (token, user_id, expires_at, used)
+          VALUES (?, ?, ?, 0)
+        `).bind(verificationToken, user.id, expiresAt).run();
+
+        return json({
+          success: true,
+          verificationToken,
+          expiresAt
+        });
+      }
+
+      // TELEGRAM: CHECK WHETHER THE CUSTOMER HAS VERIFIED THE BOT
+      if (url.pathname === '/api/telegram/status' && method === 'GET') {
+        const user = await getAuthenticatedUser(request, env);
+        if (!user) return json({ error: 'Please sign in again.' }, 401);
+
+        return json({
+          configured: Boolean(env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_WEBHOOK_SECRET),
+          connected: Boolean(user.telegram_connected),
+          username: user.telegram_username || ''
+        });
+      }
+
+      // TELEGRAM: CONFIRM THE ONE-TIME TOKEN AFTER WEBHOOK VERIFICATION
+      if (url.pathname === '/api/telegram/connect' && method === 'POST') {
+        const user = await getAuthenticatedUser(request, env);
+        if (!user) return json({ error: 'Please sign in again.' }, 401);
+
+        const data = await parseRequestBody(request);
+        const verificationToken = String(data.verificationToken || '').trim();
+
+        if (!verificationToken) {
+          return json({ error: 'Verification token is required.' }, 400);
+        }
+
+        const verifiedToken = await env.DB.prepare(`
+          SELECT token FROM telegram_verification_tokens
+          WHERE token = ? AND user_id = ? AND used = 1
+            AND expires_at > ?
+          LIMIT 1
+        `).bind(verificationToken, user.id, new Date().toISOString()).first();
+
+        const connection = await env.DB.prepare(`
+          SELECT telegram_username FROM telegram_connections
+          WHERE user_id = ? LIMIT 1
+        `).bind(user.id).first();
+
+        if (!verifiedToken || !connection) {
+          return json({
+            error: 'Telegram has not verified this code yet. Please send the full /verify command to the bot.'
+          }, 409);
+        }
+
+        const refreshedUser = await getAuthenticatedUser(request, env);
+        return json({
+          success: true,
+          user: publicUser(refreshedUser)
         });
       }
 
@@ -814,6 +973,79 @@ var worker_default = {
         }
 
         const update = await parseRequestBody(request);
+
+        // Customer verification messages are accepted only in a private chat.
+        if (update.message) {
+          const message = update.message;
+          const chat = message.chat || {};
+          const from = message.from || {};
+          const messageText = String(message.text || '').trim();
+
+          if (chat.type === 'private' && messageText.startsWith('/verify')) {
+            const match = messageText.match(/^\\/verify(?:@\\w+)?\\s+([A-Za-z0-9_-]{20,})$/);
+
+            if (!match) {
+              await sendTelegramMessage(
+                env.TELEGRAM_BOT_TOKEN,
+                chat.id,
+                'Please send the complete one-time command copied from the MyDigitAsset website.'
+              );
+              return json({ ok: true });
+            }
+
+            const verificationToken = match[1];
+            const tokenRow = await env.DB.prepare(`
+              SELECT user_id FROM telegram_verification_tokens
+              WHERE token = ? AND used = 0 AND expires_at > ?
+              LIMIT 1
+            `).bind(verificationToken, new Date().toISOString()).first();
+
+            if (!tokenRow) {
+              await sendTelegramMessage(
+                env.TELEGRAM_BOT_TOKEN,
+                chat.id,
+                'This verification code is invalid, already used, or expired. Please generate a new code on the MyDigitAsset website.'
+              );
+              return json({ ok: true });
+            }
+
+            const telegramUsername = from.username
+              ? `@${String(from.username).replace(/^@/, '')}`
+              : String(from.first_name || 'Telegram user');
+
+            await env.DB.prepare(`
+              INSERT INTO telegram_connections (
+                user_id, telegram_chat_id, telegram_username, connected_at
+              )
+              VALUES (?, ?, ?, ?)
+              ON CONFLICT(user_id) DO UPDATE SET
+                telegram_chat_id = excluded.telegram_chat_id,
+                telegram_username = excluded.telegram_username,
+                connected_at = excluded.connected_at
+            `).bind(
+              tokenRow.user_id,
+              String(chat.id),
+              telegramUsername,
+              new Date().toISOString()
+            ).run();
+
+            await env.DB.prepare(`
+              UPDATE telegram_verification_tokens SET used = 1
+              WHERE token = ? AND used = 0
+            `).bind(verificationToken).run();
+
+            await sendTelegramMessage(
+              env.TELEGRAM_BOT_TOKEN,
+              chat.id,
+              '✅ Your Telegram account is now securely connected to MyDigitAsset. You can return to the website.'
+            );
+
+            console.log('Telegram customer verification completed for user:', String(tokenRow.user_id));
+            return json({ ok: true });
+          }
+
+          return json({ ok: true });
+        }
 
         if (update.callback_query) {
           const callback = update.callback_query;
