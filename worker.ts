@@ -1,7 +1,6 @@
-import { runIndiaStartupsNewsDelivery, sendIndiaStartupsNewsTest } from "./telegram-news";
-
-
 // @ts-nocheck
+
+import { runIndiaStartupsNewsDelivery, sendIndiaStartupsNewsTest } from "./telegram-news";
 
 const CATEGORIES = [
   { id: 'banking-fintech', title: 'Banking and Fintech', telegramChatId: '-1004377330142' },
