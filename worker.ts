@@ -1,3 +1,5 @@
+import { runIndiaStartupsNewsDelivery, sendIndiaStartupsNewsTest } from "./telegram-news";
+
 
 // @ts-nocheck
 
@@ -404,6 +406,15 @@ async function configureTelegramWebhook(env) {
 }
 
 var worker_default = {
+  async scheduled(controller, env, ctx) {
+    const startupCategory = CATEGORIES.find(item => item.id === 'startup');
+    if (!startupCategory || !startupCategory.telegramChatId) {
+      console.error('India Startups scheduled delivery skipped: Startup channel mapping is missing.');
+      return;
+    }
+    ctx.waitUntil(runIndiaStartupsNewsDelivery(env, startupCategory.telegramChatId));
+  },
+
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const method = request.method;
@@ -730,6 +741,26 @@ var worker_default = {
         return json({
           success: true,
           user: publicUser(refreshedUser)
+        });
+      }
+
+      // ADMIN: SEND A REAL 10-STORY INDIA STARTUPS NEWS TEST TO THE STARTUP CHANNEL
+      if (url.pathname === '/api/admin/news/startup/test' && method === 'POST') {
+        const admin = await getAuthorizedAdmin(request, env);
+        if (!admin) return json({ error: 'Administrator access required.' }, 403);
+
+        const startupCategory = CATEGORIES.find(item => item.id === 'startup');
+        if (!startupCategory || !startupCategory.telegramChatId) {
+          return json({ error: 'Startup Telegram channel mapping is missing.' }, 500);
+        }
+
+        const result = await sendIndiaStartupsNewsTest(env, startupCategory.telegramChatId);
+        return json({
+          success: true,
+          category: startupCategory.id,
+          storyCount: result.storyCount,
+          messageIds: result.messageIds,
+          message: 'Exactly 10 India Startups stories were delivered to the Startup Telegram channel.'
         });
       }
 
