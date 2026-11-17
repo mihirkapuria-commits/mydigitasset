@@ -301,12 +301,14 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
             </div>
 
             {!currentUser.telegramConnected && (
-              <button
-                onClick={() => setIsTelegramOpen(true)}
+              <a
+                href={categoryTelegramLink}
+                target="_blank"
+                rel="noopener noreferrer"
                 className="px-5 py-2.5 bg-white text-indigo-900 font-bold text-xs rounded-xl hover:bg-indigo-50 transition-colors shadow-sm shrink-0"
               >
                 Connect Telegram Now
-              </button>
+              </a>
             )}
           </div>
         )}
@@ -391,14 +393,22 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
               </div>
             </div>
 
-            <button
-              onClick={() => setIsTelegramOpen(true)}
+            <a
+              href={categoryTelegramLink}
+              target="_blank"
+              rel="noopener noreferrer"
               className="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-xl transition-colors shadow-sm mt-2 flex items-center justify-center gap-2"
             >
               <Send className="w-4 h-4" />
-              {currentUser.telegramConnected
-                ? 'Manage Telegram Bot'
-                : 'Connect Telegram Account'}
+              Connect Telegram Account
+            </a>
+
+            <button
+              type="button"
+              onClick={() => setIsTelegramOpen(true)}
+              className="w-full text-xs font-medium text-indigo-600 hover:text-indigo-800 underline underline-offset-2"
+            >
+              Manage Telegram Bot Verification
             </button>
           </div>
 
