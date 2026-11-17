@@ -647,7 +647,20 @@ var worker_default = {
         const user = await getAuthenticatedUser(request, env);
         if (!user) return json({ error: 'Please sign in again.' }, 401);
 
-        await configureTelegramWebhook(env);
+        try {
+          await configureTelegramWebhook(env);
+        } catch (error) {
+          // Return a safe, actionable webhook setup error to the signed-in customer.
+          // configureTelegramWebhook only exposes configuration or Telegram API descriptions;
+          // never include bot tokens or webhook secrets in this response.
+          const reason = error instanceof Error
+            ? error.message
+            : 'Telegram webhook configuration failed.';
+          console.error('Telegram webhook setup failed:', reason);
+          return json({
+            error: `Telegram webhook setup failed: ${reason}`
+          }, 502);
+        }
 
         const tokenBytes = crypto.getRandomValues(new Uint8Array(24));
         const verificationToken = base64url(tokenBytes);
