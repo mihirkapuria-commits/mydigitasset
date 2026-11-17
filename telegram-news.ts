@@ -429,7 +429,7 @@ async function summarizeArticles(apiKey: string, categoryTopic: string, articles
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         contents: [{ role: "user", parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.2, maxOutputTokens: 2600 }
+        generationConfig: { maxOutputTokens: 2600 }
       })
     }
   );
