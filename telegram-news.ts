@@ -289,7 +289,7 @@ async function fetchGoogleNewsArticles(env: NewsEnv, googleNewsUrl: string): Pro
       let bodyPreview = "";
       try {
         bodyPreview = (await response.clone().text())
-          .replace(/[\\r\\n\\t]+/g, " ")
+          .replace(/[\\r\n\\t]+/g, " ")
           .replace(/[\\u0000-\\u001f\\u007f]/g, "")
           .slice(0, 600);
       } catch {
@@ -341,7 +341,7 @@ async function fetchGoogleNewsArticles(env: NewsEnv, googleNewsUrl: string): Pro
 }
 
 function readGoogleNewsRssField(item: string, tagName: string): string {
-  const match = item.match(new RegExp("<" + tagName + "\\b[^>]*>([\\s\\S]*?)<\\/" + tagName + "\\s*>", "i"));
+  const match = item.match(new RegExp("<" + tagName + "\\b[^>]*>([\s\\S]*?)<\\/" + tagName + "\s*>", "i"));
   return match?.[1] || "";
 }
 
@@ -506,12 +506,12 @@ function buildNewsMessage(
   });
 
   const render = () => {
-    let output = "<b>" + escapeTelegramHtml(categoryTitle) + " — Daily News</b>\\n<code>" +
-      escapeTelegramHtml(today) + "</code>\\n\\n";
+    let output = "<b>" + escapeTelegramHtml(categoryTitle) + " — Daily News</b>\n<code>" +
+      escapeTelegramHtml(today) + "</code>\n\n";
     for (let index = 0; index < prepared.length; index++) {
       const item = prepared[index];
-      output += "<b>" + (index + 1) + ". " + escapeTelegramHtml(item.headline) + "</b>\\n" +
-        escapeTelegramHtml(item.explanation) + "\\n" + item.sourceLine + "\\n\\n";
+      output += "<b>" + (index + 1) + ". " + escapeTelegramHtml(item.headline) + "</b>\n" +
+        escapeTelegramHtml(item.explanation) + "\n" + item.sourceLine + "\n\n";
     }
     return output.trim();
   };
@@ -526,7 +526,7 @@ function buildNewsMessage(
     const item = prepared[explanationIndex % prepared.length];
     const chars = Array.from(item.explanation);
     if (chars.length > 35) {
-      item.explanation = chars.slice(0, Math.max(35, chars.length - 12)).join("").replace(/[\\s,;:.!?-]+$/, "") + "…";
+      item.explanation = chars.slice(0, Math.max(35, chars.length - 12)).join("").replace(/[\s,;:.!?-]+$/, "") + "…";
     }
     explanationIndex++;
     message = render();
@@ -538,7 +538,7 @@ function buildNewsMessage(
     const item = prepared[headlineIndex % prepared.length];
     const chars = Array.from(item.headline);
     if (chars.length > 35) {
-      item.headline = chars.slice(0, Math.max(35, chars.length - 8)).join("").replace(/[\\s,;:.!?-]+$/, "") + "…";
+      item.headline = chars.slice(0, Math.max(35, chars.length - 8)).join("").replace(/[\s,;:.!?-]+$/, "") + "…";
     }
     headlineIndex++;
     message = render();
