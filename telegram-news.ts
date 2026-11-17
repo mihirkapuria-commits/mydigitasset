@@ -118,8 +118,8 @@ async function runCategoryNewsDelivery(env: NewsEnv, source: CategoryNewsSource,
   try {
     const articles = await fetchGoogleNewsArticles(env, source.googleNewsUrl);
     const stories = await summarizeArticles(env.GEMINI_API_KEY!, source.topic, articles);
-    const messages = buildNewsMessages(source.topic, stories, articles);
-    const sentIds = await sendNewsMessages(env.TELEGRAM_BOT_TOKEN!, telegramChannelId, messages);
+    const message = buildNewsMessage(source.topic, stories, articles);
+    const sentIds = await sendNewsMessage(env.TELEGRAM_BOT_TOKEN!, telegramChannelId, message);
 
     await env.DB.prepare("UPDATE settings SET value = ? WHERE key = ?")
       .bind("sent:" + sentIds.join(","), deliveryKey).run();
@@ -142,8 +142,8 @@ export async function sendIndiaStartupsNewsTest(
 
   const articles = await fetchGoogleNewsArticles(env, INDIA_STARTUPS_SOURCE.googleNewsUrl);
   const stories = await summarizeArticles(env.GEMINI_API_KEY, INDIA_STARTUPS_SOURCE.topic, articles);
-  const messages = buildNewsMessages(INDIA_STARTUPS_SOURCE.topic + " — TEST DELIVERY", stories, articles);
-  const messageIds = await sendNewsMessages(env.TELEGRAM_BOT_TOKEN, telegramChannelId, messages);
+  const message = buildNewsMessage(INDIA_STARTUPS_SOURCE.topic + " — TEST DELIVERY", stories, articles);
+  const messageIds = await sendNewsMessage(env.TELEGRAM_BOT_TOKEN, telegramChannelId, message);
 
   console.log("India Startups test digest sent. Story count:", stories.length, "Message IDs:", messageIds.join(","));
   return { storyCount: stories.length, messageIds };
@@ -470,11 +470,15 @@ async function summarizeArticles(apiKey: string, categoryTopic: string, articles
   return stories;
 }
 
-function buildNewsMessages(
+function buildNewsMessage(
   categoryTitle: string,
   stories: NewsStory[],
   articles: NewsArticle[]
-): string[] {
+): string {
+  if (stories.length !== 10) {
+    throw new Error("The digest must contain exactly 10 stories. Nothing was sent.");
+  }
+
   const today = new Intl.DateTimeFormat("en-IN", {
     timeZone: "Asia/Kolkata",
     day: "2-digit",
@@ -482,51 +486,44 @@ function buildNewsMessages(
     year: "numeric"
   }).format(new Date());
 
-  const header = "<b>" + escapeTelegramHtml(categoryTitle) + " — Daily News</b>\n<code>" +
-    escapeTelegramHtml(today) + "</code>\n\n";
-  const messages: string[] = [];
-  let current = header;
+  let message = "<b>" + escapeTelegramHtml(categoryTitle) + " — Daily News</b>\\n<code>" +
+    escapeTelegramHtml(today) + "</code>\\n\\n";
 
   for (let index = 0; index < stories.length; index++) {
     const story = stories[index];
     const article = articles[story.articleNumber - 1];
+    if (!article) {
+      throw new Error("A source article is missing for story " + (index + 1) + ". Nothing was sent.");
+    }
     const sourceDate = new Intl.DateTimeFormat("en-IN", {
       timeZone: "Asia/Kolkata",
       day: "2-digit",
       month: "short",
       year: "numeric"
     }).format(article.publishedAt);
-    const block = "<b>" + (index + 1) + ". " + escapeTelegramHtml(story.headline) + "</b>\n" +
-      escapeTelegramHtml(story.explanation) + "\n" +
+    const block = "<b>" + (index + 1) + ". " + escapeTelegramHtml(story.headline) + "</b>\\n" +
+      escapeTelegramHtml(story.explanation) + "\\n" +
       '<a href="' + escapeTelegramHtml(article.url) + '">Source: ' +
-      escapeTelegramHtml(article.source) + " · " + escapeTelegramHtml(sourceDate) + "</a>\n\n";
-
-    if (current.length + block.length > 3800 && current !== header) {
-      messages.push(current.trim());
-      current = "<b>" + escapeTelegramHtml(categoryTitle) + " — Daily News (continued)</b>\n" +
-        "<code>" + escapeTelegramHtml(today) + "</code>\n\n";
-    }
-    if (current.length + block.length > 4000) {
-      throw new Error("A single Startup story is too long for Telegram. Nothing was sent.");
-    }
-    current += block;
+      escapeTelegramHtml(article.source) + " · " + escapeTelegramHtml(sourceDate) + "</a>\\n\\n";
+    message += block;
   }
 
-  if (current.trim()) messages.push(current.trim());
-  return messages;
+  // Stay below Telegram's 4,096-character limit, allowing for conservative
+  // counting around HTML entities. Never split the digest into another message.
+  if (Array.from(message).length > 4000) {
+    throw new Error("All 10 Startup stories exceed the single-message Telegram limit. Nothing was sent.");
+  }
+
+  return message.trim();
 }
 
-async function sendNewsMessages(
+async function sendNewsMessage(
   botToken: string,
   channelId: string,
-  messages: string[]
+  message: string
 ): Promise<number[]> {
-  const messageIds: number[] = [];
-  for (const message of messages) {
-    const sent = await sendTelegramChannelMessage(botToken, channelId, message);
-    messageIds.push(sent.message_id);
-  }
-  return messageIds;
+  const sent = await sendTelegramChannelMessage(botToken, channelId, message);
+  return [sent.message_id];
 }
 
 function escapeTelegramHtml(value: string): string {
