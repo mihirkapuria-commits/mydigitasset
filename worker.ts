@@ -982,7 +982,7 @@ var worker_default = {
           const messageText = String(message.text || '').trim();
 
           if (chat.type === 'private' && messageText.startsWith('/verify')) {
-            const match = messageText.match(/^\\/verify(?:@\\w+)?\\s+([A-Za-z0-9_-]{20,})$/);
+            const match = messageText.match(/^\/verify(?:@\w+)?\s+([A-Za-z0-9_-]{20,})$/);
 
             if (!match) {
               await sendTelegramMessage(
