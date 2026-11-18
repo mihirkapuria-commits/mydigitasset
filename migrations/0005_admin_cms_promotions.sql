@@ -13,22 +13,22 @@ CREATE TABLE IF NOT EXISTS managed_categories (
 );
 
 -- Seed the 15 currently configured Telegram category channels.
-INSERT OR IGNORE INTO managed_categories (id, title, telegram_chat_id, active, display_order) VALUES
-('banking-fintech', 'Banking and Fintech', '-1004377330142', 1, 1),
-('consumer-fmcg', 'India Consumer & FMCG', '-1004356285380', 1, 2),
-('economy-business', 'Economy and Business', '-1003773612503', 1, 3),
-('energy-renewal', 'Energy and Renewal', '-1004305076677', 1, 4),
-('hr-employment', 'HR and Employment', '-1003756538856', 1, 5),
-('it-ai-cybersecurity', 'IT AI Cybersecurity', '-1004404579614', 1, 6),
-('manufacturing-auto', 'Manufacturing and Auto', '-1004328043113', 1, 7),
-('marketing-advertising', 'Marketing and Advertising', '-1003914193738', 1, 8),
-('real-estate', 'Real Estate', '-1004322510775', 1, 9),
-('bollywood', 'Bollywood', '-1004339246354', 1, 10),
-('kids', 'Kids', '-1004312693379', 1, 11),
-('women', 'Women', '-1003821497200', 1, 12),
-('politics', 'Politics', '-1004350871154', 1, 13),
-('stock-market', 'Stock Market', '-1004343493425', 1, 14),
-('startup', 'Startup', '-1003720483555', 1, 15);
+INSERT OR IGNORE INTO managed_categories (id, title, description, telegram_chat_id, active, display_order) VALUES
+('banking-fintech', 'Banking and Fintech', 'Banking, financial technology, digital payments, lending and financial services.', '-1004377330142', 1, 1),
+('consumer-fmcg', 'India Consumer & FMCG', 'Consumer brands, retail, FMCG products and consumer market developments.', '-1004356285380', 1, 2),
+('economy-business', 'Economy and Business', 'India''s economy, major businesses, trade and corporate developments.', '-1003773612503', 1, 3),
+('energy-renewal', 'Energy and Renewal', 'Oil, gas, power, renewables and energy transition developments.', '-1004305076677', 1, 4),
+('hr-employment', 'HR and Employment', 'Recruitment, employment trends, workplace and human resources.', '-1003756538856', 1, 5),
+('it-ai-cybersecurity', 'IT AI Cybersecurity', 'Information technology, AI, software, cybersecurity and digital innovation.', '-1004404579614', 1, 6),
+('manufacturing-auto', 'Manufacturing and Auto', 'Manufacturing, automobiles, industrial production and supply chains.', '-1004328043113', 1, 7),
+('marketing-advertising', 'Marketing and Advertising', 'Advertising, media, brand campaigns and digital marketing.', '-1003914193738', 1, 8),
+('real-estate', 'Real Estate', 'Residential, commercial real estate, property and infrastructure.', '-1004322510775', 1, 9),
+('bollywood', 'Bollywood', 'Hindi cinema, film releases, entertainment and industry developments.', '-1004339246354', 1, 10),
+('kids', 'Kids', 'Children''s learning, products, activities and family-focused developments.', '-1004312693379', 1, 11),
+('women', 'Women', 'Women-focused business, products, careers and industry developments.', '-1003821497200', 1, 12),
+('politics', 'Politics', 'Indian politics, public policy, governance and political developments.', '-1004350871154', 1, 13),
+('stock-market', 'Stock Market', 'Indian equities, markets, listed companies and investment developments.', '-1004343493425', 1, 14),
+('startup', 'Startup', 'Indian startups, founders, venture capital and funding developments.', '-1003720483555', 1, 15);
 
 CREATE TABLE IF NOT EXISTS site_content_items (
   id TEXT PRIMARY KEY,
