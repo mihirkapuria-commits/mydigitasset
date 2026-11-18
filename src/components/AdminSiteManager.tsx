@@ -208,7 +208,7 @@ export const AdminSiteManager: React.FC<Props> = ({ token }) => {
     try {
       const r = await fetch('/api/admin/adsense', {
         method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ slots })
+        body: JSON.stringify({ slots: slots.map(slot => ({ placementKey: slot.placement_key, enabled: Boolean(slot.enabled), clientId: slot.client_id, slotId: slot.slot_id })) })
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || 'Could not save AdSense settings.');
