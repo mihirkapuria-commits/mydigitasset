@@ -12,8 +12,8 @@ type Campaign = {
 };
 type DeliveryRow = { channelName: string; channelId: string; status: string; telegramMessageId?: string; trackingCode?: string; errorMessage?: string; attempts: number; deliveredAt?: string; };
 type AnalyticsRow = {
-  tracking_code: string; campaign_id: string; product_name: string; source_type: string;
-  source_id: string; clicks: number; reported_order_amount: number;
+  tracking_code: string; campaign_id: string; campaign_name: string; product_name: string; source_type: string;
+  source_id: string; source_name: string; clicks: number; last_clicked_at?: string; last_purchase_reported_at?: string; reported_order_amount: number;
   reported_commission: number; reported_purchases: number;
 };
 
@@ -354,11 +354,11 @@ export const AdminCampaignManager: React.FC<Props> = ({ token }) => {
         <section className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
         <div className="p-5 border-b"><h2 className="font-bold">Affiliate performance</h2><p className="text-xs text-slate-500 mt-1">Click counts are recorded by MyDigitAsset. Purchases and commissions appear only when reported by the affiliate network or merchant.</p></div>
         <div className="overflow-x-auto"><table className="w-full text-left text-xs">
-          <thead className="bg-slate-50 text-slate-500"><tr><th className="p-3">Product</th><th className="p-3">Tracking code</th><th className="p-3">Source</th><th className="p-3">Source ID</th><th className="p-3">Clicks</th><th className="p-3">Reported purchases</th><th className="p-3">Order amount</th><th className="p-3">Commission</th></tr></thead>
+          <thead className="bg-slate-50 text-slate-500"><tr><th className="p-3">Campaign</th><th className="p-3">Product</th><th className="p-3">Tracking code</th><th className="p-3">Source channel</th><th className="p-3">Clicks</th><th className="p-3">Last click</th><th className="p-3">Reported purchases</th><th className="p-3">Order amount</th><th className="p-3">Commission</th><th className="p-3">Last purchase report</th></tr></thead>
           <tbody className="divide-y">{analytics.map((a, i) => <tr key={i}>
-            <td className="p-3">{a.product_name}</td><td className="p-3 font-mono">{a.tracking_code}</td><td className="p-3">{a.source_type}</td><td className="p-3">{a.source_id}</td><td className="p-3">{a.clicks}</td><td className="p-3">{a.reported_purchases}</td><td className="p-3">₹{Number(a.reported_order_amount || 0).toFixed(2)}</td><td className="p-3">₹{Number(a.reported_commission || 0).toFixed(2)}</td>
+            <td className="p-3">{a.campaign_name || a.campaign_id}</td><td className="p-3">{a.product_name}</td><td className="p-3 font-mono">{a.tracking_code}</td><td className="p-3">{a.source_name || a.source_id}</td><td className="p-3">{a.clicks}</td><td className="p-3">{a.last_clicked_at ? new Date(a.last_clicked_at).toLocaleString() : '—'}</td><td className="p-3">{a.reported_purchases}</td><td className="p-3">₹{Number(a.reported_order_amount || 0).toFixed(2)}</td><td className="p-3">₹{Number(a.reported_commission || 0).toFixed(2)}</td><td className="p-3">{a.last_purchase_reported_at ? new Date(a.last_purchase_reported_at).toLocaleString() : '—'}</td>
           </tr>)}
-          {!analytics.length && <tr><td colSpan={8} className="p-4 text-slate-500">No affiliate clicks or conversion reports yet.</td></tr>}</tbody>
+          {!analytics.length && <tr><td colSpan={10} className="p-4 text-slate-500">No affiliate clicks or conversion reports yet.</td></tr>}</tbody>
         </table></div>
         </section>
       </>}
