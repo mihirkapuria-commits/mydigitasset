@@ -495,6 +495,10 @@ async function sendScheduledCustomerReminders(env) {
     SELECT id, first_name, trial_expires_at
     FROM users
     WHERE role = 'customer' AND status = 'trial' AND trial_expires_at IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM payments p
+        WHERE p.user_id = users.id AND p.status = 'pending'
+      )
   `).all();
 
   for (const user of (trials.results || [])) {
@@ -757,7 +761,7 @@ async function runDuePromotionCampaigns(env) {
 
 var worker_default = {
   async scheduled(controller, env, ctx) {
-    // The second daily cron runs customer account reminders at 07:15 IST.
+    // The 07:15 IST cron sends private customer account reminders.
     if (String(controller.cron || "") === "45 1 * * *") {
       ctx.waitUntil(sendScheduledCustomerReminders(env));
       return;
