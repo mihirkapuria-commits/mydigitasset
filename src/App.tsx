@@ -37,27 +37,54 @@ export default function App() {
           setCategories(catData);
         }
 
-        const savedToken = localStorage.getItem('mydigitasset_token');
+        const params = new URLSearchParams(window.location.search);
+        const adminOAuthCode = params.get('admin_oauth_code');
 
-        if (savedToken) {
-          const userRes = await fetch('/api/auth/me', {
-            headers: {
-              Authorization: `Bearer ${savedToken}`
-            }
+        if (adminOAuthCode) {
+          // Remove the short-lived handoff code from the visible address bar immediately.
+          window.history.replaceState({}, document.title, window.location.pathname);
+          const sessionRes = await fetch('/api/auth/google/session', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code: adminOAuthCode })
           });
+          const sessionData = await sessionRes.json();
+          if (!sessionRes.ok) {
+            throw new Error(sessionData.error || 'Administrator Google sign-in failed.');
+          }
 
-          if (userRes.ok) {
-            const userData = await userRes.json();
-            setCurrentUser(userData);
-            setToken(savedToken);
-          } else {
-            localStorage.removeItem('mydigitasset_token');
-            setToken(null);
-            setCurrentUser(null);
+          localStorage.setItem('mydigitasset_token', sessionData.token);
+          setToken(sessionData.token);
+          setCurrentUser(sessionData.user);
+          setCurrentView('admin');
+        } else {
+          const savedToken = localStorage.getItem('mydigitasset_token');
+
+          if (savedToken) {
+            const userRes = await fetch('/api/auth/me', {
+              headers: {
+                Authorization: `Bearer ${savedToken}`
+              }
+            });
+
+            if (userRes.ok) {
+              const userData = await userRes.json();
+              setCurrentUser(userData);
+              setToken(savedToken);
+              if (userData.role === 'admin') setCurrentView('admin');
+            } else {
+              localStorage.removeItem('mydigitasset_token');
+              setToken(null);
+              setCurrentUser(null);
+            }
           }
         }
       } catch (err) {
         console.error('Initialization error:', err);
+        if (new URLSearchParams(window.location.search).has('admin_oauth_code')) {
+          window.history.replaceState({}, document.title, window.location.pathname);
+          window.alert(err instanceof Error ? err.message : 'Administrator Google sign-in failed. Please try again.');
+        }
       } finally {
         setLoading(false);
       }

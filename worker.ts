@@ -167,6 +167,7 @@ async function getAuthenticatedUser(request, env) {
   if (!token) return null;
 
   const tokenHash = await sha256(token);
+  const now = new Date().toISOString();
 
   const result = await env.DB.prepare(`
     SELECT
@@ -193,9 +194,42 @@ async function getAuthenticatedUser(request, env) {
     WHERE s.token_hash = ?
       AND s.expires_at > ?
     LIMIT 1
-  `).bind(tokenHash, new Date().toISOString()).first();
+  `).bind(tokenHash, now).first();
 
-  return result || null;
+  // A legacy password session must never authenticate the administrator.
+  if (result && !(
+    result.role === 'admin' &&
+    String(result.email || '').toLowerCase() === ADMIN_EMAIL
+  )) {
+    return result;
+  }
+
+  const adminSession = await env.DB.prepare(`
+    SELECT email, google_sub, created_at
+    FROM admin_google_sessions
+    WHERE token_hash = ? AND expires_at > ?
+    LIMIT 1
+  `).bind(tokenHash, now).first();
+
+  if (!adminSession || String(adminSession.email || '').toLowerCase() !== ADMIN_EMAIL) {
+    return null;
+  }
+
+  return {
+    id: 'google-admin',
+    first_name: 'Mihir',
+    surname: 'Kapuria',
+    email: ADMIN_EMAIL,
+    country_code: '+91',
+    mobile_number: '',
+    category: '',
+    trial_expires_at: '',
+    status: 'active',
+    role: 'admin',
+    created_at: adminSession.created_at || now,
+    telegram_connected: 0,
+    telegram_username: ''
+  };
 }
 
 async function getAuthorizedAdmin(request, env) {
@@ -441,7 +475,210 @@ var worker_default = {
         )
       `).run();
 
+      // Isolated Google OAuth state, one-time handoff codes and administrator sessions.
+      await env.DB.prepare(`
+        CREATE TABLE IF NOT EXISTS admin_oauth_states (
+          state_hash TEXT PRIMARY KEY,
+          code_verifier TEXT NOT NULL,
+          expires_at TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+      `).run();
+      await env.DB.prepare(`
+        CREATE TABLE IF NOT EXISTS admin_oauth_handoffs (
+          code_hash TEXT PRIMARY KEY,
+          email TEXT NOT NULL,
+          google_sub TEXT NOT NULL,
+          expires_at TEXT NOT NULL,
+          used_at TEXT
+        )
+      `).run();
+      await env.DB.prepare(`
+        CREATE TABLE IF NOT EXISTS admin_google_sessions (
+          token_hash TEXT PRIMARY KEY,
+          email TEXT NOT NULL,
+          google_sub TEXT NOT NULL,
+          expires_at TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+      `).run();
+
       await ensureTelegramTables(env);
+
+      // ADMINISTRATOR GOOGLE OAUTH: start authorization with state + PKCE.
+      if (url.pathname === '/api/auth/google/login' && method === 'GET') {
+        if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) {
+          return json({ error: 'Google administrator sign-in is not configured on the server.' }, 503);
+        }
+
+        const state = base64url(crypto.getRandomValues(new Uint8Array(32)));
+        const verifier = base64url(crypto.getRandomValues(new Uint8Array(32)));
+        const challenge = await sha256(verifier);
+        const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+
+        await env.DB.prepare(
+          'DELETE FROM admin_oauth_states WHERE expires_at <= ?'
+        ).bind(new Date().toISOString()).run();
+        await env.DB.prepare(`
+          INSERT INTO admin_oauth_states (state_hash, code_verifier, expires_at)
+          VALUES (?, ?, ?)
+        `).bind(await sha256(state), verifier, expiresAt).run();
+
+        const redirectUri = 'https://mydigitasset.com/api/auth/google/callback';
+        const googleUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+        googleUrl.searchParams.set('client_id', env.GOOGLE_CLIENT_ID);
+        googleUrl.searchParams.set('redirect_uri', redirectUri);
+        googleUrl.searchParams.set('response_type', 'code');
+        googleUrl.searchParams.set('scope', 'openid email profile');
+        googleUrl.searchParams.set('state', state);
+        googleUrl.searchParams.set('code_challenge', challenge);
+        googleUrl.searchParams.set('code_challenge_method', 'S256');
+        googleUrl.searchParams.set('prompt', 'select_account');
+
+        return Response.redirect(googleUrl.toString(), 302);
+      }
+
+      // GOOGLE OAUTH CALLBACK: verify Google's signed identity before creating a one-time handoff.
+      if (url.pathname === '/api/auth/google/callback' && method === 'GET') {
+        if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) {
+          return json({ error: 'Google administrator sign-in is not configured on the server.' }, 503);
+        }
+
+        const oauthError = url.searchParams.get('error');
+        if (oauthError) return json({ error: 'Google sign-in was cancelled or denied.' }, 400);
+
+        const code = url.searchParams.get('code');
+        const state = url.searchParams.get('state');
+        if (!code || !state) return json({ error: 'Google sign-in response is incomplete.' }, 400);
+
+        const stateHash = await sha256(state);
+        const stateRecord = await env.DB.prepare(`
+          DELETE FROM admin_oauth_states
+          WHERE state_hash = ? AND expires_at > ?
+          RETURNING code_verifier
+        `).bind(stateHash, new Date().toISOString()).first();
+
+        if (!stateRecord?.code_verifier) {
+          return json({ error: 'Google sign-in expired or could not be verified. Please try again.' }, 400);
+        }
+
+        const redirectUri = 'https://mydigitasset.com/api/auth/google/callback';
+        const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({
+            code,
+            client_id: env.GOOGLE_CLIENT_ID,
+            client_secret: env.GOOGLE_CLIENT_SECRET,
+            redirect_uri: redirectUri,
+            grant_type: 'authorization_code',
+            code_verifier: stateRecord.code_verifier
+          })
+        });
+
+        if (!tokenResponse.ok) {
+          console.error('Google OAuth token exchange failed:', tokenResponse.status);
+          return json({ error: 'Google could not complete sign-in. Please try again.' }, 401);
+        }
+
+        const tokenData = await tokenResponse.json();
+        if (!tokenData.id_token) {
+          return json({ error: 'Google did not return a verified identity.' }, 401);
+        }
+
+        const tokenInfoUrl = new URL('https://oauth2.googleapis.com/tokeninfo');
+        tokenInfoUrl.searchParams.set('id_token', tokenData.id_token);
+        const identityResponse = await fetch(tokenInfoUrl.toString());
+        if (!identityResponse.ok) {
+          return json({ error: 'Google identity verification failed.' }, 401);
+        }
+
+        const identity = await identityResponse.json();
+        const verifiedEmail = String(identity.email || '').trim().toLowerCase();
+        const emailVerified = identity.email_verified === true || identity.email_verified === 'true';
+        const tokenExpiry = Number(identity.exp);
+
+        if (
+          identity.aud !== env.GOOGLE_CLIENT_ID ||
+          (identity.iss !== 'accounts.google.com' && identity.iss !== 'https://accounts.google.com') ||
+          !Number.isFinite(tokenExpiry) ||
+          tokenExpiry <= Math.floor(Date.now() / 1000) ||
+          !emailVerified ||
+          verifiedEmail !== ADMIN_EMAIL ||
+          !identity.sub
+        ) {
+          return json({ error: 'This Google account is not authorized to access the administrator portal.' }, 403);
+        }
+
+        const handoffCode = base64url(crypto.getRandomValues(new Uint8Array(32)));
+        const handoffExpiry = new Date(Date.now() + 2 * 60 * 1000).toISOString();
+        await env.DB.prepare(
+          'DELETE FROM admin_oauth_handoffs WHERE expires_at <= ? OR used_at IS NOT NULL'
+        ).bind(new Date().toISOString()).run();
+        await env.DB.prepare(`
+          INSERT INTO admin_oauth_handoffs (code_hash, email, google_sub, expires_at)
+          VALUES (?, ?, ?, ?)
+        `).bind(await sha256(handoffCode), ADMIN_EMAIL, String(identity.sub), handoffExpiry).run();
+
+        const returnUrl = new URL('/', 'https://mydigitasset.com');
+        returnUrl.searchParams.set('admin_oauth_code', handoffCode);
+        return Response.redirect(returnUrl.toString(), 302);
+      }
+
+      // Exchange the short-lived, one-use browser handoff for an 8-hour admin bearer session.
+      if (url.pathname === '/api/auth/google/session' && method === 'POST') {
+        const data = await parseRequestBody(request);
+        const handoffCode = String(data.code || '');
+        if (!handoffCode) return json({ error: 'Administrator sign-in code is missing.' }, 400);
+
+        const handoff = await env.DB.prepare(`
+          UPDATE admin_oauth_handoffs
+          SET used_at = ?
+          WHERE code_hash = ? AND expires_at > ? AND used_at IS NULL
+          RETURNING email, google_sub
+        `).bind(
+          new Date().toISOString(),
+          await sha256(handoffCode),
+          new Date().toISOString()
+        ).first();
+
+        if (!handoff || String(handoff.email || '').toLowerCase() !== ADMIN_EMAIL) {
+          return json({ error: 'Administrator sign-in code expired or was already used. Please try again.' }, 401);
+        }
+
+        const sessionToken = base64url(crypto.getRandomValues(new Uint8Array(32)));
+        const sessionExpiry = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString();
+        await env.DB.prepare(`
+          INSERT INTO admin_google_sessions (token_hash, email, google_sub, expires_at)
+          VALUES (?, ?, ?, ?)
+        `).bind(await sha256(sessionToken), ADMIN_EMAIL, handoff.google_sub, sessionExpiry).run();
+
+        return json({
+          success: true,
+          token: sessionToken,
+          user: {
+            id: 'google-admin',
+            name: 'Mihir Kapuria',
+            firstName: 'Mihir',
+            surname: 'Kapuria',
+            email: ADMIN_EMAIL,
+            countryCode: '+91',
+            mobileNumber: '',
+            mobile: '',
+            role: 'admin',
+            category: '',
+            categories: [],
+            trialStart: '',
+            trialExpiry: '',
+            trialExpiresAt: '',
+            subscriptionStatus: 'active_paid',
+            paymentStatus: 'verified',
+            telegramConnected: false,
+            telegramUsername: '',
+            createdAt: new Date().toISOString()
+          }
+        });
+      }
 
       // PUBLIC CATEGORY LIST
       if (url.pathname === '/api/categories' && method === 'GET') {
@@ -772,6 +1009,9 @@ var worker_default = {
         if (!email || !password) {
           return json({ error: 'Please enter your email and password.' }, 400);
         }
+        if (email === ADMIN_EMAIL) {
+          return json({ error: 'Administrator access is available only through Google sign-in.' }, 403);
+        }
 
         const user = await env.DB.prepare(`
           SELECT id, first_name, surname, email, country_code,
@@ -880,6 +1120,9 @@ var worker_default = {
           await env.DB.prepare(
             'DELETE FROM auth_sessions WHERE token_hash = ?'
           ).bind(tokenHash).run();
+          await env.DB.prepare(
+            'DELETE FROM admin_google_sessions WHERE token_hash = ?'
+          ).bind(tokenHash).run();
         }
 
         return json({ success: true });
@@ -891,6 +1134,10 @@ var worker_default = {
         const email = String(data.email || '').trim().toLowerCase();
         const mobileNumber = String(data.mobileNumber || '').replace(/\D/g, '');
         const newPassword = String(data.newPassword || '');
+
+        if (email === ADMIN_EMAIL) {
+          return json({ error: 'Administrator access is managed through Google sign-in, not password recovery.' }, 403);
+        }
 
         if (!email || mobileNumber.length !== 10 || newPassword.length !== 8) {
           return json({

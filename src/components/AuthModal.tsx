@@ -298,6 +298,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
+            {mode === 'login' && (
+              <a
+                href="/api/auth/google/login"
+                className="w-full flex items-center justify-center gap-3 py-3.5 px-4 border border-slate-300 rounded-xl bg-white hover:bg-slate-50 text-slate-800 font-semibold text-sm transition-colors shadow-sm"
+              >
+                <span className="font-bold text-lg" aria-hidden="true">G</span>
+                Sign in as Administrator with Google
+              </a>
+            )}
+
             {mode === 'register' && (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
@@ -486,6 +496,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   </div>
                 </div>
               </div>
+            )}
+
+            {mode === 'login' && (
+              <p className="text-[11px] text-slate-500 text-center">
+                Customer accounts use email and password. Administrator access requires Google sign-in.
+              </p>
             )}
 
             {mode === 'register' && (
