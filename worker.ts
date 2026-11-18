@@ -1414,6 +1414,10 @@ async function runDuePromotionCampaigns(env) {
         if (!existing || !['draft', 'approved'].includes(existing.status)) {
           return json({ error: 'Only draft or scheduled campaigns can be edited.' }, 409);
         }
+        const priorDeliveries = await env.DB.prepare('SELECT COUNT(*) AS count FROM promo_deliveries WHERE campaign_id = ?').bind(id).first();
+        if (Number(priorDeliveries?.count || 0) > 0) {
+          return json({ error: 'Delivery has already started. Create a new campaign for the next scheduled date rather than changing a message already sent to some channels.' }, 409);
+        }
         const campaignName = String(data.campaignName || '').trim();
         const messageText = String(data.messageText || '').trim();
         const affiliateUrl = String(data.affiliateUrl || '').trim();
@@ -1428,7 +1432,7 @@ async function runDuePromotionCampaigns(env) {
           String(data.imageUrl || ''), affiliateUrl, String(data.trackingParameter || 'subid'),
           String(data.linkLabel || 'View Offer'),
           String(data.affiliateDisclosure || 'We may earn a commission from qualifying purchases.'),
-          existing.status === 'approved' ? existing.scheduled_for : nextPromotionDate(),
+          nextPromotionDate(),
           new Date().toISOString(), id).run();
         const links = await env.DB.prepare('SELECT tracking_code FROM affiliate_tracking_links WHERE campaign_id = ? AND tracking_code IN (SELECT tracking_code FROM promo_deliveries WHERE campaign_id = ? AND status <> 'sent')').bind(id, id).all();
         for (const link of (links.results || [])) {
