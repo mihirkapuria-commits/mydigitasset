@@ -10,6 +10,7 @@ type Campaign = {
   affiliate_disclosure: string; status: string; scheduled_for: string;
   sent_channels: number; failed_channels: number;
 };
+type ConversionRow = { id: string; networkName: string; orderReference: string; orderAmount: number; commissionAmount: number; currency: string; status: string; purchasedAt?: string; reportedAt: string; productName: string; sourceType: string; sourceId: string; sourceName: string; campaignName: string; };
 type DeliveryRow = { channelName: string; channelId: string; status: string; telegramMessageId?: string; trackingCode?: string; errorMessage?: string; attempts: number; deliveredAt?: string; };
 type AnalyticsRow = {
   tracking_code: string; campaign_id: string; campaign_name: string; product_name: string; source_type: string;
@@ -30,6 +31,7 @@ export const AdminCampaignManager: React.FC<Props> = ({ token }) => {
   const [categories, setCategories] = useState<Category[]>([]);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [analytics, setAnalytics] = useState<AnalyticsRow[]>([]);
+  const [conversionReports, setConversionReports] = useState<ConversionRow[]>([]);
   const [deliveries, setDeliveries] = useState<DeliveryRow[]>([]);
   const [deliveryCampaignName, setDeliveryCampaignName] = useState('');
   const [deliveryCampaignId, setDeliveryCampaignId] = useState('');
@@ -50,20 +52,23 @@ export const AdminCampaignManager: React.FC<Props> = ({ token }) => {
   const loadAll = async () => {
     setLoading(true); setError('');
     try {
-      const [catRes, campaignRes, analyticsRes] = await Promise.all([
+      const [catRes, campaignRes, analyticsRes, conversionsRes] = await Promise.all([
         fetch('/api/admin/categories', { headers }),
         fetch('/api/admin/promotions', { headers }),
-        fetch('/api/admin/affiliate/analytics', { headers })
+        fetch('/api/admin/affiliate/analytics', { headers }),
+        fetch('/api/admin/affiliate/conversions', { headers })
       ]);
       const catData = await catRes.json();
       const campaignData = await campaignRes.json();
       const analyticsData = await analyticsRes.json();
-      if (!catRes.ok || !campaignRes.ok || !analyticsRes.ok) {
-        throw new Error(catData.error || campaignData.error || analyticsData.error || 'Unable to load campaign administration data.');
+      const conversionsData = await conversionsRes.json();
+      if (!catRes.ok || !campaignRes.ok || !analyticsRes.ok || !conversionsRes.ok) {
+        throw new Error(catData.error || campaignData.error || analyticsData.error || conversionsData.error || 'Unable to load campaign administration data.');
       }
       setCategories(catData);
       setCampaigns(campaignData);
       setAnalytics(analyticsData);
+      setConversionReports(conversionsData);
     } catch (e: any) {
       setError(e.message || 'Unable to load data.');
     } finally { setLoading(false); }
@@ -361,6 +366,10 @@ export const AdminCampaignManager: React.FC<Props> = ({ token }) => {
           </tr>)}
           {!analytics.length && <tr><td colSpan={10} className="p-4 text-slate-500">No affiliate clicks or conversion reports yet.</td></tr>}</tbody>
         </table></div>
+        </section>
+        <section className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+          <div className="p-5 border-b"><h2 className="font-bold">Individual purchase reports</h2><p className="text-xs text-slate-500 mt-1">Each row represents a purchase reported by an affiliate network or entered by the admin.</p></div>
+          <div className="overflow-x-auto"><table className="w-full text-left text-xs"><thead className="bg-slate-50"><tr><th className="p-3">Purchase time</th><th className="p-3">Campaign / item</th><th className="p-3">Source channel</th><th className="p-3">Order reference</th><th className="p-3">Network</th><th className="p-3">Order amount</th><th className="p-3">Commission</th><th className="p-3">Status</th></tr></thead><tbody className="divide-y">{conversionReports.map(v => <tr key={v.id}><td className="p-3">{new Date(v.purchasedAt || v.reportedAt).toLocaleString()}</td><td className="p-3">{v.campaignName || '—'}<div className="text-slate-500">{v.productName || '—'}</div></td><td className="p-3">{v.sourceName || v.sourceId || '—'}</td><td className="p-3">{v.orderReference || '—'}</td><td className="p-3">{v.networkName || 'Manual'}</td><td className="p-3">{v.currency} {Number(v.orderAmount || 0).toFixed(2)}</td><td className="p-3">{v.currency} {Number(v.commissionAmount || 0).toFixed(2)}</td><td className="p-3 capitalize">{v.status}</td></tr>)}{!conversionReports.length && <tr><td colSpan={8} className="p-4 text-slate-500">No purchase reports recorded yet.</td></tr>}</tbody></table></div>
         </section>
       </>}
     </div>
