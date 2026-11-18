@@ -156,6 +156,15 @@ export const AdminCampaignManager: React.FC<Props> = ({ token }) => {
     });
   };
 
+  const deleteCategory = async (c: Category) => {
+    if (!window.confirm(`Permanently delete "${c.title}"? This is allowed only when no customer, subscription or payment uses it.`)) return;
+    const response = await fetch(`/api/admin/categories/${encodeURIComponent(c.id)}`, { method: 'DELETE', headers });
+    const data = await response.json();
+    if (!response.ok) { setError(data.error || 'Could not delete category.'); return; }
+    setNotice('Category deleted.');
+    await loadAll();
+  };
+
   const deactivateCategory = async (c: Category) => {
     if (!window.confirm(`Deactivate "${c.title}"? It will no longer appear for new registrations or receive promotional messages.`)) return;
     const response = await fetch(`/api/admin/categories/${encodeURIComponent(c.id)}`, {
@@ -286,7 +295,7 @@ export const AdminCampaignManager: React.FC<Props> = ({ token }) => {
             <tbody className="divide-y">{categories.map(c => <tr key={c.id}>
               <td className="p-3"><strong>{c.title}</strong><div className="text-slate-500">{c.id}</div></td>
               <td className="p-3 font-mono">{c.telegramChatId}</td><td className="p-3">{c.active ? 'Active' : 'Inactive'}</td>
-              <td className="p-3 whitespace-nowrap"><button onClick={() => editCategory(c)} className="px-2 py-1 rounded bg-slate-100 mr-1">Edit</button>{c.active ? <button onClick={() => deactivateCategory(c)} className="px-2 py-1 rounded bg-red-50 text-red-700">Deactivate</button> : null}</td>
+              <td className="p-3 whitespace-nowrap"><button onClick={() => editCategory(c)} className="px-2 py-1 rounded bg-slate-100 mr-1">Edit</button>{c.active ? <button onClick={() => deactivateCategory(c)} className="px-2 py-1 rounded bg-amber-50 text-amber-700 mr-1">Deactivate</button> : null}<button onClick={() => deleteCategory(c)} className="px-2 py-1 rounded bg-red-50 text-red-700">Delete</button></td>
             </tr>)}</tbody>
           </table></div>
         </section>
