@@ -1304,7 +1304,7 @@ var worker_default = {
         const id = String(data.id || '').trim().toLowerCase();
         const title = String(data.title || '').trim();
         const chatId = String(data.telegramChatId || '').trim();
-        if (!/^[a-z0-9-]{2,60}$/.test(id) || !title || !chatId) {
+        if (!/^[a-z0-9-]{2,60}$/.test(id) || !title || !/^(?:-?\\d+|@[A-Za-z0-9_]{5,})$/.test(chatId)) {
           return json({ error: 'Enter a valid category ID, title and Telegram channel ID.' }, 400);
         }
         await env.DB.prepare(`
@@ -1333,7 +1333,7 @@ var worker_default = {
         const data = await parseRequestBody(request);
         const title = String(data.title || '').trim();
         const chatId = String(data.telegramChatId || '').trim();
-        if (!title || !chatId) return json({ error: 'Category title and Telegram channel ID are required.' }, 400);
+        if (!title || !/^(?:-?\\d+|@[A-Za-z0-9_]{5,})$/.test(chatId)) return json({ error: 'Enter a valid category title and Telegram channel ID.' }, 400);
         await env.DB.prepare(`
           UPDATE managed_categories SET title = ?, description = ?, telegram_chat_id = ?,
             active = ?, display_order = ?, updated_at = ? WHERE id = ?
