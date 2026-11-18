@@ -43,9 +43,9 @@ export const OffersSection: React.FC<OffersSectionProps> = ({ onNavigateHome, on
               {offer.body && <p className="text-xs text-slate-500 whitespace-pre-wrap">{offer.body}</p>}
               {offer.targetUrl || offer.target_url ? (
                 <a href={offer.targetUrl || offer.target_url} target="_blank" rel="noopener noreferrer" className="inline-block px-4 py-2 rounded-lg bg-indigo-600 text-white text-xs font-semibold">View Offer</a>
-              ) : (
+              ) : offer.title.toLowerCase().includes('subscription') ? (
                 <button onClick={onStartTrial} className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-xs font-semibold">Start Free Trial</button>
-              )}
+              ) : null}
             </article>
           ))}
         </div>
