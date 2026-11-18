@@ -85,20 +85,25 @@ CREATE TABLE IF NOT EXISTS promo_deliveries (
 CREATE INDEX IF NOT EXISTS idx_promo_deliveries_campaign_status
   ON promo_deliveries(campaign_id, status);
 
-CREATE TABLE IF NOT EXISTS affiliate_clicks (
-  id TEXT PRIMARY KEY,
-  tracking_code TEXT NOT NULL UNIQUE,
+CREATE TABLE IF NOT EXISTS affiliate_tracking_links (
+  tracking_code TEXT PRIMARY KEY,
   campaign_id TEXT,
   product_name TEXT NOT NULL DEFAULT '',
   source_type TEXT NOT NULL DEFAULT 'telegram',
   source_id TEXT NOT NULL DEFAULT '',
-  clicked_at TEXT NOT NULL,
+  outbound_url TEXT NOT NULL,
+  created_at TEXT NOT NULL,
   FOREIGN KEY (campaign_id) REFERENCES promo_campaigns(id) ON DELETE SET NULL
 );
-CREATE INDEX IF NOT EXISTS idx_affiliate_clicks_campaign
-  ON affiliate_clicks(campaign_id, clicked_at);
-CREATE INDEX IF NOT EXISTS idx_affiliate_clicks_source
-  ON affiliate_clicks(source_type, source_id, clicked_at);
+
+CREATE TABLE IF NOT EXISTS affiliate_clicks (
+  id TEXT PRIMARY KEY,
+  tracking_code TEXT NOT NULL,
+  clicked_at TEXT NOT NULL,
+  FOREIGN KEY (tracking_code) REFERENCES affiliate_tracking_links(tracking_code) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_affiliate_clicks_tracking
+  ON affiliate_clicks(tracking_code, clicked_at);
 
 CREATE TABLE IF NOT EXISTS affiliate_conversions (
   id TEXT PRIMARY KEY,
@@ -110,7 +115,7 @@ CREATE TABLE IF NOT EXISTS affiliate_conversions (
   currency TEXT NOT NULL DEFAULT 'INR',
   status TEXT NOT NULL DEFAULT 'reported' CHECK (status IN ('reported', 'confirmed', 'reversed')),
   reported_at TEXT NOT NULL,
-  FOREIGN KEY (tracking_code) REFERENCES affiliate_clicks(tracking_code) ON DELETE SET DEFAULT
+  FOREIGN KEY (tracking_code) REFERENCES affiliate_tracking_links(tracking_code) ON DELETE SET NULL
 );
 CREATE INDEX IF NOT EXISTS idx_affiliate_conversions_tracking
   ON affiliate_conversions(tracking_code, reported_at);
