@@ -102,6 +102,7 @@ CREATE TABLE IF NOT EXISTS promo_campaigns (
   message_text TEXT NOT NULL DEFAULT '',
   image_url TEXT NOT NULL DEFAULT '',
   affiliate_url TEXT NOT NULL DEFAULT '',
+  tracking_parameter TEXT NOT NULL DEFAULT 'subid',
   link_label TEXT NOT NULL DEFAULT 'View Offer',
   affiliate_disclosure TEXT NOT NULL DEFAULT 'We may earn a commission from qualifying purchases.',
   status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'approved', 'sent', 'cancelled')),
