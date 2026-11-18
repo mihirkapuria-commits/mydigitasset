@@ -438,14 +438,189 @@ async function configureTelegramWebhook(env) {
   return true;
 }
 
-var worker_default = {
+
+
+function randomId(prefix) {
+  return prefix + "_" + base64url(crypto.getRandomValues(new Uint8Array(18)));
+}
+
+function getIndiaDateTimeParts(date = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit",
+    day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23"
+  }).formatToParts(date);
+  const values = {};
+  for (const part of parts) values[part.type] = part.value;
+  return values;
+}
+
+function nextPromotionDate(date = new Date()) {
+  const p = getIndiaDateTimeParts(date);
+  let year = Number(p.year);
+  let month = Number(p.month);
+  const day = Number(p.day);
+  const time = p.hour + ":" + p.minute;
+  let targetDay;
+  if (day < 14 || (day === 14 && time < "06:15")) {
+    targetDay = 14;
+  } else if (day < 28 || (day === 28 && time < "06:15")) {
+    targetDay = 28;
+  } else {
+    targetDay = 14;
+    month += 1;
+    if (month > 12) { month = 1; year += 1; }
+  }
+  return String(year).padStart(4, "0") + "-" +
+    String(month).padStart(2, "0") + "-" +
+    String(targetDay).padStart(2, "0");
+}
+
+async function sendPromotionToChannel(env, campaign, channel, delivery) {
+  const token = String(env.TELEGRAM_BOT_TOKEN || "");
+  if (!token) throw new Error("Telegram bot token is not configured.");
+  const trackedUrl = "https://mydigitasset.com/api/affiliate/click?code=" +
+    encodeURIComponent(delivery.tracking_code);
+  const text = [campaign.message_text || "", campaign.affiliate_disclosure || ""]
+    .filter(Boolean).join("\\n\\n");
+  const replyMarkup = campaign.affiliate_url ? {
+    inline_keyboard: [[{
+      text: campaign.link_label || "View Offer",
+      url: trackedUrl
+    }]]
+  } : undefined;
+  const imageUrl = String(campaign.image_url || "").trim();
+  let endpoint;
+  let payload;
+  if (imageUrl) {
+    endpoint = "sendPhoto";
+    payload = {
+      chat_id: channel.telegram_chat_id,
+      photo: imageUrl,
+      caption: text.slice(0, 1024),
+      ...(replyMarkup ? { reply_markup: replyMarkup } : {})
+    };
+  } else {
+    endpoint = "sendMessage";
+    payload = {
+      chat_id: channel.telegram_chat_id,
+      text: text.slice(0, 4096),
+      disable_web_page_preview: false,
+      ...(replyMarkup ? { reply_markup: replyMarkup } : {})
+    };
+  }
+  const response = await fetch("https://api.telegram.org/bot" + token + "/" + endpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || result.ok !== true) {
+    throw new Error(String(result.description || "Telegram rejected the promotional message."));
+  }
+  return String(result.result?.message_id || "");
+}
+
+async function runDuePromotionCampaigns(env) {
+  const today = getIndiaDateTimeParts().year + "-" +
+    getIndiaDateTimeParts().month + "-" + getIndiaDateTimeParts().day;
+  const campaign = await env.DB.prepare(`
+    SELECT * FROM promo_campaigns
+    WHERE status = 'approved' AND scheduled_for = ?
+    ORDER BY updated_at DESC
+    LIMIT 1
+  `).bind(today).first();
+  if (!campaign) return;
+
+  const channelsResult = await env.DB.prepare(`
+    SELECT id, title, telegram_chat_id
+    FROM managed_categories
+    WHERE active = 1 AND telegram_chat_id <> ''
+    ORDER BY display_order, title
+  `).all();
+  const channels = channelsResult.results || [];
+  if (!channels.length) {
+    console.error("Promotion skipped: no active Telegram channels are configured.");
+    return;
+  }
+
+  for (const channel of channels) {
+    let delivery = await env.DB.prepare(`
+      SELECT * FROM promo_deliveries
+      WHERE campaign_id = ? AND channel_id = ?
+      LIMIT 1
+    `).bind(campaign.id, String(channel.telegram_chat_id)).first();
+
+    if (delivery?.status === "sent") continue;
+
+    if (!delivery) {
+      const trackingCode = base64url(crypto.getRandomValues(new Uint8Array(24)));
+      const deliveryId = randomId("pd");
+      await env.DB.prepare(`
+        INSERT OR IGNORE INTO promo_deliveries
+          (id, campaign_id, channel_id, channel_name, status, tracking_code, attempts)
+        VALUES (?, ?, ?, ?, 'pending', ?, 0)
+      `).bind(deliveryId, campaign.id, String(channel.telegram_chat_id),
+        channel.title, trackingCode).run();
+
+      await env.DB.prepare(`
+        INSERT OR IGNORE INTO affiliate_tracking_links
+          (tracking_code, campaign_id, product_name, source_type, source_id, outbound_url, created_at)
+        VALUES (?, ?, ?, 'telegram', ?, ?, ?)
+      `).bind(trackingCode, campaign.id, campaign.product_name || campaign.campaign_name,
+        String(channel.id), campaign.affiliate_url || "", new Date().toISOString()).run();
+
+      delivery = await env.DB.prepare(`
+        SELECT * FROM promo_deliveries
+        WHERE campaign_id = ? AND channel_id = ?
+        LIMIT 1
+      `).bind(campaign.id, String(channel.telegram_chat_id)).first();
+    }
+
+    try {
+      if (!campaign.affiliate_url) {
+        throw new Error("Campaign has no affiliate destination URL.");
+      }
+      const messageId = await sendPromotionToChannel(env, campaign, channel, delivery);
+      await env.DB.prepare(`
+        UPDATE promo_deliveries
+        SET status = 'sent', telegram_message_id = ?, error_message = NULL,
+            attempts = attempts + 1, delivered_at = ?, updated_at = ?
+        WHERE id = ?
+      `).bind(messageId, new Date().toISOString(), new Date().toISOString(), delivery.id).run();
+    } catch (error) {
+      await env.DB.prepare(`
+        UPDATE promo_deliveries
+        SET status = 'failed', error_message = ?, attempts = attempts + 1, updated_at = ?
+        WHERE id = ?
+      `).bind(String(error?.message || error).slice(0, 500),
+        new Date().toISOString(), delivery.id).run();
+      console.error("Promotion delivery failed for channel " + channel.title + ":", String(error));
+    }
+  }
+
+  const remaining = await env.DB.prepare(`
+    SELECT COUNT(*) AS count FROM promo_deliveries
+    WHERE campaign_id = ? AND status <> 'sent'
+  `).bind(campaign.id).first();
+  if (Number(remaining?.count || 0) === 0) {
+    await env.DB.prepare(`
+      UPDATE promo_campaigns SET status = 'sent', sent_at = ?, updated_at = ?
+      WHERE id = ? AND status = 'approved'
+    `).bind(new Date().toISOString(), new Date().toISOString(), campaign.id).run();
+  }
+}
+\nvar worker_default = {
   async scheduled(controller, env, ctx) {
     const startupCategory = CATEGORIES.find(item => item.id === 'startup');
-    if (!startupCategory || !startupCategory.telegramChatId) {
+    if (startupCategory?.telegramChatId) {
+      ctx.waitUntil(runIndiaStartupsNewsDelivery(env, startupCategory.telegramChatId));
+    } else {
       console.error('India Startups scheduled delivery skipped: Startup channel mapping is missing.');
-      return;
     }
-    ctx.waitUntil(runIndiaStartupsNewsDelivery(env, startupCategory.telegramChatId));
+    const parts = getIndiaDateTimeParts();
+    if (parts.day === "14" || parts.day === "28") {
+      ctx.waitUntil(runDuePromotionCampaigns(env));
+    }
   },
 
   async fetch(request, env, ctx) {
@@ -680,9 +855,14 @@ var worker_default = {
         });
       }
 
-      // PUBLIC CATEGORY LIST
+      // PUBLIC CATEGORY LIST — database-backed so admin-managed categories appear automatically.
       if (url.pathname === '/api/categories' && method === 'GET') {
-        return json(CATEGORIES);
+        const result = await env.DB.prepare(`
+          SELECT id, title, description, telegram_chat_id AS telegramChatId
+          FROM managed_categories WHERE active = 1
+          ORDER BY display_order, title
+        `).all();
+        return json(result.results || []);
       }
 
       // PUBLIC PAYMENT DETAILS AND CURRENT PRICING
@@ -785,7 +965,201 @@ var worker_default = {
         });
       }
 
-      // CUSTOMER REGISTRATION
+
+
+      // ADMIN: MANAGE CATEGORY LIST AND ITS TELEGRAM CHANNEL
+      if (url.pathname === '/api/admin/categories' && method === 'GET') {
+        const admin = await getAuthorizedAdmin(request, env);
+        if (!admin) return json({ error: 'Administrator access required.' }, 403);
+        const result = await env.DB.prepare(`
+          SELECT id, title, description, telegram_chat_id AS telegramChatId,
+                 active, display_order AS displayOrder
+          FROM managed_categories ORDER BY display_order, title
+        `).all();
+        return json(result.results || []);
+      }
+
+      if (url.pathname === '/api/admin/categories' && method === 'POST') {
+        const admin = await getAuthorizedAdmin(request, env);
+        if (!admin) return json({ error: 'Administrator access required.' }, 403);
+        const data = await parseRequestBody(request);
+        const id = String(data.id || '').trim().toLowerCase();
+        const title = String(data.title || '').trim();
+        const chatId = String(data.telegramChatId || '').trim();
+        if (!/^[a-z0-9-]{2,60}$/.test(id) || !title || !chatId) {
+          return json({ error: 'Enter a valid category ID, title and Telegram channel ID.' }, 400);
+        }
+        await env.DB.prepare(`
+          INSERT INTO managed_categories (id, title, description, telegram_chat_id, active, display_order, updated_at)
+          VALUES (?, ?, ?, ?, 1, ?, ?)
+        `).bind(id, title, String(data.description || ''), chatId,
+          Number(data.displayOrder || 0), new Date().toISOString()).run();
+        return json({ success: true });
+      }
+
+      if (url.pathname.startsWith('/api/admin/categories/') && method === 'PUT') {
+        const admin = await getAuthorizedAdmin(request, env);
+        if (!admin) return json({ error: 'Administrator access required.' }, 403);
+        const id = decodeURIComponent(url.pathname.split('/').pop() || '');
+        const data = await parseRequestBody(request);
+        const title = String(data.title || '').trim();
+        const chatId = String(data.telegramChatId || '').trim();
+        if (!title || !chatId) return json({ error: 'Category title and Telegram channel ID are required.' }, 400);
+        await env.DB.prepare(`
+          UPDATE managed_categories SET title = ?, description = ?, telegram_chat_id = ?,
+            active = ?, display_order = ?, updated_at = ? WHERE id = ?
+        `).bind(title, String(data.description || ''), chatId,
+          data.active === false ? 0 : 1, Number(data.displayOrder || 0),
+          new Date().toISOString(), id).run();
+        return json({ success: true });
+      }
+
+      if (url.pathname.startsWith('/api/admin/categories/') && method === 'DELETE') {
+        const admin = await getAuthorizedAdmin(request, env);
+        if (!admin) return json({ error: 'Administrator access required.' }, 403);
+        const id = decodeURIComponent(url.pathname.split('/').pop() || '');
+        const used = await env.DB.prepare(`
+          SELECT COUNT(*) AS count FROM users WHERE category = ?
+        `).bind(id).first();
+        if (Number(used?.count || 0) > 0) {
+          return json({ error: 'This category is linked to existing customers. Deactivate it instead of deleting it.' }, 409);
+        }
+        await env.DB.prepare('DELETE FROM managed_categories WHERE id = ?').bind(id).run();
+        return json({ success: true });
+      }
+
+      // ADMIN: PROMOTIONAL CAMPAIGNS
+      if (url.pathname === '/api/admin/promotions' && method === 'GET') {
+        const admin = await getAuthorizedAdmin(request, env);
+        if (!admin) return json({ error: 'Administrator access required.' }, 403);
+        const result = await env.DB.prepare(`
+          SELECT p.*,
+            (SELECT COUNT(*) FROM promo_deliveries d WHERE d.campaign_id = p.id AND d.status = 'sent') AS sent_channels,
+            (SELECT COUNT(*) FROM promo_deliveries d WHERE d.campaign_id = p.id AND d.status = 'failed') AS failed_channels
+          FROM promo_campaigns p ORDER BY p.created_at DESC LIMIT 100
+        `).all();
+        return json(result.results || []);
+      }
+
+      if (url.pathname === '/api/admin/promotions' && method === 'POST') {
+        const admin = await getAuthorizedAdmin(request, env);
+        if (!admin) return json({ error: 'Administrator access required.' }, 403);
+        const data = await parseRequestBody(request);
+        const campaignName = String(data.campaignName || '').trim();
+        const messageText = String(data.messageText || '').trim();
+        const affiliateUrl = String(data.affiliateUrl || '').trim();
+        if (!campaignName || !messageText || !/^https?:\\/\\//i.test(affiliateUrl)) {
+          return json({ error: 'Campaign name, message and a valid affiliate URL are required.' }, 400);
+        }
+        const id = randomId('campaign');
+        const now = new Date().toISOString();
+        await env.DB.prepare(`
+          INSERT INTO promo_campaigns
+            (id, campaign_name, product_name, message_text, image_url, affiliate_url,
+             link_label, affiliate_disclosure, status, scheduled_for, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?)
+        `).bind(id, campaignName, String(data.productName || ''),
+          messageText, String(data.imageUrl || ''), affiliateUrl,
+          String(data.linkLabel || 'View Offer'),
+          String(data.affiliateDisclosure || 'We may earn a commission from qualifying purchases.'),
+          nextPromotionDate(), now, now).run();
+        return json({ success: true, id });
+      }
+
+      if (url.pathname.startsWith('/api/admin/promotions/') && method === 'PUT') {
+        const admin = await getAuthorizedAdmin(request, env);
+        if (!admin) return json({ error: 'Administrator access required.' }, 403);
+        const id = decodeURIComponent(url.pathname.split('/').pop() || '');
+        const data = await parseRequestBody(request);
+        const existing = await env.DB.prepare('SELECT status, scheduled_for FROM promo_campaigns WHERE id = ?').bind(id).first();
+        if (!existing || !['draft', 'approved'].includes(existing.status)) {
+          return json({ error: 'Only draft or scheduled campaigns can be edited.' }, 409);
+        }
+        const campaignName = String(data.campaignName || '').trim();
+        const messageText = String(data.messageText || '').trim();
+        const affiliateUrl = String(data.affiliateUrl || '').trim();
+        if (!campaignName || !messageText || !/^https?:\\/\\//i.test(affiliateUrl)) {
+          return json({ error: 'Campaign name, message and a valid affiliate URL are required.' }, 400);
+        }
+        await env.DB.prepare(`
+          UPDATE promo_campaigns SET campaign_name = ?, product_name = ?, message_text = ?,
+            image_url = ?, affiliate_url = ?, link_label = ?, affiliate_disclosure = ?,
+            scheduled_for = ?, updated_at = ? WHERE id = ?
+        `).bind(campaignName, String(data.productName || ''), messageText,
+          String(data.imageUrl || ''), affiliateUrl, String(data.linkLabel || 'View Offer'),
+          String(data.affiliateDisclosure || 'We may earn a commission from qualifying purchases.'),
+          existing.status === 'approved' ? existing.scheduled_for : nextPromotionDate(),
+          new Date().toISOString(), id).run();
+        return json({ success: true });
+      }
+
+      if (url.pathname.startsWith('/api/admin/promotions/') && url.pathname.endsWith('/approve') && method === 'POST') {
+        const admin = await getAuthorizedAdmin(request, env);
+        if (!admin) return json({ error: 'Administrator access required.' }, 403);
+        const id = decodeURIComponent(url.pathname.split('/')[4] || '');
+        const campaign = await env.DB.prepare('SELECT * FROM promo_campaigns WHERE id = ?').bind(id).first();
+        if (!campaign) return json({ error: 'Campaign not found.' }, 404);
+        if (!campaign.message_text || !campaign.affiliate_url) return json({ error: 'Add a message and affiliate URL before approval.' }, 400);
+        const scheduledFor = nextPromotionDate();
+        const now = new Date().toISOString();
+        await env.DB.prepare(`
+          UPDATE promo_campaigns SET status = 'cancelled', updated_at = ?
+          WHERE status = 'approved' AND scheduled_for = ? AND id <> ?
+        `).bind(now, scheduledFor, id).run();
+        await env.DB.prepare(`
+          UPDATE promo_campaigns SET status = 'approved', scheduled_for = ?,
+            approved_at = ?, approved_by = ?, updated_at = ? WHERE id = ?
+        `).bind(scheduledFor, now, admin.email, now, id).run();
+        return json({ success: true, scheduledFor });
+      }
+
+      if (url.pathname.startsWith('/api/admin/promotions/') && method === 'DELETE') {
+        const admin = await getAuthorizedAdmin(request, env);
+        if (!admin) return json({ error: 'Administrator access required.' }, 403);
+        const id = decodeURIComponent(url.pathname.split('/').pop() || '');
+        const existing = await env.DB.prepare('SELECT status FROM promo_campaigns WHERE id = ?').bind(id).first();
+        if (!existing) return json({ error: 'Campaign not found.' }, 404);
+        if (existing.status === 'sent') return json({ error: 'Sent campaigns cannot be deleted; retain them for reporting.' }, 409);
+        await env.DB.prepare('DELETE FROM promo_campaigns WHERE id = ?').bind(id).run();
+        return json({ success: true });
+      }
+
+      // AFFILIATE REDIRECT: record each click and then send the visitor to the merchant.
+      if (url.pathname === '/api/affiliate/click' && method === 'GET') {
+        const code = String(url.searchParams.get('code') || '');
+        if (!code) return json({ error: 'Tracking code is missing.' }, 400);
+        const link = await env.DB.prepare(`
+          SELECT outbound_url FROM affiliate_tracking_links WHERE tracking_code = ? LIMIT 1
+        `).bind(code).first();
+        if (!link?.outbound_url || !/^https?:\\/\\//i.test(link.outbound_url)) {
+          return json({ error: 'Affiliate link not found.' }, 404);
+        }
+        await env.DB.prepare(`
+          INSERT INTO affiliate_clicks (id, tracking_code, clicked_at) VALUES (?, ?, ?)
+        `).bind(randomId('click'), code, new Date().toISOString()).run();
+        return Response.redirect(link.outbound_url, 302);
+      }
+
+      // ADMIN: AFFILIATE CLICK AND CONVERSION SUMMARY.
+      if (url.pathname === '/api/admin/affiliate/analytics' && method === 'GET') {
+        const admin = await getAuthorizedAdmin(request, env);
+        if (!admin) return json({ error: 'Administrator access required.' }, 403);
+        const result = await env.DB.prepare(`
+          SELECT l.campaign_id, l.product_name, l.source_type, l.source_id,
+            COUNT(c.id) AS clicks,
+            COUNT(DISTINCT c.id) AS unique_clicks,
+            COALESCE(SUM(v.order_amount), 0) AS reported_order_amount,
+            COALESCE(SUM(v.commission_amount), 0) AS reported_commission,
+            COUNT(v.id) AS reported_purchases
+          FROM affiliate_tracking_links l
+          LEFT JOIN affiliate_clicks c ON c.tracking_code = l.tracking_code
+          LEFT JOIN affiliate_conversions v ON v.tracking_code = l.tracking_code
+          GROUP BY l.tracking_code
+          ORDER BY clicks DESC
+        `).all();
+        return json(result.results || []);
+      }
+\n\n      // CUSTOMER REGISTRATION
       if (url.pathname === '/api/auth/register' && method === 'POST') {
         const data = await parseRequestBody(request);
 
@@ -817,8 +1191,11 @@ var worker_default = {
           return json({ error: 'Password must be exactly 8 characters.' }, 400);
         }
 
-        if (!CATEGORIES.some(item => item.id === category)) {
-          return json({ error: 'Please select a valid news category.' }, 400);
+        const validCategory = await env.DB.prepare(
+          'SELECT id FROM managed_categories WHERE id = ? AND active = 1 LIMIT 1'
+        ).bind(category).first();
+        if (!validCategory) {
+          return json({ error: 'Please select a valid active news category.' }, 400);
         }
 
         const existing = await env.DB.prepare(
