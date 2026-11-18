@@ -214,6 +214,9 @@ CREATE TABLE IF NOT EXISTS site_tools (
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+INSERT OR IGNORE INTO site_tools (id, title, description, target_url, icon_name, status, display_order) VALUES
+  ('builtin-gst-calculator', 'GST & Subscription Calculator', 'Calculate base pricing and GST for subscriptions.', '', 'gst-calculator', 'published', 1),
+  ('builtin-compound-calculator', 'Compound Investment Growth', 'Project long-term capital growth using annual compounding.', '', 'compound-calculator', 'published', 2);
 CREATE INDEX IF NOT EXISTS idx_site_tools_status_order
   ON site_tools(status, display_order);
 
