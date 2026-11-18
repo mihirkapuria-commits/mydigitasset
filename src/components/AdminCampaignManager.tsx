@@ -13,7 +13,7 @@ type Campaign = {
 type DeliveryRow = { channelName: string; channelId: string; status: string; telegramMessageId?: string; trackingCode?: string; errorMessage?: string; attempts: number; deliveredAt?: string; };
 type AnalyticsRow = {
   tracking_code: string; campaign_id: string; campaign_name: string; product_name: string; source_type: string;
-  source_id: string; source_name: string; clicks: number; last_clicked_at?: string; last_purchase_reported_at?: string; reported_order_amount: number;
+  source_id: string; source_name: string; clicks: number; last_clicked_at?: string; last_purchase_at?: string; reported_order_amount: number;
   reported_commission: number; reported_purchases: number;
 };
 
@@ -39,7 +39,7 @@ export const AdminCampaignManager: React.FC<Props> = ({ token }) => {
     id: '', title: '', description: '', telegramChatId: '', displayOrder: '0'
   });
   const [editingCategoryId, setEditingCategoryId] = useState('');
-  const [conversionForm, setConversionForm] = useState({ trackingCode: '', networkName: '', orderReference: '', orderAmount: '', commissionAmount: '', currency: 'INR' });
+  const [conversionForm, setConversionForm] = useState({ trackingCode: '', networkName: '', orderReference: '', orderAmount: '', commissionAmount: '', purchasedAt: '', currency: 'INR' });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState('');
@@ -79,7 +79,7 @@ export const AdminCampaignManager: React.FC<Props> = ({ token }) => {
     });
     const data = await response.json();
     if (!response.ok) { setError(data.error || 'Could not save purchase report.'); return; }
-    setConversionForm({ trackingCode: '', networkName: '', orderReference: '', orderAmount: '', commissionAmount: '', currency: 'INR' });
+    setConversionForm({ trackingCode: '', networkName: '', orderReference: '', orderAmount: '', commissionAmount: '', purchasedAt: '', currency: 'INR' });
     setNotice('Purchase report saved.');
     await loadAll();
   };
@@ -347,7 +347,7 @@ export const AdminCampaignManager: React.FC<Props> = ({ token }) => {
             <label className="text-xs font-semibold">Order reference<input className="mt-1 w-full border rounded-lg p-2 text-xs" value={conversionForm.orderReference} onChange={e => setConversionForm({ ...conversionForm, orderReference: e.target.value })} /></label>
             <label className="text-xs font-semibold">Order amount<input type="number" min="0" className="mt-1 w-full border rounded-lg p-2 text-xs" value={conversionForm.orderAmount} onChange={e => setConversionForm({ ...conversionForm, orderAmount: e.target.value })} /></label>
             <label className="text-xs font-semibold">Commission earned<input type="number" min="0" className="mt-1 w-full border rounded-lg p-2 text-xs" value={conversionForm.commissionAmount} onChange={e => setConversionForm({ ...conversionForm, commissionAmount: e.target.value })} /></label>
-            <label className="text-xs font-semibold">Currency<input className="mt-1 w-full border rounded-lg p-2 text-xs" value={conversionForm.currency} onChange={e => setConversionForm({ ...conversionForm, currency: e.target.value.toUpperCase() })} /></label>
+            <label className="text-xs font-semibold">Currency<input className="mt-1 w-full border rounded-lg p-2 text-xs" value={conversionForm.currency} onChange={e => setConversionForm({ ...conversionForm, currency: e.target.value.toUpperCase() })} /></label>\n            <label className="text-xs font-semibold">Purchase date & time (optional)<input type="datetime-local" className="mt-1 w-full border rounded-lg p-2 text-xs" value={conversionForm.purchasedAt} onChange={e => setConversionForm({ ...conversionForm, purchasedAt: e.target.value })} /></label>
           </div>
           <button onClick={submitConversion} className="px-4 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold">Save purchase report</button>
         </section>
@@ -356,7 +356,7 @@ export const AdminCampaignManager: React.FC<Props> = ({ token }) => {
         <div className="overflow-x-auto"><table className="w-full text-left text-xs">
           <thead className="bg-slate-50 text-slate-500"><tr><th className="p-3">Campaign</th><th className="p-3">Product</th><th className="p-3">Tracking code</th><th className="p-3">Source channel</th><th className="p-3">Clicks</th><th className="p-3">Last click</th><th className="p-3">Reported purchases</th><th className="p-3">Order amount</th><th className="p-3">Commission</th><th className="p-3">Last purchase report</th></tr></thead>
           <tbody className="divide-y">{analytics.map((a, i) => <tr key={i}>
-            <td className="p-3">{a.campaign_name || a.campaign_id}</td><td className="p-3">{a.product_name}</td><td className="p-3 font-mono">{a.tracking_code}</td><td className="p-3">{a.source_name || a.source_id}</td><td className="p-3">{a.clicks}</td><td className="p-3">{a.last_clicked_at ? new Date(a.last_clicked_at).toLocaleString() : '—'}</td><td className="p-3">{a.reported_purchases}</td><td className="p-3">₹{Number(a.reported_order_amount || 0).toFixed(2)}</td><td className="p-3">₹{Number(a.reported_commission || 0).toFixed(2)}</td><td className="p-3">{a.last_purchase_reported_at ? new Date(a.last_purchase_reported_at).toLocaleString() : '—'}</td>
+            <td className="p-3">{a.campaign_name || a.campaign_id}</td><td className="p-3">{a.product_name}</td><td className="p-3 font-mono">{a.tracking_code}</td><td className="p-3">{a.source_name || a.source_id}</td><td className="p-3">{a.clicks}</td><td className="p-3">{a.last_clicked_at ? new Date(a.last_clicked_at).toLocaleString() : '—'}</td><td className="p-3">{a.reported_purchases}</td><td className="p-3">₹{Number(a.reported_order_amount || 0).toFixed(2)}</td><td className="p-3">₹{Number(a.reported_commission || 0).toFixed(2)}</td><td className="p-3">{a.last_purchase_at ? new Date(a.last_purchase_at).toLocaleString() : '—'}</td>
           </tr>)}
           {!analytics.length && <tr><td colSpan={10} className="p-4 text-slate-500">No affiliate clicks or conversion reports yet.</td></tr>}</tbody>
         </table></div>
