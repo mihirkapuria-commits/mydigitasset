@@ -74,6 +74,7 @@ CREATE TABLE IF NOT EXISTS promo_deliveries (
   channel_name TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'sent', 'failed')),
   telegram_message_id TEXT,
+  tracking_code TEXT,
   error_message TEXT,
   attempts INTEGER NOT NULL DEFAULT 0,
   delivered_at TEXT,
