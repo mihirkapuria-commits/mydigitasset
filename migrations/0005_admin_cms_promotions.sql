@@ -135,6 +135,22 @@ CREATE TABLE IF NOT EXISTS blog_articles (
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+INSERT OR IGNORE INTO blog_articles
+  (id, title, slug, excerpt, body, seo_title, seo_description, status, published_at)
+VALUES
+  ('seed-blog-1', 'Navigating India’s Startup Funding Landscape in 2026', 'india-startup-funding-landscape-2026',
+   'An in-depth look at emerging venture capital trends, seed funding benchmarks, and how founders can optimize cash runway.',
+   'An in-depth look at emerging venture capital trends, seed funding benchmarks, and how founders can optimize cash runway.',
+   'India Startup Funding Landscape 2026', 'Startup funding, venture capital trends and founder insights in India.', 'published', '2026-10-28T00:00:00.000Z'),
+  ('seed-blog-2', 'The Evolution of Digital Payments and UPI Integration for Businesses', 'digital-payments-upi-integration-businesses',
+   'How UPI QR automation and UTR verification are transforming subscription models and secure digital commerce across India.',
+   'How UPI QR automation and UTR verification are transforming subscription models and secure digital commerce across India.',
+   'Digital Payments and UPI for Businesses', 'How UPI is changing payments and digital commerce for Indian businesses.', 'published', '2026-10-24T00:00:00.000Z'),
+  ('seed-blog-3', 'Commercial Real Estate and Infrastructure Growth in Mumbai Metropolitan Region', 'commercial-real-estate-mmr-growth',
+   'Key growth corridors, commercial leasing demand, and infrastructure catalysts shaping modern realty investments.',
+   'Key growth corridors, commercial leasing demand, and infrastructure catalysts shaping modern realty investments.',
+   'Mumbai Metropolitan Region Real Estate Growth', 'Commercial real estate, infrastructure and growth corridors in the MMR.', 'published', '2026-10-20T00:00:00.000Z');
+
 CREATE INDEX IF NOT EXISTS idx_blog_articles_status_published
   ON blog_articles(status, published_at);
 
