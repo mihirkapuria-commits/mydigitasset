@@ -767,6 +767,7 @@ var worker_default = {
       return;
     }
 
+    // The 06:15 IST run sends the daily digests; the 06:45 IST run retries failed category deliveries.
     // Daily news is delivered to active category channels only, never to individual customers.
     const channelsResult = await env.DB.prepare(`
       SELECT id, title, telegram_chat_id
