@@ -1,6 +1,6 @@
 // @ts-nocheck
 
-import { runIndiaStartupsNewsDelivery, sendIndiaStartupsNewsTest } from "./telegram-news";
+import { runAllCategoryNewsDeliveries, sendIndiaStartupsNewsTest } from "./telegram-news";
 
 const CATEGORIES = [
   { id: 'banking-fintech', title: 'Banking and Fintech', telegramChatId: '-1004377330142' },
@@ -401,6 +401,133 @@ async function ensureTelegramTables(env) {
       connected_at TEXT NOT NULL
     )
   `).run();
+
+  await env.DB.prepare(`
+    CREATE TABLE IF NOT EXISTS customer_telegram_notification_log (
+      notification_key TEXT PRIMARY KEY,
+      user_id INTEGER NOT NULL,
+      notification_type TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'sending',
+      sent_at TEXT,
+      updated_at TEXT NOT NULL
+    )
+  `).run();
+
+  await env.DB.prepare(`
+    CREATE TABLE IF NOT EXISTS customer_subscription_periods (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      started_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `).run();
+}
+
+async function sendCustomerTelegramNotification(env, userId, notificationKey, notificationType, message) {
+  const connection = await env.DB.prepare(
+    "SELECT telegram_chat_id FROM telegram_connections WHERE user_id = ? LIMIT 1"
+  ).bind(userId).first();
+  if (!connection?.telegram_chat_id) {
+    console.log("Customer Telegram notification skipped: customer is not connected.", String(userId), notificationType);
+    return false;
+  }
+
+  const now = new Date().toISOString();
+  const inserted = await env.DB.prepare(`
+    INSERT OR IGNORE INTO customer_telegram_notification_log
+      (notification_key, user_id, notification_type, status, updated_at)
+    VALUES (?, ?, ?, 'sending', ?)
+  `).bind(notificationKey, userId, notificationType, now).run();
+
+  if (Number(inserted?.meta?.changes || 0) !== 1) {
+    const prior = await env.DB.prepare(
+      "SELECT status FROM customer_telegram_notification_log WHERE notification_key = ?"
+    ).bind(notificationKey).first();
+    if (prior?.status !== "failed") return false;
+    const retry = await env.DB.prepare(`
+      UPDATE customer_telegram_notification_log
+      SET status = 'sending', updated_at = ?
+      WHERE notification_key = ? AND status = 'failed'
+    `).bind(now, notificationKey).run();
+    if (Number(retry?.meta?.changes || 0) !== 1) return false;
+  }
+
+  const sent = await sendTelegramMessage(
+    env.TELEGRAM_BOT_TOKEN,
+    connection.telegram_chat_id,
+    message
+  );
+  await env.DB.prepare(`
+    UPDATE customer_telegram_notification_log
+    SET status = ?, sent_at = ?, updated_at = ?
+    WHERE notification_key = ?
+  `).bind(sent ? "sent" : "failed", sent ? new Date().toISOString() : null,
+    new Date().toISOString(), notificationKey).run();
+  return sent;
+}
+
+function getIndiaDateKey(date) {
+  const parts = getIndiaDateTimeParts(date);
+  return parts.year + "-" + parts.month + "-" + parts.day;
+}
+
+function addDaysToDateKey(dateKey, days) {
+  const [year, month, day] = String(dateKey).split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.getUTCFullYear() + "-" +
+    String(date.getUTCMonth() + 1).padStart(2, "0") + "-" +
+    String(date.getUTCDate()).padStart(2, "0");
+}
+
+function formatIndiaDate(date) {
+  return new Intl.DateTimeFormat("en-IN", {
+    timeZone: "Asia/Kolkata", day: "numeric", month: "long", year: "numeric"
+  }).format(date);
+}
+
+async function sendScheduledCustomerReminders(env) {
+  await ensureTelegramTables(env);
+  const today = getIndiaDateKey(new Date());
+
+  const trials = await env.DB.prepare(`
+    SELECT id, first_name, trial_expires_at
+    FROM users
+    WHERE role = 'customer' AND status = 'trial' AND trial_expires_at IS NOT NULL
+  `).all();
+
+  for (const user of (trials.results || [])) {
+    const expiryDate = new Date(user.trial_expires_at);
+    if (Number.isNaN(expiryDate.getTime()) || getIndiaDateKey(expiryDate) !== today) continue;
+    await sendCustomerTelegramNotification(
+      env,
+      user.id,
+      "trial-payment-reminder:" + user.id + ":" + today,
+      "trial_payment_reminder",
+      "⏰ *Your MyDigitAsset free trial ends today.*\n\nTo continue receiving your selected category's daily news in its Telegram channel, please complete the annual subscription payment from the MyDigitAsset dashboard.\n\nOpen: https://mydigitasset.com/\n\nDaily news and promotional messages are posted in category channels only. Account and payment updates are sent here."
+    );
+  }
+
+  const periods = await env.DB.prepare(`
+    SELECT user_id, MAX(expires_at) AS expires_at
+    FROM customer_subscription_periods
+    GROUP BY user_id
+  `).all();
+
+  for (const period of (periods.results || [])) {
+    const expiryDate = new Date(period.expires_at);
+    if (Number.isNaN(expiryDate.getTime())) continue;
+    const renewalNoticeDate = addDaysToDateKey(getIndiaDateKey(expiryDate), -7);
+    if (renewalNoticeDate !== today) continue;
+    await sendCustomerTelegramNotification(
+      env,
+      period.user_id,
+      "subscription-renewal:" + period.user_id + ":" + String(period.expires_at),
+      "subscription_renewal",
+      "🔔 *Your MyDigitAsset annual subscription is due for renewal in 7 days.*\n\nCurrent access ends on *" + formatIndiaDate(expiryDate) + "* . To avoid interruption, please renew from the MyDigitAsset dashboard.\n\nOpen: https://mydigitasset.com/\n\nDaily news and promotional messages continue to appear in category channels only."
+    );
+  }
 }
 
 async function configureTelegramWebhook(env) {
@@ -630,14 +757,22 @@ async function runDuePromotionCampaigns(env) {
 
 var worker_default = {
   async scheduled(controller, env, ctx) {
-    const startupCategory = await env.DB.prepare(
-      "SELECT telegram_chat_id AS telegramChatId FROM managed_categories WHERE id = 'startup' AND active = 1 LIMIT 1"
-    ).first();
-    if (startupCategory?.telegramChatId) {
-      ctx.waitUntil(runIndiaStartupsNewsDelivery(env, startupCategory.telegramChatId));
-    } else {
-      console.error('India Startups scheduled delivery skipped: Startup channel mapping is missing.');
+    // The second daily cron runs customer account reminders at 07:15 IST.
+    if (String(controller.cron || "") === "15 1 * * *") {
+      ctx.waitUntil(sendScheduledCustomerReminders(env));
+      return;
     }
+
+    // Daily news is delivered to active category channels only, never to individual customers.
+    const channelsResult = await env.DB.prepare(`
+      SELECT id, title, telegram_chat_id
+      FROM managed_categories
+      WHERE active = 1 AND telegram_chat_id IS NOT NULL AND telegram_chat_id <> ''
+      ORDER BY display_order, title
+    `).all();
+    ctx.waitUntil(runAllCategoryNewsDeliveries(env, channelsResult.results || []));
+
+    // Existing channel-only promotional campaigns remain scheduled for the 14th and 28th.
     const parts = getIndiaDateTimeParts();
     if (parts.day === "14" || parts.day === "28") {
       ctx.waitUntil(runDuePromotionCampaigns(env));
@@ -2199,6 +2334,14 @@ var worker_default = {
               '✅ Your Telegram account is now securely connected to MyDigitAsset. You can return to the website.'
             );
 
+            await sendCustomerTelegramNotification(
+              env,
+              tokenRow.user_id,
+              "welcome:" + tokenRow.user_id,
+              "welcome",
+              "🎉 *Welcome to MyDigitAsset!*\n\nYour Telegram account is connected. Daily news digests and promotional offers will be posted in your selected category Telegram channel. Welcome, payment confirmation, payment reminders and subscription renewal notices will be sent privately here.\n\nVisit https://mydigitasset.com/ to manage your subscription."
+            );
+
             console.log('Telegram customer verification completed for user:', String(tokenRow.user_id));
             return json({ ok: true });
           }
@@ -2225,18 +2368,49 @@ var worker_default = {
             const userId = Number(match[2]);
 
             if (action === 'APPROVE') {
-              await env.DB.prepare(
-                "UPDATE users SET status = 'active' WHERE id = ?"
-              ).bind(userId).run();
+              const customer = await env.DB.prepare(
+                "SELECT first_name, surname FROM users WHERE id = ? AND role = 'customer' LIMIT 1"
+              ).bind(userId).first();
 
-              await env.DB.prepare(
+              const approvedPayment = await env.DB.prepare(
                 "UPDATE payments SET status = 'approved' WHERE user_id = ? AND status = 'pending'"
               ).bind(userId).run();
+
+              if (customer && Number(approvedPayment?.meta?.changes || 0) > 0) {
+                const now = new Date();
+                const currentPeriod = await env.DB.prepare(
+                  "SELECT MAX(expires_at) AS expires_at FROM customer_subscription_periods WHERE user_id = ?"
+                ).bind(userId).first();
+                const existingExpiry = currentPeriod?.expires_at ? new Date(currentPeriod.expires_at) : null;
+                const periodStart = existingExpiry && existingExpiry > now ? existingExpiry : now;
+                const periodEnd = new Date(periodStart);
+                periodEnd.setUTCFullYear(periodEnd.getUTCFullYear() + 1);
+                const startedAt = periodStart.toISOString();
+                const expiresAt = periodEnd.toISOString();
+
+                await env.DB.prepare(
+                  "INSERT INTO customer_subscription_periods (user_id, started_at, expires_at) VALUES (?, ?, ?)"
+                ).bind(userId, startedAt, expiresAt).run();
+
+                await env.DB.prepare(
+                  "UPDATE users SET status = 'active' WHERE id = ?"
+                ).bind(userId).run();
+
+                await sendCustomerTelegramNotification(
+                  env,
+                  userId,
+                  "payment-confirmation:" + userId + ":" + expiresAt,
+                  "payment_confirmation",
+                  "✅ *Your MyDigitAsset payment has been confirmed!*\n\nThank you. Your annual subscription is now active until *" + formatIndiaDate(periodEnd) + "* .\n\nDaily news digests and promotional offers will be posted in your selected category Telegram channel. Your account and payment notices will be sent privately here.\n\nOpen: https://mydigitasset.com/"
+                );
+              }
 
               await sendTelegramMessage(
                 env.TELEGRAM_BOT_TOKEN,
                 chatId,
-                `✅ Payment for customer #${userId} has been approved.`
+                Number(approvedPayment?.meta?.changes || 0) > 0
+                  ? `✅ Payment for customer #${userId} has been approved and the customer has been notified if Telegram is connected.`
+                  : `ℹ️ No pending payment was found for customer #${userId}; no duplicate subscription period was created.`
               );
             } else {
               await env.DB.prepare(
