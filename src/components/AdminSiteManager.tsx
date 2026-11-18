@@ -46,6 +46,7 @@ export const AdminSiteManager: React.FC<Props> = ({ token }) => {
   const [blogs, setBlogs] = useState<BlogItem[]>([]);
   const [tools, setTools] = useState<ToolItem[]>([]);
   const [slots, setSlots] = useState<AdSlot[]>([]);
+  const [newSlot, setNewSlot] = useState({ placementKey: '', displayName: '', clientId: '', slotId: '' });
   const [contentForm, setContentForm] = useState(blankContent);
   const [blogForm, setBlogForm] = useState(blankBlog);
   const [toolForm, setToolForm] = useState(blankTool);
@@ -180,6 +181,28 @@ export const AdminSiteManager: React.FC<Props> = ({ token }) => {
     setNotice('Tool deleted.'); await loadAll();
   };
 
+  const addAdsenseSlot = async () => {
+    setError(''); setNotice('');
+    const r = await fetch('/api/admin/adsense', {
+      method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify(newSlot)
+    });
+    const d = await r.json();
+    if (!r.ok) { setError(d.error || 'Could not add AdSense placement.'); return; }
+    setNewSlot({ placementKey: '', displayName: '', clientId: '', slotId: '' });
+    setNotice('AdSense placement added.');
+    await loadAll();
+  };
+
+  const deleteAdsenseSlot = async (key: string) => {
+    if (!window.confirm('Delete this AdSense placement?')) return;
+    const r = await fetch(`/api/admin/adsense/${encodeURIComponent(key)}`, { method: 'DELETE', headers });
+    const d = await r.json();
+    if (!r.ok) { setError(d.error || 'Could not delete placement.'); return; }
+    setNotice('AdSense placement deleted.');
+    await loadAll();
+  };
+
   const saveAdsense = async () => {
     setBusy(true); setError(''); setNotice('');
     try {
@@ -274,11 +297,19 @@ export const AdminSiteManager: React.FC<Props> = ({ token }) => {
       {view === 'adsense' && <>
         <section className="bg-white border rounded-2xl p-5 space-y-4">
           <div><h2 className="font-bold">Google AdSense placements</h2><p className="text-xs text-slate-500 mt-1">Enter the AdSense client and ad-unit slot IDs. Ad serving remains subject to Google account approval and policy.</p></div>
-          {slots.map((slot, index) => <div key={slot.placement_key} className="grid md:grid-cols-4 gap-3 items-end border-b pb-4">
+          <div className="grid md:grid-cols-5 gap-2 p-3 rounded-xl bg-slate-50 border">
+            <input className="border rounded-lg p-2 text-xs" placeholder="placement-key" value={newSlot.placementKey} onChange={e => setNewSlot({ ...newSlot, placementKey: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-') })} />
+            <input className="border rounded-lg p-2 text-xs" placeholder="Display name" value={newSlot.displayName} onChange={e => setNewSlot({ ...newSlot, displayName: e.target.value })} />
+            <input className="border rounded-lg p-2 text-xs" placeholder="Publisher client ID" value={newSlot.clientId} onChange={e => setNewSlot({ ...newSlot, clientId: e.target.value })} />
+            <input className="border rounded-lg p-2 text-xs" placeholder="Ad slot ID" value={newSlot.slotId} onChange={e => setNewSlot({ ...newSlot, slotId: e.target.value })} />
+            <button onClick={addAdsenseSlot} className="rounded-lg bg-slate-900 text-white text-xs font-semibold px-3 py-2">Add placement</button>
+          </div>
+          {slots.map((slot, index) => <div key={slot.placement_key} className="grid md:grid-cols-5 gap-3 items-end border-b pb-4">
             <div><p className="text-sm font-semibold">{slot.display_name}</p><p className="text-[11px] text-slate-500">{slot.placement_key}</p></div>
             <label className="text-xs font-semibold">Publisher client<input className="mt-1 w-full border rounded-lg p-2 text-xs" value={slot.client_id || ''} onChange={e => setSlots(slots.map((s,i) => i === index ? { ...s, client_id: e.target.value } : s))} /></label>
             <label className="text-xs font-semibold">Ad slot ID<input className="mt-1 w-full border rounded-lg p-2 text-xs" value={slot.slot_id || ''} onChange={e => setSlots(slots.map((s,i) => i === index ? { ...s, slot_id: e.target.value } : s))} /></label>
             <label className="flex items-center gap-2 text-xs font-semibold"><input type="checkbox" checked={Boolean(slot.enabled)} onChange={e => setSlots(slots.map((s,i) => i === index ? { ...s, enabled: e.target.checked ? 1 : 0 } : s))} /> Enabled</label>
+            <button onClick={() => deleteAdsenseSlot(slot.placement_key)} className="px-2 py-2 rounded-lg bg-red-50 text-red-700 text-xs">Delete</button>
           </div>)}
           <button disabled={busy} onClick={saveAdsense} className="px-5 py-2.5 rounded-xl bg-slate-900 text-white text-sm font-semibold">{busy ? 'Saving...' : 'Save AdSense settings'}</button>
         </section>
