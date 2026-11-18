@@ -6,12 +6,12 @@ type Category = {
 };
 type Campaign = {
   id: string; campaign_name: string; product_name: string; message_text: string;
-  image_url: string; affiliate_url: string; link_label: string;
+  image_url: string; affiliate_url: string; tracking_parameter: string; link_label: string;
   affiliate_disclosure: string; status: string; scheduled_for: string;
   sent_channels: number; failed_channels: number;
 };
 type AnalyticsRow = {
-  campaign_id: string; product_name: string; source_type: string;
+  tracking_code: string; campaign_id: string; product_name: string; source_type: string;
   source_id: string; clicks: number; reported_order_amount: number;
   reported_commission: number; reported_purchases: number;
 };
@@ -20,7 +20,7 @@ interface Props { token: string; }
 
 const emptyCampaign = {
   campaignName: '', productName: '', messageText: '', imageUrl: '',
-  affiliateUrl: '', linkLabel: 'View Offer',
+  affiliateUrl: '', trackingParameter: 'subid', linkLabel: 'View Offer',
   affiliateDisclosure: 'We may earn a commission from qualifying purchases.'
 };
 
@@ -105,7 +105,7 @@ export const AdminCampaignManager: React.FC<Props> = ({ token }) => {
     setCampaignForm({
       campaignName: c.campaign_name || '', productName: c.product_name || '',
       messageText: c.message_text || '', imageUrl: c.image_url || '',
-      affiliateUrl: c.affiliate_url || '', linkLabel: c.link_label || 'View Offer',
+      affiliateUrl: c.affiliate_url || '', trackingParameter: c.tracking_parameter || 'subid', linkLabel: c.link_label || 'View Offer',
       affiliateDisclosure: c.affiliate_disclosure || ''
     });
     setView('campaigns');
@@ -221,6 +221,9 @@ export const AdminCampaignManager: React.FC<Props> = ({ token }) => {
             </label>
             <label className="text-xs font-semibold text-slate-700">Affiliate purchase URL
               <input className="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="https://..." value={campaignForm.affiliateUrl} onChange={e => setCampaignForm({ ...campaignForm, affiliateUrl: e.target.value })} />
+            </label>
+            <label className="text-xs font-semibold text-slate-700">Affiliate tracking parameter
+              <input className="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="subid" value={campaignForm.trackingParameter} onChange={e => setCampaignForm({ ...campaignForm, trackingParameter: e.target.value })} />
             </label>
             <label className="text-xs font-semibold text-slate-700">Clickable button text
               <input className="mt-1 w-full border rounded-lg p-2 text-sm" value={campaignForm.linkLabel} onChange={e => setCampaignForm({ ...campaignForm, linkLabel: e.target.value })} />
