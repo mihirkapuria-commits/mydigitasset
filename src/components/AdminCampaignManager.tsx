@@ -10,6 +10,7 @@ type Campaign = {
   affiliate_disclosure: string; status: string; scheduled_for: string;
   sent_channels: number; failed_channels: number;
 };
+type DeliveryRow = { channelName: string; channelId: string; status: string; telegramMessageId?: string; trackingCode?: string; errorMessage?: string; attempts: number; deliveredAt?: string; };
 type AnalyticsRow = {
   tracking_code: string; campaign_id: string; product_name: string; source_type: string;
   source_id: string; clicks: number; reported_order_amount: number;
@@ -29,6 +30,9 @@ export const AdminCampaignManager: React.FC<Props> = ({ token }) => {
   const [categories, setCategories] = useState<Category[]>([]);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [analytics, setAnalytics] = useState<AnalyticsRow[]>([]);
+  const [deliveries, setDeliveries] = useState<DeliveryRow[]>([]);
+  const [deliveryCampaignName, setDeliveryCampaignName] = useState('');
+  const [deliveryCampaignId, setDeliveryCampaignId] = useState('');
   const [campaignForm, setCampaignForm] = useState(emptyCampaign);
   const [editingCampaignId, setEditingCampaignId] = useState('');
   const [categoryForm, setCategoryForm] = useState({
@@ -98,6 +102,16 @@ export const AdminCampaignManager: React.FC<Props> = ({ token }) => {
       await loadAll();
     } catch (e: any) { setError(e.message); }
     finally { setSaving(false); }
+  };
+
+  const viewDeliveries = async (campaign: Campaign) => {
+    setError(''); setDeliveryCampaignName(campaign.campaign_name); setDeliveryCampaignId(campaign.id);
+    try {
+      const response = await fetch(`/api/admin/promotions/${encodeURIComponent(campaign.id)}/deliveries`, { headers });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Could not load delivery report.');
+      setDeliveries(data);
+    } catch (e: any) { setError(e.message); }
   };
 
   const approveCampaign = async (id: string) => {
@@ -269,7 +283,7 @@ export const AdminCampaignManager: React.FC<Props> = ({ token }) => {
                     {c.status !== 'sent' && c.status !== 'cancelled' && <>
                       <button onClick={() => editCampaign(c)} className="px-2 py-1 rounded bg-slate-100">Edit</button>
                       <button onClick={() => approveCampaign(c.id)} className="px-2 py-1 rounded bg-emerald-600 text-white">Approve</button>
-                      <button onClick={() => deleteCampaign(c.id)} className="px-2 py-1 rounded bg-red-50 text-red-700">Delete</button>
+                      <button onClick={() => viewDeliveries(c)} className="px-2 py-1 rounded bg-indigo-50 text-indigo-700">Delivery report</button><button onClick={() => deleteCampaign(c.id)} className="px-2 py-1 rounded bg-red-50 text-red-700">Delete</button>
                     </>}
                   </td>
                 </tr>)}
@@ -278,6 +292,10 @@ export const AdminCampaignManager: React.FC<Props> = ({ token }) => {
             </table>
           </div>
         </section>
+        {deliveryCampaignId && <section className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+          <div className="p-4 border-b flex justify-between items-center"><div><h3 className="font-bold text-sm">Delivery report: {deliveryCampaignName}</h3><p className="text-xs text-slate-500">Each active channel is listed separately.</p></div><button onClick={() => { setDeliveryCampaignId(''); setDeliveries([]); }} className="text-xs text-indigo-700">Close</button></div>
+          <div className="overflow-x-auto"><table className="w-full text-left text-xs"><thead className="bg-slate-50"><tr><th className="p-3">Channel</th><th className="p-3">Status</th><th className="p-3">Attempts</th><th className="p-3">Delivered at</th><th className="p-3">Error</th></tr></thead><tbody className="divide-y">{deliveries.map((d,i) => <tr key={i}><td className="p-3">{d.channelName}<div className="font-mono text-slate-400">{d.channelId}</div></td><td className="p-3 capitalize">{d.status}</td><td className="p-3">{d.attempts}</td><td className="p-3">{d.deliveredAt ? new Date(d.deliveredAt).toLocaleString() : '—'}</td><td className="p-3 text-red-600">{d.errorMessage || '—'}</td></tr>)}{!deliveries.length && <tr><td colSpan={5} className="p-4 text-slate-500">No delivery attempts yet. The campaign is waiting for its scheduled date.</td></tr>}</tbody></table></div>
+        </section>}
       </>}
 
       {view === 'categories' && <>
