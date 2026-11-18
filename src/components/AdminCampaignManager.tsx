@@ -35,6 +35,7 @@ export const AdminCampaignManager: React.FC<Props> = ({ token }) => {
     id: '', title: '', description: '', telegramChatId: '', displayOrder: '0'
   });
   const [editingCategoryId, setEditingCategoryId] = useState('');
+  const [conversionForm, setConversionForm] = useState({ trackingCode: '', networkName: '', orderReference: '', orderAmount: '', commissionAmount: '', currency: 'INR' });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState('');
@@ -65,6 +66,19 @@ export const AdminCampaignManager: React.FC<Props> = ({ token }) => {
   };
 
   useEffect(() => { loadAll(); }, [token]);
+
+  const submitConversion = async () => {
+    setError(''); setNotice('');
+    const response = await fetch('/api/admin/affiliate/conversions', {
+      method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...conversionForm, orderAmount: Number(conversionForm.orderAmount), commissionAmount: Number(conversionForm.commissionAmount) })
+    });
+    const data = await response.json();
+    if (!response.ok) { setError(data.error || 'Could not save purchase report.'); return; }
+    setConversionForm({ trackingCode: '', networkName: '', orderReference: '', orderAmount: '', commissionAmount: '', currency: 'INR' });
+    setNotice('Purchase report saved.');
+    await loadAll();
+  };
 
   const saveCampaign = async () => {
     setSaving(true); setError(''); setNotice('');
@@ -304,16 +318,31 @@ export const AdminCampaignManager: React.FC<Props> = ({ token }) => {
         </section>
       </>}
 
-      {view === 'analytics' && <section className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+      {view === 'analytics' && <>
+        <section className="bg-white border border-slate-200 rounded-2xl p-5 space-y-3">
+          <h2 className="font-bold">Record a reported purchase</h2>
+          <p className="text-xs text-slate-500">Enter amounts only when an affiliate network or merchant has reported the order. The tracking code is used to connect the purchase to its campaign and channel.</p>
+          <div className="grid md:grid-cols-3 gap-3">
+            <label className="text-xs font-semibold">Tracking code<input className="mt-1 w-full border rounded-lg p-2 text-xs" value={conversionForm.trackingCode} onChange={e => setConversionForm({ ...conversionForm, trackingCode: e.target.value })} /></label>
+            <label className="text-xs font-semibold">Network / merchant<input className="mt-1 w-full border rounded-lg p-2 text-xs" value={conversionForm.networkName} onChange={e => setConversionForm({ ...conversionForm, networkName: e.target.value })} /></label>
+            <label className="text-xs font-semibold">Order reference<input className="mt-1 w-full border rounded-lg p-2 text-xs" value={conversionForm.orderReference} onChange={e => setConversionForm({ ...conversionForm, orderReference: e.target.value })} /></label>
+            <label className="text-xs font-semibold">Order amount<input type="number" min="0" className="mt-1 w-full border rounded-lg p-2 text-xs" value={conversionForm.orderAmount} onChange={e => setConversionForm({ ...conversionForm, orderAmount: e.target.value })} /></label>
+            <label className="text-xs font-semibold">Commission earned<input type="number" min="0" className="mt-1 w-full border rounded-lg p-2 text-xs" value={conversionForm.commissionAmount} onChange={e => setConversionForm({ ...conversionForm, commissionAmount: e.target.value })} /></label>
+            <label className="text-xs font-semibold">Currency<input className="mt-1 w-full border rounded-lg p-2 text-xs" value={conversionForm.currency} onChange={e => setConversionForm({ ...conversionForm, currency: e.target.value.toUpperCase() })} /></label>
+          </div>
+          <button onClick={submitConversion} className="px-4 py-2 rounded-lg bg-slate-900 text-white text-xs font-semibold">Save purchase report</button>
+        </section>
+        <section className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
         <div className="p-5 border-b"><h2 className="font-bold">Affiliate performance</h2><p className="text-xs text-slate-500 mt-1">Click counts are recorded by MyDigitAsset. Purchases and commissions appear only when reported by the affiliate network or merchant.</p></div>
         <div className="overflow-x-auto"><table className="w-full text-left text-xs">
-          <thead className="bg-slate-50 text-slate-500"><tr><th className="p-3">Product</th><th className="p-3">Source</th><th className="p-3">Source ID</th><th className="p-3">Clicks</th><th className="p-3">Reported purchases</th><th className="p-3">Order amount</th><th className="p-3">Commission</th></tr></thead>
+          <thead className="bg-slate-50 text-slate-500"><tr><th className="p-3">Product</th><th className="p-3">Tracking code</th><th className="p-3">Source</th><th className="p-3">Source ID</th><th className="p-3">Clicks</th><th className="p-3">Reported purchases</th><th className="p-3">Order amount</th><th className="p-3">Commission</th></tr></thead>
           <tbody className="divide-y">{analytics.map((a, i) => <tr key={i}>
-            <td className="p-3">{a.product_name}</td><td className="p-3">{a.source_type}</td><td className="p-3">{a.source_id}</td><td className="p-3">{a.clicks}</td><td className="p-3">{a.reported_purchases}</td><td className="p-3">₹{Number(a.reported_order_amount || 0).toFixed(2)}</td><td className="p-3">₹{Number(a.reported_commission || 0).toFixed(2)}</td>
+            <td className="p-3">{a.product_name}</td><td className="p-3 font-mono">{a.tracking_code}</td><td className="p-3">{a.source_type}</td><td className="p-3">{a.source_id}</td><td className="p-3">{a.clicks}</td><td className="p-3">{a.reported_purchases}</td><td className="p-3">₹{Number(a.reported_order_amount || 0).toFixed(2)}</td><td className="p-3">₹{Number(a.reported_commission || 0).toFixed(2)}</td>
           </tr>)}
-          {!analytics.length && <tr><td colSpan={7} className="p-4 text-slate-500">No affiliate clicks or conversion reports yet.</td></tr>}</tbody>
+          {!analytics.length && <tr><td colSpan={8} className="p-4 text-slate-500">No affiliate clicks or conversion reports yet.</td></tr>}</tbody>
         </table></div>
-      </section>}
+        </section>
+      </>}
     </div>
   );
 };
