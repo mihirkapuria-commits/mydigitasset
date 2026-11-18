@@ -1518,7 +1518,7 @@ var worker_default = {
         const admin = await getAuthorizedAdmin(request, env);
         if (!admin) return json({ error: 'Administrator access required.' }, 403);
         const result = await env.DB.prepare(`
-          SELECT l.tracking_code, l.campaign_id, p.campaign_name, l.product_name, l.source_type, l.source_id,
+          SELECT l.tracking_code, l.campaign_id, p.campaign_name, l.product_name, l.source_type, l.source_id, mc.title AS source_name,
             (SELECT COUNT(*) FROM affiliate_clicks c WHERE c.tracking_code = l.tracking_code) AS clicks,
             (SELECT MAX(c.clicked_at) FROM affiliate_clicks c WHERE c.tracking_code = l.tracking_code) AS last_clicked_at,
             (SELECT COALESCE(SUM(v.order_amount), 0) FROM affiliate_conversions v WHERE v.tracking_code = l.tracking_code AND v.status <> 'reversed') AS reported_order_amount,
@@ -1527,6 +1527,7 @@ var worker_default = {
             (SELECT MAX(v.reported_at) FROM affiliate_conversions v WHERE v.tracking_code = l.tracking_code AND v.status <> 'reversed') AS last_purchase_reported_at
           FROM affiliate_tracking_links l
           LEFT JOIN promo_campaigns p ON p.id = l.campaign_id
+          LEFT JOIN managed_categories mc ON mc.id = l.source_id
           ORDER BY clicks DESC
         `).all();
         return json(result.results || []);
