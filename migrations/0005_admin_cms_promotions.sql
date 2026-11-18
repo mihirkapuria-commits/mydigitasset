@@ -232,4 +232,6 @@ INSERT OR IGNORE INTO adsense_slots (placement_key, display_name, enabled) VALUE
 ('blog-bottom', 'Below blog article', 0),
 ('tools-top', 'Above tools section', 0),
 ('tools-inline', 'Within tools section', 0),
-('tools-bottom', 'Below tools section', 0);
+('tools-bottom', 'Below tools section', 0),
+('offers-top', 'Above offers section', 0),
+('offers-bottom', 'Below offers section', 0);
