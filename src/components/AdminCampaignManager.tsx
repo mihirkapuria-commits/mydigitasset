@@ -283,8 +283,9 @@ export const AdminCampaignManager: React.FC<Props> = ({ token }) => {
                     {c.status !== 'sent' && c.status !== 'cancelled' && <>
                       <button onClick={() => editCampaign(c)} className="px-2 py-1 rounded bg-slate-100">Edit</button>
                       <button onClick={() => approveCampaign(c.id)} className="px-2 py-1 rounded bg-emerald-600 text-white">Approve</button>
-                      <button onClick={() => viewDeliveries(c)} className="px-2 py-1 rounded bg-indigo-50 text-indigo-700">Delivery report</button><button onClick={() => deleteCampaign(c.id)} className="px-2 py-1 rounded bg-red-50 text-red-700">Delete</button>
+                      <button onClick={() => deleteCampaign(c.id)} className="px-2 py-1 rounded bg-red-50 text-red-700">Delete</button>
                     </>}
+                    <button onClick={() => viewDeliveries(c)} className="px-2 py-1 rounded bg-indigo-50 text-indigo-700">Delivery report</button>
                   </td>
                 </tr>)}
                 {!campaigns.length && <tr><td className="p-4 text-slate-500" colSpan={6}>No campaigns yet.</td></tr>}
