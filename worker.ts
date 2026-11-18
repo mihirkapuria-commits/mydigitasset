@@ -1210,6 +1210,31 @@ async function runDuePromotionCampaigns(env) {
         return json({ success: true });
       }
 
+      if (url.pathname === '/api/admin/adsense' && method === 'POST') {
+        const admin = await getAuthorizedAdmin(request, env);
+        if (!admin) return json({ error: 'Administrator access required.' }, 403);
+        const data = await parseRequestBody(request);
+        const key = String(data.placementKey || '').trim();
+        const name = String(data.displayName || '').trim();
+        if (!/^[a-z0-9-]{2,50}$/.test(key) || !name) {
+          return json({ error: 'Enter a valid placement key and display name.' }, 400);
+        }
+        await env.DB.prepare(`
+          INSERT INTO adsense_slots (placement_key, display_name, enabled, client_id, slot_id, updated_at, updated_by)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).bind(key, name, data.enabled ? 1 : 0, String(data.clientId || ''),
+          String(data.slotId || ''), new Date().toISOString(), admin.email).run();
+        return json({ success: true });
+      }
+
+      if (url.pathname.startsWith('/api/admin/adsense/') && method === 'DELETE') {
+        const admin = await getAuthorizedAdmin(request, env);
+        if (!admin) return json({ error: 'Administrator access required.' }, 403);
+        const key = decodeURIComponent(url.pathname.split('/').pop() || '');
+        await env.DB.prepare('DELETE FROM adsense_slots WHERE placement_key = ?').bind(key).run();
+        return json({ success: true });
+      }
+
       // ADMIN: MANUAL CONVERSION IMPORT. Only actual merchant/network reports should be entered here.
       if (url.pathname === '/api/admin/affiliate/conversions' && method === 'POST') {
         const admin = await getAuthorizedAdmin(request, env);
@@ -1259,6 +1284,10 @@ async function runDuePromotionCampaigns(env) {
           VALUES (?, ?, ?, ?, 1, ?, ?)
         `).bind(id, title, String(data.description || ''), chatId,
           Number(data.displayOrder || 0), new Date().toISOString()).run();
+        await env.DB.prepare(`
+          INSERT OR IGNORE INTO categories (id, title, description, base_price, gst_rate, active)
+          VALUES (?, ?, ?, 252, 18, 1)
+        `).bind(id, title, String(data.description || '')).run();
         return json({ success: true });
       }
 
@@ -1276,6 +1305,9 @@ async function runDuePromotionCampaigns(env) {
         `).bind(title, String(data.description || ''), chatId,
           data.active === false ? 0 : 1, Number(data.displayOrder || 0),
           new Date().toISOString(), id).run();
+        await env.DB.prepare(`
+          UPDATE categories SET title = ?, description = ?, active = ? WHERE id = ?
+        `).bind(title, String(data.description || ''), data.active === false ? 0 : 1, id).run();
         return json({ success: true });
       }
 
@@ -1283,13 +1315,20 @@ async function runDuePromotionCampaigns(env) {
         const admin = await getAuthorizedAdmin(request, env);
         if (!admin) return json({ error: 'Administrator access required.' }, 403);
         const id = decodeURIComponent(url.pathname.split('/').pop() || '');
-        const used = await env.DB.prepare(`
-          SELECT COUNT(*) AS count FROM users WHERE category = ?
-        `).bind(id).first();
-        if (Number(used?.count || 0) > 0) {
-          return json({ error: 'This category is linked to existing customers. Deactivate it instead of deleting it.' }, 409);
+        const usedByUsers = await env.DB.prepare(
+          'SELECT COUNT(*) AS count FROM users WHERE category = ?'
+        ).bind(id).first();
+        const usedBySubscriptions = await env.DB.prepare(
+          'SELECT COUNT(*) AS count FROM user_subscriptions WHERE category_id = ?'
+        ).bind(id).first();
+        const usedByPayments = await env.DB.prepare(
+          'SELECT COUNT(*) AS count FROM payments WHERE category_id = ?'
+        ).bind(id).first();
+        if (Number(usedByUsers?.count || 0) + Number(usedBySubscriptions?.count || 0) + Number(usedByPayments?.count || 0) > 0) {
+          return json({ error: 'This category is linked to customer, subscription or payment records. Deactivate it instead of deleting it.' }, 409);
         }
         await env.DB.prepare('DELETE FROM managed_categories WHERE id = ?').bind(id).run();
+        await env.DB.prepare('DELETE FROM categories WHERE id = ?').bind(id).run();
         return json({ success: true });
       }
 
