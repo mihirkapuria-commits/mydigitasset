@@ -440,6 +440,13 @@ async function configureTelegramWebhook(env) {
 
 
 
+async function hasDatabaseColumn(env, tableName, columnName) {
+  const allowedTables = ['payments', 'user_subscriptions', 'categories'];
+  if (!allowedTables.includes(tableName)) return false;
+  const result = await env.DB.prepare('PRAGMA table_info(' + tableName + ')').all();
+  return (result.results || []).some(column => column.name === columnName);
+}
+
 function randomId(prefix) {
   return prefix + "_" + base64url(crypto.getRandomValues(new Uint8Array(18)));
 }
@@ -1329,12 +1336,14 @@ async function runDuePromotionCampaigns(env) {
         const usedByUsers = await env.DB.prepare(
           'SELECT COUNT(*) AS count FROM users WHERE category = ?'
         ).bind(id).first();
-        const usedBySubscriptions = await env.DB.prepare(
-          'SELECT COUNT(*) AS count FROM user_subscriptions WHERE category_id = ?'
-        ).bind(id).first();
-        const usedByPayments = await env.DB.prepare(
-          'SELECT COUNT(*) AS count FROM payments WHERE category_id = ?'
-        ).bind(id).first();
+        const hasSubscriptionCategory = await hasDatabaseColumn(env, 'user_subscriptions', 'category_id');
+        const hasPaymentCategory = await hasDatabaseColumn(env, 'payments', 'category_id');
+        const usedBySubscriptions = hasSubscriptionCategory
+          ? await env.DB.prepare('SELECT COUNT(*) AS count FROM user_subscriptions WHERE category_id = ?').bind(id).first()
+          : { count: 0 };
+        const usedByPayments = hasPaymentCategory
+          ? await env.DB.prepare('SELECT COUNT(*) AS count FROM payments WHERE category_id = ?').bind(id).first()
+          : { count: 0 };
         if (Number(usedByUsers?.count || 0) + Number(usedBySubscriptions?.count || 0) + Number(usedByPayments?.count || 0) > 0) {
           return json({ error: 'This category is linked to customer, subscription or payment records. Deactivate it instead of deleting it.' }, 409);
         }
