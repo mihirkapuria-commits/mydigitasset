@@ -1257,6 +1257,25 @@ var worker_default = {
         return json({ success: true });
       }
 
+      if (url.pathname === '/api/admin/affiliate/conversions' && method === 'GET') {
+        const admin = await getAuthorizedAdmin(request, env);
+        if (!admin) return json({ error: 'Administrator access required.' }, 403);
+        const result = await env.DB.prepare(`
+          SELECT v.id, v.network_name AS networkName, v.order_reference AS orderReference,
+                 v.order_amount AS orderAmount, v.commission_amount AS commissionAmount,
+                 v.currency, v.status, v.purchased_at AS purchasedAt, v.reported_at AS reportedAt,
+                 l.product_name AS productName, l.source_type AS sourceType,
+                 l.source_id AS sourceId, mc.title AS sourceName, p.campaign_name AS campaignName
+          FROM affiliate_conversions v
+          LEFT JOIN affiliate_tracking_links l ON l.tracking_code = v.tracking_code
+          LEFT JOIN managed_categories mc ON mc.id = l.source_id
+          LEFT JOIN promo_campaigns p ON p.id = l.campaign_id
+          ORDER BY COALESCE(v.purchased_at, v.reported_at) DESC
+          LIMIT 500
+        `).all();
+        return json(result.results || []);
+      }
+
       // ADMIN: MANUAL CONVERSION IMPORT. Only actual merchant/network reports should be entered here.
       if (url.pathname === '/api/admin/affiliate/conversions' && method === 'POST') {
         const admin = await getAuthorizedAdmin(request, env);
