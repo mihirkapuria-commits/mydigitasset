@@ -927,7 +927,8 @@ async function runDuePromotionCampaigns(env) {
         `).all();
         return json(result.results || []);
       }
-\n      // PUBLIC PAYMENT DETAILS AND CURRENT PRICING
+
+      // PUBLIC PAYMENT DETAILS AND CURRENT PRICING
       if (url.pathname === '/api/settings' && method === 'GET') {
         const settingsResult = await env.DB.prepare(`
           SELECT key, value
