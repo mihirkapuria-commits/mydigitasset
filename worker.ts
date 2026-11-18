@@ -961,6 +961,91 @@ var worker_default = {
         });
       }
 
+      // ADMIN: CUSTOMER, PAYMENT AND AUDIT DATA
+      // These routes are shared by the original Admin Portal tabs.
+      if (url.pathname === '/api/admin/customers' && method === 'GET') {
+        const admin = await getAuthorizedAdmin(request, env);
+        if (!admin) return json({ error: 'Administrator access required.' }, 403);
+
+        const result = await env.DB.prepare(`
+          SELECT id, first_name, surname, email, country_code, mobile_number,
+                 category, trial_expires_at, status, role, created_at,
+                 EXISTS (
+                   SELECT 1 FROM telegram_connections tc WHERE tc.user_id = users.id
+                 ) AS telegram_connected,
+                 (
+                   SELECT tc.telegram_username FROM telegram_connections tc
+                   WHERE tc.user_id = users.id LIMIT 1
+                 ) AS telegram_username
+          FROM users
+          WHERE lower(email) <> ?
+          ORDER BY created_at DESC
+        `).bind(ADMIN_EMAIL).all();
+
+        return json((result.results || []).map(user => ({
+          ...publicUser(user),
+          paymentStatus: user.payment_status || 'none'
+        })));
+      }
+
+      if (url.pathname === '/api/admin/payments' && method === 'GET') {
+        const admin = await getAuthorizedAdmin(request, env);
+        if (!admin) return json({ error: 'Administrator access required.' }, 403);
+
+        const result = await env.DB.prepare(`
+          SELECT p.*, u.first_name, u.surname, u.email
+          FROM payments p
+          LEFT JOIN users u ON u.id = p.user_id
+          ORDER BY p.rowid DESC
+          LIMIT 500
+        `).all();
+
+        return json((result.results || []).map(payment => {
+          const totalAmount = Number(payment.amount || payment.total_amount || 0);
+          const gstRate = Number(payment.gst_rate ?? 18);
+          const amountBase = Number(payment.amount_base ?? (
+            gstRate >= 0 ? totalAmount / (1 + gstRate / 100) : totalAmount
+          ));
+          const gst = Number(payment.gst ?? (totalAmount - amountBase));
+          const rawStatus = String(payment.status || 'pending').toLowerCase();
+          return {
+            id: String(payment.id || ''),
+            userId: String(payment.user_id || ''),
+            userName: `${payment.first_name || ''} ${payment.surname || ''}`.trim(),
+            userEmail: payment.email || '',
+            amountBase: roundMoney(amountBase),
+            gst: roundMoney(gst),
+            totalAmount: roundMoney(totalAmount),
+            utr: String(payment.utr_number || payment.utr || ''),
+            notes: String(payment.notes || ''),
+            status: rawStatus === 'approved' ? 'verified' : rawStatus,
+            submittedAt: String(payment.submitted_at || payment.created_at || ''),
+            verifiedAt: String(payment.verified_at || ''),
+            verifiedBy: String(payment.verified_by || '')
+          };
+        }));
+      }
+
+      if (url.pathname === '/api/admin/audit-logs' && method === 'GET') {
+        const admin = await getAuthorizedAdmin(request, env);
+        if (!admin) return json({ error: 'Administrator access required.' }, 403);
+
+        const result = await env.DB.prepare(`
+          SELECT id, timestamp, admin_email, action, details
+          FROM audit_logs
+          ORDER BY timestamp DESC
+          LIMIT 500
+        `).all();
+
+        return json((result.results || []).map(log => ({
+          id: String(log.id),
+          timestamp: String(log.timestamp),
+          adminEmail: String(log.admin_email),
+          action: String(log.action),
+          details: String(log.details)
+        })));
+      }
+
       // ADMIN: READ CURRENT PRICING
       if (url.pathname === '/api/admin/pricing' && method === 'GET') {
         const admin = await getAuthorizedAdmin(request, env);
