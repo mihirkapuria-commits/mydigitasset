@@ -265,6 +265,15 @@ export const AdminCampaignManager: React.FC<Props> = ({ token }) => {
               <input className="mt-1 w-full border rounded-lg p-2 text-sm" value={campaignForm.affiliateDisclosure} onChange={e => setCampaignForm({ ...campaignForm, affiliateDisclosure: e.target.value })} />
             </label>
           </div>
+          <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 space-y-3">
+            <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500">Telegram message preview</h3>
+            <div className="max-w-md bg-white rounded-xl border p-3 space-y-3">
+              {campaignForm.imageUrl && <img src={campaignForm.imageUrl} alt="Product preview" className="w-full max-h-56 object-cover rounded-lg" />}
+              <p className="text-sm text-slate-800 whitespace-pre-wrap">{campaignForm.messageText || 'Your promotional message will appear here.'}</p>
+              {campaignForm.affiliateUrl && <div className="text-center rounded-lg bg-sky-50 border border-sky-100 p-2 text-sm font-semibold text-sky-800">{campaignForm.linkLabel || 'View Offer'} ↗</div>}
+              {campaignForm.affiliateDisclosure && <p className="text-[10px] text-slate-500">{campaignForm.affiliateDisclosure}</p>}
+            </div>
+          </div>
           <div className="flex flex-wrap gap-2">
             <button disabled={saving} onClick={saveCampaign} className="px-5 py-2.5 rounded-xl bg-slate-900 text-white text-sm font-semibold disabled:opacity-50">{saving ? 'Saving...' : 'Save draft'}</button>
             <button onClick={() => { setCampaignForm(emptyCampaign); setEditingCampaignId(''); }} className="px-4 py-2.5 rounded-xl border text-sm">Clear form</button>
