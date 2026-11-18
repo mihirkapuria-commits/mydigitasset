@@ -162,6 +162,7 @@ CREATE TABLE IF NOT EXISTS affiliate_conversions (
   order_reference TEXT NOT NULL DEFAULT '',
   order_amount REAL NOT NULL DEFAULT 0,
   commission_amount REAL NOT NULL DEFAULT 0,
+  purchased_at TEXT,
   currency TEXT NOT NULL DEFAULT 'INR',
   status TEXT NOT NULL DEFAULT 'reported' CHECK (status IN ('reported', 'confirmed', 'reversed')),
   reported_at TEXT NOT NULL,
