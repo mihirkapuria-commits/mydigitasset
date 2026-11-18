@@ -630,7 +630,9 @@ async function runDuePromotionCampaigns(env) {
 
 var worker_default = {
   async scheduled(controller, env, ctx) {
-    const startupCategory = CATEGORIES.find(item => item.id === 'startup');
+    const startupCategory = await env.DB.prepare(
+      "SELECT telegram_chat_id AS telegramChatId FROM managed_categories WHERE id = 'startup' AND active = 1 LIMIT 1"
+    ).first();
     if (startupCategory?.telegramChatId) {
       ctx.waitUntil(runIndiaStartupsNewsDelivery(env, startupCategory.telegramChatId));
     } else {
@@ -1736,7 +1738,9 @@ var worker_default = {
         const admin = await getAuthorizedAdmin(request, env);
         if (!admin) return json({ error: 'Administrator access required.' }, 403);
 
-        const startupCategory = CATEGORIES.find(item => item.id === 'startup');
+        const startupCategory = await env.DB.prepare(
+          "SELECT telegram_chat_id AS telegramChatId FROM managed_categories WHERE id = 'startup' AND active = 1 LIMIT 1"
+        ).first();
         if (!startupCategory || !startupCategory.telegramChatId) {
           return json({ error: 'Startup Telegram channel mapping is missing.' }, 500);
         }
