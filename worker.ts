@@ -1356,6 +1356,20 @@ async function runDuePromotionCampaigns(env) {
         return json(result.results || []);
       }
 
+      if (url.pathname.startsWith('/api/admin/promotions/') && url.pathname.endsWith('/deliveries') && method === 'GET') {
+        const admin = await getAuthorizedAdmin(request, env);
+        if (!admin) return json({ error: 'Administrator access required.' }, 403);
+        const parts = url.pathname.split('/');
+        const campaignId = decodeURIComponent(parts[4] || '');
+        const result = await env.DB.prepare(`
+          SELECT channel_name AS channelName, channel_id AS channelId, status,
+                 telegram_message_id AS telegramMessageId, tracking_code AS trackingCode,
+                 error_message AS errorMessage, attempts, delivered_at AS deliveredAt
+          FROM promo_deliveries WHERE campaign_id = ? ORDER BY channel_name
+        `).bind(campaignId).all();
+        return json(result.results || []);
+      }
+
       if (url.pathname === '/api/admin/promotions' && method === 'POST') {
         const admin = await getAuthorizedAdmin(request, env);
         if (!admin) return json({ error: 'Administrator access required.' }, 403);
