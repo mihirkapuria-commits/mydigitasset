@@ -1313,6 +1313,8 @@ var worker_default = {
         `).bind(id, title, String(data.description || ''), chatId,
           Number(data.displayOrder || 0), new Date().toISOString()).run();
         if (await hasDatabaseColumn(env, 'categories', 'id') &&
+            await hasDatabaseColumn(env, 'categories', 'title') &&
+            await hasDatabaseColumn(env, 'categories', 'description') &&
             await hasDatabaseColumn(env, 'categories', 'base_price') &&
             await hasDatabaseColumn(env, 'categories', 'gst_rate') &&
             await hasDatabaseColumn(env, 'categories', 'active')) {
@@ -1340,6 +1342,7 @@ var worker_default = {
           new Date().toISOString(), id).run();
         if (await hasDatabaseColumn(env, 'categories', 'id') &&
             await hasDatabaseColumn(env, 'categories', 'title') &&
+            await hasDatabaseColumn(env, 'categories', 'description') &&
             await hasDatabaseColumn(env, 'categories', 'active')) {
           await env.DB.prepare(`
             UPDATE categories SET title = ?, description = ?, active = ? WHERE id = ?
