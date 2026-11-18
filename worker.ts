@@ -858,7 +858,7 @@ async function runDuePromotionCampaigns(env) {
       // PUBLIC CATEGORY LIST — database-backed so admin-managed categories appear automatically.
       if (url.pathname === '/api/categories' && method === 'GET') {
         const result = await env.DB.prepare(`
-          SELECT id, title, description, telegram_chat_id AS telegramChatId
+          SELECT id, title, description, telegram_chat_id AS telegramChatId, active
           FROM managed_categories WHERE active = 1
           ORDER BY display_order, title
         `).all();
