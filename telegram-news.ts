@@ -40,15 +40,50 @@ interface CategoryNewsSource {
   googleNewsUrl: string;
 }
 
-const INDIA_STARTUPS_SOURCE: CategoryNewsSource = {
-  categoryId: "startup",
-  topic: "India Startups",
-  googleNewsUrl:
-    "https://news.google.com/rss/search?q=india%20startups&hl=en-IN&gl=IN&ceid=IN:en"
-};
+const CATEGORY_NEWS_SOURCES: CategoryNewsSource[] = [
+  { categoryId: "banking-fintech", topic: "India Banking and Fintech", googleNewsUrl: makeGoogleNewsUrl("India banking fintech digital payments RBI banks") },
+  { categoryId: "consumer-fmcg", topic: "India Consumer and FMCG", googleNewsUrl: makeGoogleNewsUrl("India consumer goods FMCG retail brands") },
+  { categoryId: "economy-business", topic: "India Economy and Business", googleNewsUrl: makeGoogleNewsUrl("India economy business industry trade") },
+  { categoryId: "energy-renewal", topic: "India Energy and Renewables", googleNewsUrl: makeGoogleNewsUrl("India energy oil natural gas renewable power") },
+  { categoryId: "hr-employment", topic: "India HR and Employment", googleNewsUrl: makeGoogleNewsUrl("India employment jobs human resources workplace") },
+  { categoryId: "it-ai-cybersecurity", topic: "India IT AI and Cybersecurity", googleNewsUrl: makeGoogleNewsUrl("India information technology artificial intelligence cybersecurity") },
+  { categoryId: "manufacturing-auto", topic: "India Manufacturing and Auto", googleNewsUrl: makeGoogleNewsUrl("India manufacturing automobile auto industry") },
+  { categoryId: "marketing-advertising", topic: "India Marketing and Advertising", googleNewsUrl: makeGoogleNewsUrl("India marketing advertising digital marketing brands") },
+  { categoryId: "real-estate", topic: "India Real Estate", googleNewsUrl: makeGoogleNewsUrl("India real estate housing property infrastructure") },
+  { categoryId: "bollywood", topic: "Bollywood", googleNewsUrl: makeGoogleNewsUrl("Bollywood Hindi cinema Indian films entertainment") },
+  { categoryId: "kids", topic: "Kids and Education", googleNewsUrl: makeGoogleNewsUrl("India children education schools learning kids") },
+  { categoryId: "women", topic: "Women in India", googleNewsUrl: makeGoogleNewsUrl("India women business education health achievements") },
+  { categoryId: "politics", topic: "India Politics and Governance", googleNewsUrl: makeGoogleNewsUrl("India politics government policy governance parliament") },
+  { categoryId: "stock-market", topic: "India Stock Market", googleNewsUrl: makeGoogleNewsUrl("India stock market NSE BSE shares markets") },
+  { categoryId: "startup", topic: "India Startups", googleNewsUrl: makeGoogleNewsUrl("India startups founders venture capital funding") }
+];
+
+function makeGoogleNewsUrl(query: string): string {
+  return "https://news.google.com/rss/search?q=" +
+    encodeURIComponent(query) + "&hl=en-IN&gl=IN&ceid=IN:en";
+}
+
+const INDIA_STARTUPS_SOURCE = CATEGORY_NEWS_SOURCES.find(source => source.categoryId === "startup")!;
 
 export async function runIndiaStartupsNewsDelivery(env: NewsEnv, telegramChannelId: string): Promise<void> {
   await runCategoryNewsDelivery(env, INDIA_STARTUPS_SOURCE, telegramChannelId);
+}
+
+export async function runAllCategoryNewsDeliveries(
+  env: NewsEnv,
+  channels: Array<{ id: string; title: string; telegram_chat_id: string }>
+): Promise<void> {
+  const channelByCategory = new Map(channels.map(channel => [String(channel.id), channel]));
+  for (const source of CATEGORY_NEWS_SOURCES) {
+    const channel = channelByCategory.get(source.categoryId);
+    if (!channel || !channel.telegram_chat_id) {
+      console.error(source.topic + " delivery skipped: active Telegram channel mapping is missing.");
+      continue;
+    }
+    await runCategoryNewsDelivery(env, source, String(channel.telegram_chat_id));
+    // Space out RSS requests to reduce the chance of triggering Google's shared rate limit.
+    await new Promise(resolve => setTimeout(resolve, 1200));
+  }
 }
 
 export async function fetchIndiaStartupsNewsPreview(env: NewsEnv): Promise<Array<{
@@ -465,7 +500,7 @@ async function summarizeArticles(apiKey: string, categoryTopic: string, articles
   }
 
   if (stories.length !== 10) {
-    throw new Error("Startup digest requires exactly 10 distinct relevant stories; Gemini returned " + stories.length + ". Nothing was sent.");
+    throw new Error("Category digest requires exactly 10 distinct relevant stories; Gemini returned " + stories.length + ". Nothing was sent.");
   }
   return stories;
 }
