@@ -475,6 +475,17 @@ function nextPromotionDate(date = new Date()) {
     String(targetDay).padStart(2, "0");
 }
 
+function makeAffiliateDestination(rawUrl, parameterName, trackingCode) {
+  try {
+    const destination = new URL(String(rawUrl || ""));
+    const parameter = String(parameterName || "").trim();
+    if (parameter) destination.searchParams.set(parameter, trackingCode);
+    return destination.toString();
+  } catch {
+    return String(rawUrl || "");
+  }
+}
+
 async function sendPromotionToChannel(env, campaign, channel, delivery) {
   const token = String(env.TELEGRAM_BOT_TOKEN || "");
   if (!token) throw new Error("Telegram bot token is not configured.");
@@ -567,7 +578,7 @@ async function runDuePromotionCampaigns(env) {
           (tracking_code, campaign_id, product_name, source_type, source_id, outbound_url, created_at)
         VALUES (?, ?, ?, 'telegram', ?, ?, ?)
       `).bind(trackingCode, campaign.id, campaign.product_name || campaign.campaign_name,
-        String(channel.id), campaign.affiliate_url || "", new Date().toISOString()).run();
+        String(channel.id), makeAffiliateDestination(campaign.affiliate_url, campaign.tracking_parameter, trackingCode), new Date().toISOString()).run();
 
       delivery = await env.DB.prepare(`
         SELECT * FROM promo_deliveries
@@ -1360,10 +1371,11 @@ async function runDuePromotionCampaigns(env) {
         await env.DB.prepare(`
           INSERT INTO promo_campaigns
             (id, campaign_name, product_name, message_text, image_url, affiliate_url,
-             link_label, affiliate_disclosure, status, scheduled_for, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?)
+             tracking_parameter, link_label, affiliate_disclosure, status, scheduled_for, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?)
         `).bind(id, campaignName, String(data.productName || ''),
           messageText, String(data.imageUrl || ''), affiliateUrl,
+          String(data.trackingParameter || 'subid'),
           String(data.linkLabel || 'View Offer'),
           String(data.affiliateDisclosure || 'We may earn a commission from qualifying purchases.'),
           nextPromotionDate(), now, now).run();
@@ -1387,13 +1399,19 @@ async function runDuePromotionCampaigns(env) {
         }
         await env.DB.prepare(`
           UPDATE promo_campaigns SET campaign_name = ?, product_name = ?, message_text = ?,
-            image_url = ?, affiliate_url = ?, link_label = ?, affiliate_disclosure = ?,
+            image_url = ?, affiliate_url = ?, tracking_parameter = ?, link_label = ?, affiliate_disclosure = ?,
             scheduled_for = ?, updated_at = ? WHERE id = ?
         `).bind(campaignName, String(data.productName || ''), messageText,
-          String(data.imageUrl || ''), affiliateUrl, String(data.linkLabel || 'View Offer'),
+          String(data.imageUrl || ''), affiliateUrl, String(data.trackingParameter || 'subid'),
+          String(data.linkLabel || 'View Offer'),
           String(data.affiliateDisclosure || 'We may earn a commission from qualifying purchases.'),
           existing.status === 'approved' ? existing.scheduled_for : nextPromotionDate(),
           new Date().toISOString(), id).run();
+        const links = await env.DB.prepare('SELECT tracking_code FROM affiliate_tracking_links WHERE campaign_id = ?').bind(id).all();
+        for (const link of (links.results || [])) {
+          await env.DB.prepare('UPDATE affiliate_tracking_links SET outbound_url = ? WHERE tracking_code = ?')
+            .bind(makeAffiliateDestination(affiliateUrl, String(data.trackingParameter || 'subid'), link.tracking_code), link.tracking_code).run();
+        }
         return json({ success: true });
       }
 
@@ -1449,7 +1467,7 @@ async function runDuePromotionCampaigns(env) {
         const admin = await getAuthorizedAdmin(request, env);
         if (!admin) return json({ error: 'Administrator access required.' }, 403);
         const result = await env.DB.prepare(`
-          SELECT l.campaign_id, l.product_name, l.source_type, l.source_id,
+          SELECT l.tracking_code, l.campaign_id, l.product_name, l.source_type, l.source_id,
             (SELECT COUNT(*) FROM affiliate_clicks c WHERE c.tracking_code = l.tracking_code) AS clicks,
             (SELECT COALESCE(SUM(v.order_amount), 0) FROM affiliate_conversions v WHERE v.tracking_code = l.tracking_code AND v.status <> 'reversed') AS reported_order_amount,
             (SELECT COALESCE(SUM(v.commission_amount), 0) FROM affiliate_conversions v WHERE v.tracking_code = l.tracking_code AND v.status <> 'reversed') AS reported_commission,
