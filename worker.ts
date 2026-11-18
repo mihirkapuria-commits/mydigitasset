@@ -1312,10 +1312,15 @@ var worker_default = {
           VALUES (?, ?, ?, ?, 1, ?, ?)
         `).bind(id, title, String(data.description || ''), chatId,
           Number(data.displayOrder || 0), new Date().toISOString()).run();
-        await env.DB.prepare(`
-          INSERT OR IGNORE INTO categories (id, title, description, base_price, gst_rate, active)
-          VALUES (?, ?, ?, 252, 18, 1)
-        `).bind(id, title, String(data.description || '')).run();
+        if (await hasDatabaseColumn(env, 'categories', 'id') &&
+            await hasDatabaseColumn(env, 'categories', 'base_price') &&
+            await hasDatabaseColumn(env, 'categories', 'gst_rate') &&
+            await hasDatabaseColumn(env, 'categories', 'active')) {
+          await env.DB.prepare(`
+            INSERT OR IGNORE INTO categories (id, title, description, base_price, gst_rate, active)
+            VALUES (?, ?, ?, 252, 18, 1)
+          `).bind(id, title, String(data.description || '')).run();
+        }
         return json({ success: true });
       }
 
@@ -1333,9 +1338,13 @@ var worker_default = {
         `).bind(title, String(data.description || ''), chatId,
           data.active === false ? 0 : 1, Number(data.displayOrder || 0),
           new Date().toISOString(), id).run();
-        await env.DB.prepare(`
-          UPDATE categories SET title = ?, description = ?, active = ? WHERE id = ?
-        `).bind(title, String(data.description || ''), data.active === false ? 0 : 1, id).run();
+        if (await hasDatabaseColumn(env, 'categories', 'id') &&
+            await hasDatabaseColumn(env, 'categories', 'title') &&
+            await hasDatabaseColumn(env, 'categories', 'active')) {
+          await env.DB.prepare(`
+            UPDATE categories SET title = ?, description = ?, active = ? WHERE id = ?
+          `).bind(title, String(data.description || ''), data.active === false ? 0 : 1, id).run();
+        }
         return json({ success: true });
       }
 
@@ -1358,7 +1367,9 @@ var worker_default = {
           return json({ error: 'This category is linked to customer, subscription or payment records. Deactivate it instead of deleting it.' }, 409);
         }
         await env.DB.prepare('DELETE FROM managed_categories WHERE id = ?').bind(id).run();
-        await env.DB.prepare('DELETE FROM categories WHERE id = ?').bind(id).run();
+        if (await hasDatabaseColumn(env, 'categories', 'id')) {
+          await env.DB.prepare('DELETE FROM categories WHERE id = ?').bind(id).run();
+        }
         return json({ success: true });
       }
 
