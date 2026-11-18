@@ -442,14 +442,16 @@ async function sendCustomerTelegramNotification(env, userId, notificationKey, no
 
   if (Number(inserted?.meta?.changes || 0) !== 1) {
     const prior = await env.DB.prepare(
-      "SELECT status FROM customer_telegram_notification_log WHERE notification_key = ?"
+      "SELECT status, updated_at FROM customer_telegram_notification_log WHERE notification_key = ?"
     ).bind(notificationKey).first();
-    if (prior?.status !== "failed") return false;
+    const staleSending = prior?.status === "sending" &&
+      Date.now() - Date.parse(String(prior.updated_at || "")) > 15 * 60 * 1000;
+    if (prior?.status !== "failed" && !staleSending) return false;
     const retry = await env.DB.prepare(`
       UPDATE customer_telegram_notification_log
       SET status = 'sending', updated_at = ?
-      WHERE notification_key = ? AND status = 'failed'
-    `).bind(now, notificationKey).run();
+      WHERE notification_key = ? AND (status = 'failed' OR (status = 'sending' AND updated_at = ?))
+    `).bind(now, notificationKey, prior.updated_at).run();
     if (Number(retry?.meta?.changes || 0) !== 1) return false;
   }
 
