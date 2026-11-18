@@ -3,7 +3,8 @@ import { Wrench, Calculator, Percent } from 'lucide-react';
 import { AdSenseSlot } from './AdSenseSlot';
 
 interface UtilitiesSectionProps { onNavigateHome: () => void; }
-type Tool = { id: string; title: string; description: string; targetUrl: string; iconName?: string; };\ntype UtilityItem = { id: string; title: string; summary: string; body: string; imageUrl?: string; targetUrl?: string; };
+type Tool = { id: string; title: string; description: string; targetUrl: string; iconName?: string; };
+type UtilityItem = { id: string; title: string; summary: string; body: string; imageUrl?: string; targetUrl?: string; };
 
 export const UtilitiesSection: React.FC<UtilitiesSectionProps> = ({ onNavigateHome }) => {
   const [subAmount, setSubAmount] = useState<number>(252);
@@ -15,7 +16,8 @@ export const UtilitiesSection: React.FC<UtilitiesSectionProps> = ({ onNavigateHo
   const [years, setYears] = useState<number>(5);
   const futureValue = principal * Math.pow(1 + rate / 100, years);
   const totalInterest = futureValue - principal;
-  const [tools, setTools] = useState<Tool[]>([]);\n  const [utilityItems, setUtilityItems] = useState<UtilityItem[]>([]);
+  const [tools, setTools] = useState<Tool[]>([]);
+  const [utilityItems, setUtilityItems] = useState<UtilityItem[]>([]);
 
   useEffect(() => {
     let active = true;
