@@ -296,7 +296,7 @@ export const AdminCampaignManager: React.FC<Props> = ({ token }) => {
                   <td className="p-3 whitespace-nowrap space-x-1">
                     {c.status !== 'sent' && c.status !== 'cancelled' && <>
                       <button onClick={() => editCampaign(c)} className="px-2 py-1 rounded bg-slate-100">Edit</button>
-                      <button onClick={() => approveCampaign(c.id)} className="px-2 py-1 rounded bg-emerald-600 text-white">Approve</button>
+                      <button onClick={() => approveCampaign(c.id)} className="px-2 py-1 rounded bg-emerald-600 text-white">{c.status === 'approved' ? 'Retry / Reschedule' : 'Approve'}</button>
                       <button onClick={() => deleteCampaign(c.id)} className="px-2 py-1 rounded bg-red-50 text-red-700">Delete</button>
                     </>}
                     <button onClick={() => viewDeliveries(c)} className="px-2 py-1 rounded bg-indigo-50 text-indigo-700">Delivery report</button>
