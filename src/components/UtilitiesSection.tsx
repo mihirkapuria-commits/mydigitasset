@@ -3,7 +3,7 @@ import { Wrench, Calculator, Percent } from 'lucide-react';
 import { AdSenseSlot } from './AdSenseSlot';
 
 interface UtilitiesSectionProps { onNavigateHome: () => void; }
-type Tool = { id: string; title: string; description: string; targetUrl: string; iconName?: string; };
+type Tool = { id: string; title: string; description: string; targetUrl: string; iconName?: string; };\ntype UtilityItem = { id: string; title: string; summary: string; body: string; imageUrl?: string; targetUrl?: string; };
 
 export const UtilitiesSection: React.FC<UtilitiesSectionProps> = ({ onNavigateHome }) => {
   const [subAmount, setSubAmount] = useState<number>(252);
@@ -15,7 +15,7 @@ export const UtilitiesSection: React.FC<UtilitiesSectionProps> = ({ onNavigateHo
   const [years, setYears] = useState<number>(5);
   const futureValue = principal * Math.pow(1 + rate / 100, years);
   const totalInterest = futureValue - principal;
-  const [tools, setTools] = useState<Tool[]>([]);
+  const [tools, setTools] = useState<Tool[]>([]);\n  const [utilityItems, setUtilityItems] = useState<UtilityItem[]>([]);
 
   useEffect(() => {
     let active = true;
@@ -23,6 +23,10 @@ export const UtilitiesSection: React.FC<UtilitiesSectionProps> = ({ onNavigateHo
       .then(r => r.ok ? r.json() : [])
       .then(data => { if (active) setTools(Array.isArray(data) ? data : []); })
       .catch(() => { if (active) setTools([]); });
+    fetch('/api/site-content/utilities')
+      .then(r => r.ok ? r.json() : [])
+      .then(data => { if (active) setUtilityItems(Array.isArray(data) ? data : []); })
+      .catch(() => { if (active) setUtilityItems([]); });
     return () => { active = false; };
   }, []);
 
@@ -38,6 +42,18 @@ export const UtilitiesSection: React.FC<UtilitiesSectionProps> = ({ onNavigateHo
           <button onClick={onNavigateHome} className="px-4 py-2.5 bg-slate-900 text-white text-xs font-semibold rounded-xl">← Back to Home</button>
         </div>
         <AdSenseSlot placementKey="tools-top" />
+
+        {utilityItems.length > 0 && <section className="space-y-4">
+          <h2 className="text-xl font-bold text-slate-900">Useful resources</h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            {utilityItems.map(item => <article key={item.id} className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
+              <h3 className="font-bold text-slate-900">{item.title}</h3>
+              <p className="text-xs text-slate-600 mt-2">{item.summary}</p>
+              {item.body && <p className="text-xs text-slate-500 mt-2 whitespace-pre-wrap">{item.body}</p>}
+              {item.targetUrl && <a href={item.targetUrl} target="_blank" rel="noopener noreferrer" className="inline-block mt-4 text-xs font-semibold text-indigo-700">Open resource →</a>}
+            </article>)}
+          </div>
+        </section>}
 
         {tools.length > 0 && <section className="space-y-4">
           <h2 className="text-xl font-bold text-slate-900">More tools</h2>
