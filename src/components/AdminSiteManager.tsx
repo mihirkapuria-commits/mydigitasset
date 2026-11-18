@@ -280,7 +280,7 @@ export const AdminSiteManager: React.FC<Props> = ({ token }) => {
 
       {view === 'tools' && <>
         <section className="bg-white border rounded-2xl p-5 space-y-4">
-          <h2 className="font-bold">{editingToolId ? 'Edit tool' : 'Add a tool'}</h2>
+          <h2 className="font-bold">{editingToolId ? 'Edit tool' : 'Add a tool'}</h2><p className="text-xs text-slate-500">Use icon name <strong>gst-calculator</strong> or <strong>compound-calculator</strong> for the built-in interactive calculators. Other icon names create ordinary link-based tools. You can edit or delete the built-in calculators here too.</p>
           <div className="grid md:grid-cols-2 gap-3">
             <label className="text-xs font-semibold">Tool name<input className="mt-1 w-full border rounded-lg p-2 text-sm" value={toolForm.title} onChange={e => setToolForm({ ...toolForm, title: e.target.value })} /></label>
             <label className="text-xs font-semibold">Icon name<input className="mt-1 w-full border rounded-lg p-2 text-sm" value={toolForm.iconName} onChange={e => setToolForm({ ...toolForm, iconName: e.target.value })} /></label>
