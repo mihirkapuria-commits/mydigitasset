@@ -1269,6 +1269,7 @@ var worker_default = {
           return json({ error: 'Enter valid reported order and commission amounts.' }, 400);
         }
         const trackingCode = data.trackingCode ? String(data.trackingCode).trim() : null;
+        if (!trackingCode) return json({ error: 'Tracking code is required to attribute a purchase to its campaign and source channel.' }, 400);
         if (trackingCode) {
           const validLink = await env.DB.prepare(
             'SELECT tracking_code FROM affiliate_tracking_links WHERE tracking_code = ? LIMIT 1'
