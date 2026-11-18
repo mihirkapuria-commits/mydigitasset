@@ -1276,14 +1276,20 @@ var worker_default = {
           ).bind(trackingCode).first();
           if (!validLink) return json({ error: 'Tracking code was not found. Copy it from the affiliate analytics table.' }, 400);
         }
+        let purchasedAt = null;
+        if (data.purchasedAt) {
+          const parsedPurchaseDate = new Date(String(data.purchasedAt));
+          if (Number.isNaN(parsedPurchaseDate.getTime())) return json({ error: 'Enter a valid purchase date and time.' }, 400);
+          purchasedAt = parsedPurchaseDate.toISOString();
+        }
         const id = randomId('conversion');
         await env.DB.prepare(`
           INSERT INTO affiliate_conversions
-            (id, tracking_code, network_name, order_reference, order_amount, commission_amount, currency, status, reported_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, 'reported', ?)
+            (id, tracking_code, network_name, order_reference, order_amount, commission_amount, purchased_at, currency, status, reported_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'reported', ?)
         `).bind(id, trackingCode,
           String(data.networkName || ''), String(data.orderReference || ''),
-          orderAmount, commissionAmount, String(data.currency || 'INR'),
+          orderAmount, commissionAmount, purchasedAt, String(data.currency || 'INR'),
           new Date().toISOString()).run();
         return json({ success: true, id });
       }
@@ -1527,7 +1533,10 @@ var worker_default = {
             (SELECT COALESCE(SUM(v.order_amount), 0) FROM affiliate_conversions v WHERE v.tracking_code = l.tracking_code AND v.status <> 'reversed') AS reported_order_amount,
             (SELECT COALESCE(SUM(v.commission_amount), 0) FROM affiliate_conversions v WHERE v.tracking_code = l.tracking_code AND v.status <> 'reversed') AS reported_commission,
             (SELECT COUNT(*) FROM affiliate_conversions v WHERE v.tracking_code = l.tracking_code AND v.status <> 'reversed') AS reported_purchases,
-            (SELECT MAX(v.reported_at) FROM affiliate_conversions v WHERE v.tracking_code = l.tracking_code AND v.status <> 'reversed') AS last_purchase_reported_at
+            COALESCE(
+              (SELECT MAX(v.purchased_at) FROM affiliate_conversions v WHERE v.tracking_code = l.tracking_code AND v.status <> 'reversed'),
+              (SELECT MAX(v.reported_at) FROM affiliate_conversions v WHERE v.tracking_code = l.tracking_code AND v.status <> 'reversed')
+            ) AS last_purchase_at
           FROM affiliate_tracking_links l
           LEFT JOIN promo_campaigns p ON p.id = l.campaign_id
           LEFT JOIN managed_categories mc ON mc.id = l.source_id
