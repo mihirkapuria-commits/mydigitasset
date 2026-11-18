@@ -1410,7 +1410,7 @@ var worker_default = {
         const campaignName = String(data.campaignName || '').trim();
         const messageText = String(data.messageText || '').trim();
         const affiliateUrl = String(data.affiliateUrl || '').trim();
-        if (!campaignName || !messageText || !/^https?:\\/\\//i.test(affiliateUrl)) {
+        if (!campaignName || !messageText || !/^https?:\/\//i.test(affiliateUrl)) {
           return json({ error: 'Campaign name, message and a valid affiliate URL are required.' }, 400);
         }
         const id = randomId('campaign');
@@ -1445,7 +1445,7 @@ var worker_default = {
         const campaignName = String(data.campaignName || '').trim();
         const messageText = String(data.messageText || '').trim();
         const affiliateUrl = String(data.affiliateUrl || '').trim();
-        if (!campaignName || !messageText || !/^https?:\\/\\//i.test(affiliateUrl)) {
+        if (!campaignName || !messageText || !/^https?:\/\//i.test(affiliateUrl)) {
           return json({ error: 'Campaign name, message and a valid affiliate URL are required.' }, 400);
         }
         await env.DB.prepare(`
@@ -1504,7 +1504,7 @@ var worker_default = {
         const link = await env.DB.prepare(`
           SELECT outbound_url FROM affiliate_tracking_links WHERE tracking_code = ? LIMIT 1
         `).bind(code).first();
-        if (!link?.outbound_url || !/^https?:\\/\\//i.test(link.outbound_url)) {
+        if (!link?.outbound_url || !/^https?:\/\//i.test(link.outbound_url)) {
           return json({ error: 'Affiliate link not found.' }, 404);
         }
         await env.DB.prepare(`
