@@ -865,7 +865,51 @@ async function runDuePromotionCampaigns(env) {
         return json(result.results || []);
       }
 
-      // PUBLIC PAYMENT DETAILS AND CURRENT PRICING
+
+      // PUBLIC CMS CONTENT: only published items are visible on the website.
+      if (url.pathname.startsWith('/api/site-content/') && method === 'GET') {
+        const section = decodeURIComponent(url.pathname.split('/').pop() || '');
+        if (!['offers', 'utilities', 'how-it-works', 'faq'].includes(section)) {
+          return json({ error: 'Unknown website section.' }, 404);
+        }
+        const result = await env.DB.prepare(`
+          SELECT id, section_key AS section, title, summary, body, image_url AS imageUrl,
+                 target_url AS targetUrl, metadata_json AS metadataJson, display_order AS displayOrder
+          FROM site_content_items
+          WHERE section_key = ? AND status = 'published'
+          ORDER BY display_order, created_at DESC
+        `).bind(section).all();
+        return json(result.results || []);
+      }
+
+      if (url.pathname === '/api/blog' && method === 'GET') {
+        const result = await env.DB.prepare(`
+          SELECT id, title, slug, excerpt, body, featured_image_url AS featuredImageUrl,
+                 seo_title AS seoTitle, seo_description AS seoDescription, published_at AS publishedAt
+          FROM blog_articles WHERE status = 'published'
+          ORDER BY published_at DESC, created_at DESC
+        `).all();
+        return json(result.results || []);
+      }
+
+      if (url.pathname === '/api/tools' && method === 'GET') {
+        const result = await env.DB.prepare(`
+          SELECT id, title, description, target_url AS targetUrl, icon_name AS iconName,
+                 display_order AS displayOrder
+          FROM site_tools WHERE status = 'published'
+          ORDER BY display_order, created_at DESC
+        `).all();
+        return json(result.results || []);
+      }
+
+      if (url.pathname === '/api/adsense' && method === 'GET') {
+        const result = await env.DB.prepare(`
+          SELECT placement_key AS placementKey, enabled, client_id AS clientId, slot_id AS slotId
+          FROM adsense_slots WHERE enabled = 1
+        `).all();
+        return json(result.results || []);
+      }
+\n      // PUBLIC PAYMENT DETAILS AND CURRENT PRICING
       if (url.pathname === '/api/settings' && method === 'GET') {
         const settingsResult = await env.DB.prepare(`
           SELECT key, value
@@ -967,7 +1011,228 @@ async function runDuePromotionCampaigns(env) {
 
 
 
-      // ADMIN: MANAGE CATEGORY LIST AND ITS TELEGRAM CHANNEL
+
+      // ADMIN: GENERIC CONTENT ITEMS FOR OFFERS, UTILITIES, HOW IT WORKS AND FAQ.
+      if (url.pathname === '/api/admin/site-content' && method === 'GET') {
+        const admin = await getAuthorizedAdmin(request, env);
+        if (!admin) return json({ error: 'Administrator access required.' }, 403);
+        const section = String(url.searchParams.get('section') || '');
+        const validSections = ['offers', 'utilities', 'how-it-works', 'faq'];
+        if (section && !validSections.includes(section)) return json({ error: 'Unknown section.' }, 400);
+        const result = section
+          ? await env.DB.prepare('SELECT * FROM site_content_items WHERE section_key = ? ORDER BY display_order, created_at DESC').bind(section).all()
+          : await env.DB.prepare('SELECT * FROM site_content_items ORDER BY section_key, display_order, created_at DESC').all();
+        return json(result.results || []);
+      }
+
+      if (url.pathname === '/api/admin/site-content' && method === 'POST') {
+        const admin = await getAuthorizedAdmin(request, env);
+        if (!admin) return json({ error: 'Administrator access required.' }, 403);
+        const data = await parseRequestBody(request);
+        const section = String(data.section || '');
+        const title = String(data.title || '').trim();
+        if (!['offers', 'utilities', 'how-it-works', 'faq'].includes(section) || !title) {
+          return json({ error: 'Choose a valid section and enter a title.' }, 400);
+        }
+        const id = randomId('content');
+        const now = new Date().toISOString();
+        await env.DB.prepare(`
+          INSERT INTO site_content_items
+            (id, section_key, title, summary, body, image_url, target_url, metadata_json, status, display_order, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).bind(id, section, title, String(data.summary || ''), String(data.body || ''),
+          String(data.imageUrl || ''), String(data.targetUrl || ''),
+          JSON.stringify(data.metadata || {}), ['draft', 'published', 'hidden'].includes(data.status) ? data.status : 'draft',
+          Number(data.displayOrder || 0), now, now).run();
+        return json({ success: true, id });
+      }
+
+      if (url.pathname.startsWith('/api/admin/site-content/') && method === 'PUT') {
+        const admin = await getAuthorizedAdmin(request, env);
+        if (!admin) return json({ error: 'Administrator access required.' }, 403);
+        const id = decodeURIComponent(url.pathname.split('/').pop() || '');
+        const data = await parseRequestBody(request);
+        const title = String(data.title || '').trim();
+        if (!title || !['offers', 'utilities', 'how-it-works', 'faq'].includes(String(data.section || ''))) {
+          return json({ error: 'A valid section and title are required.' }, 400);
+        }
+        await env.DB.prepare(`
+          UPDATE site_content_items SET section_key = ?, title = ?, summary = ?, body = ?,
+            image_url = ?, target_url = ?, metadata_json = ?, status = ?, display_order = ?, updated_at = ?
+          WHERE id = ?
+        `).bind(String(data.section), title, String(data.summary || ''), String(data.body || ''),
+          String(data.imageUrl || ''), String(data.targetUrl || ''),
+          JSON.stringify(data.metadata || {}), ['draft', 'published', 'hidden'].includes(data.status) ? data.status : 'draft',
+          Number(data.displayOrder || 0), new Date().toISOString(), id).run();
+        return json({ success: true });
+      }
+
+      if (url.pathname.startsWith('/api/admin/site-content/') && method === 'DELETE') {
+        const admin = await getAuthorizedAdmin(request, env);
+        if (!admin) return json({ error: 'Administrator access required.' }, 403);
+        const id = decodeURIComponent(url.pathname.split('/').pop() || '');
+        await env.DB.prepare('DELETE FROM site_content_items WHERE id = ?').bind(id).run();
+        return json({ success: true });
+      }
+
+      // ADMIN: BLOG ARTICLE CRUD.
+      if (url.pathname === '/api/admin/blog' && method === 'GET') {
+        const admin = await getAuthorizedAdmin(request, env);
+        if (!admin) return json({ error: 'Administrator access required.' }, 403);
+        const result = await env.DB.prepare('SELECT * FROM blog_articles ORDER BY updated_at DESC').all();
+        return json(result.results || []);
+      }
+
+      if (url.pathname === '/api/admin/blog' && method === 'POST') {
+        const admin = await getAuthorizedAdmin(request, env);
+        if (!admin) return json({ error: 'Administrator access required.' }, 403);
+        const data = await parseRequestBody(request);
+        const title = String(data.title || '').trim();
+        const slug = String(data.slug || '').trim().toLowerCase();
+        if (!title || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) {
+          return json({ error: 'Enter a title and a URL-friendly article slug.' }, 400);
+        }
+        const id = randomId('blog');
+        const status = ['draft', 'published', 'unpublished'].includes(data.status) ? data.status : 'draft';
+        const now = new Date().toISOString();
+        await env.DB.prepare(`
+          INSERT INTO blog_articles
+            (id, title, slug, excerpt, body, featured_image_url, seo_title, seo_description, status, published_at, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).bind(id, title, slug, String(data.excerpt || ''), String(data.body || ''),
+          String(data.featuredImageUrl || ''), String(data.seoTitle || ''),
+          String(data.seoDescription || ''), status, status === 'published' ? now : null, now, now).run();
+        return json({ success: true, id });
+      }
+
+      if (url.pathname.startsWith('/api/admin/blog/') && method === 'PUT') {
+        const admin = await getAuthorizedAdmin(request, env);
+        if (!admin) return json({ error: 'Administrator access required.' }, 403);
+        const id = decodeURIComponent(url.pathname.split('/').pop() || '');
+        const data = await parseRequestBody(request);
+        const title = String(data.title || '').trim();
+        const slug = String(data.slug || '').trim().toLowerCase();
+        const status = ['draft', 'published', 'unpublished'].includes(data.status) ? data.status : 'draft';
+        if (!title || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) {
+          return json({ error: 'Enter a title and a URL-friendly article slug.' }, 400);
+        }
+        await env.DB.prepare(`
+          UPDATE blog_articles SET title = ?, slug = ?, excerpt = ?, body = ?,
+            featured_image_url = ?, seo_title = ?, seo_description = ?, status = ?,
+            published_at = CASE WHEN ? = 'published' THEN COALESCE(published_at, ?) ELSE published_at END,
+            updated_at = ? WHERE id = ?
+        `).bind(title, slug, String(data.excerpt || ''), String(data.body || ''),
+          String(data.featuredImageUrl || ''), String(data.seoTitle || ''),
+          String(data.seoDescription || ''), status, status, new Date().toISOString(),
+          new Date().toISOString(), id).run();
+        return json({ success: true });
+      }
+
+      if (url.pathname.startsWith('/api/admin/blog/') && method === 'DELETE') {
+        const admin = await getAuthorizedAdmin(request, env);
+        if (!admin) return json({ error: 'Administrator access required.' }, 403);
+        const id = decodeURIComponent(url.pathname.split('/').pop() || '');
+        await env.DB.prepare('DELETE FROM blog_articles WHERE id = ?').bind(id).run();
+        return json({ success: true });
+      }
+
+      // ADMIN: TOOLS CRUD.
+      if (url.pathname === '/api/admin/tools' && method === 'GET') {
+        const admin = await getAuthorizedAdmin(request, env);
+        if (!admin) return json({ error: 'Administrator access required.' }, 403);
+        const result = await env.DB.prepare('SELECT * FROM site_tools ORDER BY display_order, created_at DESC').all();
+        return json(result.results || []);
+      }
+
+      if (url.pathname === '/api/admin/tools' && method === 'POST') {
+        const admin = await getAuthorizedAdmin(request, env);
+        if (!admin) return json({ error: 'Administrator access required.' }, 403);
+        const data = await parseRequestBody(request);
+        const title = String(data.title || '').trim();
+        if (!title) return json({ error: 'Tool title is required.' }, 400);
+        const id = randomId('tool');
+        const now = new Date().toISOString();
+        await env.DB.prepare(`
+          INSERT INTO site_tools (id, title, description, target_url, icon_name, status, display_order, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).bind(id, title, String(data.description || ''), String(data.targetUrl || ''),
+          String(data.iconName || ''), ['draft', 'published', 'hidden'].includes(data.status) ? data.status : 'draft',
+          Number(data.displayOrder || 0), now, now).run();
+        return json({ success: true, id });
+      }
+
+      if (url.pathname.startsWith('/api/admin/tools/') && method === 'PUT') {
+        const admin = await getAuthorizedAdmin(request, env);
+        if (!admin) return json({ error: 'Administrator access required.' }, 403);
+        const id = decodeURIComponent(url.pathname.split('/').pop() || '');
+        const data = await parseRequestBody(request);
+        const title = String(data.title || '').trim();
+        if (!title) return json({ error: 'Tool title is required.' }, 400);
+        await env.DB.prepare(`
+          UPDATE site_tools SET title = ?, description = ?, target_url = ?, icon_name = ?,
+            status = ?, display_order = ?, updated_at = ? WHERE id = ?
+        `).bind(title, String(data.description || ''), String(data.targetUrl || ''),
+          String(data.iconName || ''), ['draft', 'published', 'hidden'].includes(data.status) ? data.status : 'draft',
+          Number(data.displayOrder || 0), new Date().toISOString(), id).run();
+        return json({ success: true });
+      }
+
+      if (url.pathname.startsWith('/api/admin/tools/') && method === 'DELETE') {
+        const admin = await getAuthorizedAdmin(request, env);
+        if (!admin) return json({ error: 'Administrator access required.' }, 403);
+        const id = decodeURIComponent(url.pathname.split('/').pop() || '');
+        await env.DB.prepare('DELETE FROM site_tools WHERE id = ?').bind(id).run();
+        return json({ success: true });
+      }
+
+      // ADMIN: GOOGLE ADSENSE SLOT SETTINGS.
+      if (url.pathname === '/api/admin/adsense' && method === 'GET') {
+        const admin = await getAuthorizedAdmin(request, env);
+        if (!admin) return json({ error: 'Administrator access required.' }, 403);
+        const result = await env.DB.prepare('SELECT * FROM adsense_slots ORDER BY placement_key').all();
+        return json(result.results || []);
+      }
+
+      if (url.pathname === '/api/admin/adsense' && method === 'PUT') {
+        const admin = await getAuthorizedAdmin(request, env);
+        if (!admin) return json({ error: 'Administrator access required.' }, 403);
+        const data = await parseRequestBody(request);
+        if (!Array.isArray(data.slots)) return json({ error: 'AdSense slots must be supplied as a list.' }, 400);
+        for (const slot of data.slots) {
+          const key = String(slot.placementKey || '');
+          if (!/^[a-z0-9-]{2,50}$/.test(key)) continue;
+          await env.DB.prepare(`
+            UPDATE adsense_slots SET enabled = ?, client_id = ?, slot_id = ?,
+              updated_at = ?, updated_by = ? WHERE placement_key = ?
+          `).bind(slot.enabled ? 1 : 0, String(slot.clientId || ''),
+            String(slot.slotId || ''), new Date().toISOString(), admin.email, key).run();
+        }
+        return json({ success: true });
+      }
+
+      // ADMIN: MANUAL CONVERSION IMPORT. Only actual merchant/network reports should be entered here.
+      if (url.pathname === '/api/admin/affiliate/conversions' && method === 'POST') {
+        const admin = await getAuthorizedAdmin(request, env);
+        if (!admin) return json({ error: 'Administrator access required.' }, 403);
+        const data = await parseRequestBody(request);
+        const orderAmount = Number(data.orderAmount);
+        const commissionAmount = Number(data.commissionAmount);
+        if (!Number.isFinite(orderAmount) || orderAmount < 0 ||
+            !Number.isFinite(commissionAmount) || commissionAmount < 0) {
+          return json({ error: 'Enter valid reported order and commission amounts.' }, 400);
+        }
+        const id = randomId('conversion');
+        await env.DB.prepare(`
+          INSERT INTO affiliate_conversions
+            (id, tracking_code, network_name, order_reference, order_amount, commission_amount, currency, status, reported_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, 'reported', ?)
+        `).bind(id, data.trackingCode ? String(data.trackingCode) : null,
+          String(data.networkName || ''), String(data.orderReference || ''),
+          orderAmount, commissionAmount, String(data.currency || 'INR'),
+          new Date().toISOString()).run();
+        return json({ success: true, id });
+      }
+\n      // ADMIN: MANAGE CATEGORY LIST AND ITS TELEGRAM CHANNEL
       if (url.pathname === '/api/admin/categories' && method === 'GET') {
         const admin = await getAuthorizedAdmin(request, env);
         if (!admin) return json({ error: 'Administrator access required.' }, 403);
@@ -1146,15 +1411,11 @@ async function runDuePromotionCampaigns(env) {
         if (!admin) return json({ error: 'Administrator access required.' }, 403);
         const result = await env.DB.prepare(`
           SELECT l.campaign_id, l.product_name, l.source_type, l.source_id,
-            COUNT(c.id) AS clicks,
-            COUNT(DISTINCT c.id) AS unique_clicks,
-            COALESCE(SUM(v.order_amount), 0) AS reported_order_amount,
-            COALESCE(SUM(v.commission_amount), 0) AS reported_commission,
-            COUNT(v.id) AS reported_purchases
+            (SELECT COUNT(*) FROM affiliate_clicks c WHERE c.tracking_code = l.tracking_code) AS clicks,
+            (SELECT COALESCE(SUM(v.order_amount), 0) FROM affiliate_conversions v WHERE v.tracking_code = l.tracking_code AND v.status <> 'reversed') AS reported_order_amount,
+            (SELECT COALESCE(SUM(v.commission_amount), 0) FROM affiliate_conversions v WHERE v.tracking_code = l.tracking_code AND v.status <> 'reversed') AS reported_commission,
+            (SELECT COUNT(*) FROM affiliate_conversions v WHERE v.tracking_code = l.tracking_code AND v.status <> 'reversed') AS reported_purchases
           FROM affiliate_tracking_links l
-          LEFT JOIN affiliate_clicks c ON c.tracking_code = l.tracking_code
-          LEFT JOIN affiliate_conversions v ON v.tracking_code = l.tracking_code
-          GROUP BY l.tracking_code
           ORDER BY clicks DESC
         `).all();
         return json(result.results || []);
