@@ -1,0 +1,54 @@
+name: Validate MyDigitAsset Admin CMS Feature
+
+on:
+  push:
+    branches:
+      - feature/admin-cms-promotions
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Validate additive D1 migration SQL
+        run: |
+          python - <<'PY'
+          import sqlite3
+          from pathlib import Path
+
+          db = sqlite3.connect(':memory:')
+          db.execute('PRAGMA foreign_keys = ON')
+          db.executescript(Path('migrations/0005_admin_cms_promotions.sql').read_text())
+          expected = {
+              'managed_categories': 15,
+              'blog_articles': 3,
+              'site_tools': 2,
+              'adsense_slots': 8,
+          }
+          for table, count in expected.items():
+              actual = db.execute(f'SELECT COUNT(*) FROM {table}').fetchone()[0]
+              assert actual == count, f'{table}: expected {count}, got {actual}'
+          print('Migration SQL and seed data validation passed.')
+          PY
+
+      - name: Use repository-compatible npm version
+        run: npm install --global npm@10.9.2
+
+      - name: Install dependencies without changing the repository lockfile
+        run: npm install --include=optional --no-audit --no-fund
+
+      - name: Build website and Worker
+        run: npm run build

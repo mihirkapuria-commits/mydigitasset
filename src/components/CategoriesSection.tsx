@@ -29,7 +29,7 @@ export const CategoriesSection: React.FC<CategoriesSectionProps> = ({ categories
         <div className="text-center max-w-3xl mx-auto space-y-4 mb-16">
           <h2 className="text-xs font-bold uppercase tracking-widest text-indigo-600">Tailored Coverage</h2>
           <h3 className="text-3xl sm:text-4xl font-extrabold text-slate-900 tracking-tight">
-            Ten Essential India Business Categories
+            {categories.length} Business Categories
           </h3>
           <p className="text-base text-slate-600 leading-relaxed">
             Choose the exact sectors that impact your decisions. Avoid news overload and focus exclusively on high-signal developments.

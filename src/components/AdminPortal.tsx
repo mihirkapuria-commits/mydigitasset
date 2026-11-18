@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { User, PaymentRecord, AuditLog } from '../types';
+import { AdminCampaignManager } from './AdminCampaignManager';
+import { AdminSiteManager } from './AdminSiteManager';
 import {
   ShieldCheck, CheckCircle2, XCircle, Clock, Users,
   CreditCard, FileText, AlertCircle, LogOut, Settings
@@ -25,7 +27,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   onLogout
 }) => {
   const [activeTab, setActiveTab] = useState<
-    'customers' | 'payments' | 'audit' | 'pricing'
+    'customers' | 'payments' | 'audit' | 'pricing' | 'marketing' | 'website'
   >('customers');
 
   const [customers, setCustomers] = useState<User[]>([]);
@@ -405,6 +407,30 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
               </button>
 
               <button
+                onClick={() => setActiveTab('website')}
+                className={`px-4 py-2 rounded-lg text-xs font-semibold transition-colors flex items-center gap-2 ${
+                  activeTab === 'website'
+                    ? 'bg-indigo-600 text-white'
+                    : 'text-slate-300 hover:text-white'
+                }`}
+              >
+                <FileText className="w-4 h-4" />
+                Website Content
+              </button>
+
+              <button
+                onClick={() => setActiveTab('marketing')}
+                className={`px-4 py-2 rounded-lg text-xs font-semibold transition-colors flex items-center gap-2 ${
+                  activeTab === 'marketing'
+                    ? 'bg-indigo-600 text-white'
+                    : 'text-slate-300 hover:text-white'
+                }`}
+              >
+                <Settings className="w-4 h-4" />
+                Campaigns & Channels
+              </button>
+
+              <button
                 onClick={() => setActiveTab('pricing')}
                 className={`px-4 py-2 rounded-lg text-xs font-semibold transition-colors flex items-center gap-2 ${
                   activeTab === 'pricing'
@@ -584,6 +610,16 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
             </div>
           ) : (
             <>
+              {/* WEBSITE CMS, BLOG, TOOLS AND ADSENSE */}
+              {activeTab === 'website' && (
+                <AdminSiteManager token={token} />
+              )}
+
+              {/* PROMOTIONS, CATEGORY CHANNELS AND AFFILIATE ANALYTICS */}
+              {activeTab === 'marketing' && (
+                <AdminCampaignManager token={token} />
+              )}
+
               {/* CUSTOMERS TAB */}
               {activeTab === 'customers' && (
                 <div className="bg-white rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden">
