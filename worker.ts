@@ -758,7 +758,7 @@ async function runDuePromotionCampaigns(env) {
 var worker_default = {
   async scheduled(controller, env, ctx) {
     // The second daily cron runs customer account reminders at 07:15 IST.
-    if (String(controller.cron || "") === "15 1 * * *") {
+    if (String(controller.cron || "") === "45 1 * * *") {
       ctx.waitUntil(sendScheduledCustomerReminders(env));
       return;
     }
