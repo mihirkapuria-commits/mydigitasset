@@ -1264,12 +1264,19 @@ async function runDuePromotionCampaigns(env) {
             !Number.isFinite(commissionAmount) || commissionAmount < 0) {
           return json({ error: 'Enter valid reported order and commission amounts.' }, 400);
         }
+        const trackingCode = data.trackingCode ? String(data.trackingCode).trim() : null;
+        if (trackingCode) {
+          const validLink = await env.DB.prepare(
+            'SELECT tracking_code FROM affiliate_tracking_links WHERE tracking_code = ? LIMIT 1'
+          ).bind(trackingCode).first();
+          if (!validLink) return json({ error: 'Tracking code was not found. Copy it from the affiliate analytics table.' }, 400);
+        }
         const id = randomId('conversion');
         await env.DB.prepare(`
           INSERT INTO affiliate_conversions
             (id, tracking_code, network_name, order_reference, order_amount, commission_amount, currency, status, reported_at)
           VALUES (?, ?, ?, ?, ?, ?, ?, 'reported', ?)
-        `).bind(id, data.trackingCode ? String(data.trackingCode) : null,
+        `).bind(id, trackingCode,
           String(data.networkName || ''), String(data.orderReference || ''),
           orderAmount, commissionAmount, String(data.currency || 'INR'),
           new Date().toISOString()).run();
@@ -1494,12 +1501,15 @@ async function runDuePromotionCampaigns(env) {
         const admin = await getAuthorizedAdmin(request, env);
         if (!admin) return json({ error: 'Administrator access required.' }, 403);
         const result = await env.DB.prepare(`
-          SELECT l.tracking_code, l.campaign_id, l.product_name, l.source_type, l.source_id,
+          SELECT l.tracking_code, l.campaign_id, p.campaign_name, l.product_name, l.source_type, l.source_id,
             (SELECT COUNT(*) FROM affiliate_clicks c WHERE c.tracking_code = l.tracking_code) AS clicks,
+            (SELECT MAX(c.clicked_at) FROM affiliate_clicks c WHERE c.tracking_code = l.tracking_code) AS last_clicked_at,
             (SELECT COALESCE(SUM(v.order_amount), 0) FROM affiliate_conversions v WHERE v.tracking_code = l.tracking_code AND v.status <> 'reversed') AS reported_order_amount,
             (SELECT COALESCE(SUM(v.commission_amount), 0) FROM affiliate_conversions v WHERE v.tracking_code = l.tracking_code AND v.status <> 'reversed') AS reported_commission,
-            (SELECT COUNT(*) FROM affiliate_conversions v WHERE v.tracking_code = l.tracking_code AND v.status <> 'reversed') AS reported_purchases
+            (SELECT COUNT(*) FROM affiliate_conversions v WHERE v.tracking_code = l.tracking_code AND v.status <> 'reversed') AS reported_purchases,
+            (SELECT MAX(v.reported_at) FROM affiliate_conversions v WHERE v.tracking_code = l.tracking_code AND v.status <> 'reversed') AS last_purchase_reported_at
           FROM affiliate_tracking_links l
+          LEFT JOIN promo_campaigns p ON p.id = l.campaign_id
           ORDER BY clicks DESC
         `).all();
         return json(result.results || []);
