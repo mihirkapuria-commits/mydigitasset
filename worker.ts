@@ -1444,7 +1444,7 @@ var worker_default = {
           String(data.affiliateDisclosure || 'We may earn a commission from qualifying purchases.'),
           nextPromotionDate(),
           new Date().toISOString(), id).run();
-        const links = await env.DB.prepare('SELECT tracking_code FROM affiliate_tracking_links WHERE campaign_id = ? AND tracking_code IN (SELECT tracking_code FROM promo_deliveries WHERE campaign_id = ? AND status <> 'sent')').bind(id, id).all();
+        const links = await env.DB.prepare("SELECT tracking_code FROM affiliate_tracking_links WHERE campaign_id = ? AND tracking_code IN (SELECT tracking_code FROM promo_deliveries WHERE campaign_id = ? AND status <> 'sent')").bind(id, id).all();
         for (const link of (links.results || [])) {
           await env.DB.prepare('UPDATE affiliate_tracking_links SET outbound_url = ? WHERE tracking_code = ?')
             .bind(makeAffiliateDestination(affiliateUrl, String(data.trackingParameter || 'subid'), link.tracking_code), link.tracking_code).run();
