@@ -12,4 +12,4 @@ database_name = "mydigitasset-staging-db"
 database_id = "061175d7-661b-4fe8-bce2-c334b08a1750"
 migrations_dir = "./migrations"
 [triggers]
-crons = ["45 0 * * *", "15 1 * * *"]
+crons = ["45 0 * * *", "15 1 * * *", "45 1 * * *"]
