@@ -627,7 +627,8 @@ async function runDuePromotionCampaigns(env) {
     `).bind(new Date().toISOString(), new Date().toISOString(), campaign.id).run();
   }
 }
-\nvar worker_default = {
+
+var worker_default = {
   async scheduled(controller, env, ctx) {
     const startupCategory = CATEGORIES.find(item => item.id === 'startup');
     if (startupCategory?.telegramChatId) {
@@ -1283,7 +1284,8 @@ async function runDuePromotionCampaigns(env) {
           new Date().toISOString()).run();
         return json({ success: true, id });
       }
-\n      // ADMIN: MANAGE CATEGORY LIST AND ITS TELEGRAM CHANNEL
+
+      // ADMIN: MANAGE CATEGORY LIST AND ITS TELEGRAM CHANNEL
       if (url.pathname === '/api/admin/categories' && method === 'GET') {
         const admin = await getAuthorizedAdmin(request, env);
         if (!admin) return json({ error: 'Administrator access required.' }, 403);
@@ -1515,7 +1517,8 @@ async function runDuePromotionCampaigns(env) {
         `).all();
         return json(result.results || []);
       }
-\n\n      // CUSTOMER REGISTRATION
+
+      // CUSTOMER REGISTRATION
       if (url.pathname === '/api/auth/register' && method === 'POST') {
         const data = await parseRequestBody(request);
 
