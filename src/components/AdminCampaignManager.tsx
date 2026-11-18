@@ -232,7 +232,7 @@ export const AdminCampaignManager: React.FC<Props> = ({ token }) => {
         <section className="bg-white border border-slate-200 rounded-2xl p-5 space-y-4">
           <div>
             <h2 className="font-bold text-slate-900">{editingCampaignId ? 'Edit promotional campaign' : 'Create promotional campaign'}</h2>
-            <p className="text-xs text-slate-500 mt-1">Drafts can be prepared early. Approval schedules the latest version for the next 14th or 28th. Sending is limited to active, configured category channels.</p>
+            <p className="text-xs text-slate-500 mt-1">Drafts can be prepared early. Approval schedules the latest version for the next 14th or 28th at 06:15 IST. Sending is limited to every active, configured category channel. Edits are allowed until delivery starts.</p>
           </div>
           <div className="grid md:grid-cols-2 gap-3">
             <label className="text-xs font-semibold text-slate-700">Campaign name
@@ -251,7 +251,7 @@ export const AdminCampaignManager: React.FC<Props> = ({ token }) => {
               <input className="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="https://..." value={campaignForm.affiliateUrl} onChange={e => setCampaignForm({ ...campaignForm, affiliateUrl: e.target.value })} />
             </label>
             <label className="text-xs font-semibold text-slate-700">Affiliate tracking parameter
-              <input className="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="subid" value={campaignForm.trackingParameter} onChange={e => setCampaignForm({ ...campaignForm, trackingParameter: e.target.value })} />
+              <input className="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="subid" value={campaignForm.trackingParameter} onChange={e => setCampaignForm({ ...campaignForm, trackingParameter: e.target.value })} /><span className="text-[11px] text-slate-500">Use the click-ID parameter supported by the affiliate network (for example, subid or click_id).</span>
             </label>
             <label className="text-xs font-semibold text-slate-700">Clickable button text
               <input className="mt-1 w-full border rounded-lg p-2 text-sm" value={campaignForm.linkLabel} onChange={e => setCampaignForm({ ...campaignForm, linkLabel: e.target.value })} />
@@ -264,7 +264,7 @@ export const AdminCampaignManager: React.FC<Props> = ({ token }) => {
             <button disabled={saving} onClick={saveCampaign} className="px-5 py-2.5 rounded-xl bg-slate-900 text-white text-sm font-semibold disabled:opacity-50">{saving ? 'Saving...' : 'Save draft'}</button>
             <button onClick={() => { setCampaignForm(emptyCampaign); setEditingCampaignId(''); }} className="px-4 py-2.5 rounded-xl border text-sm">Clear form</button>
           </div>
-          <p className="text-xs text-slate-500">For now, add an image by providing its hosted HTTPS image URL. Direct image-file uploads require a Cloudflare image-storage binding, which is not yet configured.</p>
+          <p className="text-xs text-slate-500">Images currently use a hosted HTTPS image URL. Direct file uploads need a Cloudflare R2 image-storage bucket, which is not configured yet. Telegram displays the purchase button below the photo; Telegram does not make the photo itself a direct external hyperlink.</p>
         </section>
 
         <section className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
