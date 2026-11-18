@@ -102,7 +102,7 @@ CREATE INDEX IF NOT EXISTS idx_affiliate_clicks_source
 
 CREATE TABLE IF NOT EXISTS affiliate_conversions (
   id TEXT PRIMARY KEY,
-  tracking_code TEXT NOT NULL DEFAULT '',
+  tracking_code TEXT,
   network_name TEXT NOT NULL DEFAULT '',
   order_reference TEXT NOT NULL DEFAULT '',
   order_amount REAL NOT NULL DEFAULT 0,
