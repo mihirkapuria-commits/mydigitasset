@@ -335,7 +335,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
   const handleDeleteAccount = async (account: User) => {
     const confirmed = confirm(
-      `PERMANENTLY DELETE ${account.name} (ID ${account.id})?\\n\\nThis removes the account and its linked payments, subscriptions, sessions and Telegram records. This cannot be undone.`
+      `PERMANENTLY DELETE ${account.name} (ID ${account.id})?\n\nThis removes the account and its linked payments, subscriptions, sessions and Telegram records. This cannot be undone.`
     );
     if (!confirmed) return;
     try {
