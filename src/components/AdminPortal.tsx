@@ -27,8 +27,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   onLogout
 }) => {
   const [activeTab, setActiveTab] = useState<
-    'customers' | 'payments' | 'audit' | 'pricing' | 'marketing' | 'website'
-  >('customers');
+    'users' | 'customers' | 'payments' | 'audit' | 'pricing' | 'marketing' | 'website'
+  >('users');
 
   const [customers, setCustomers] = useState<User[]>([]);
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
@@ -266,44 +266,110 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     }
   };
 
-  const handleResetPassword = async (
-    customerId: string,
-    email: string
-  ) => {
-    const newPassword = prompt(
-      `Enter new 8-character password for ${email}:`
-    );
-
-    if (!newPassword) return;
-
-    if (newPassword.length !== 8) {
-      alert('Password must be exactly 8 characters.');
-      return;
-    }
-
+  const handleResetPassword = async (customerId: string, email: string) => {
+    if (!confirm(`Invalidate the current password for ${email}? They will need to use Forgot Password with their registered email and mobile number.`)) return;
     try {
-      const res = await fetch(
-        `/api/admin/customers/${customerId}/reset-password`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`
-          },
-          body: JSON.stringify({ newPassword })
-        }
-      );
-
+      const res = await fetch(`/api/admin/customers/${customerId}/reset-password`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` }
+      });
       const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(
-          data.error || 'Failed to reset password.'
-        );
-      }
-
-      alert(data.message || 'Password successfully reset.');
+      if (!res.ok) throw new Error(data.error || 'Failed to require a password reset.');
+      alert(data.message || 'Password reset required.');
       fetchAdminData();
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  const handleCreateAccount = async (accountType: 'user' | 'customer') => {
+    const firstName = prompt(`New ${accountType}: first name`);
+    if (!firstName?.trim()) return;
+    const surname = prompt('Surname (optional)') || '';
+    const email = prompt('Email address');
+    if (!email?.trim()) return;
+    const mobileNumber = prompt('10-digit Indian mobile number');
+    if (!mobileNumber?.trim()) return;
+    const category = prompt('Category ID (for example: startup, real-estate, stock-market)');
+    if (!category?.trim()) return;
+    try {
+      const res = await fetch('/api/admin/customers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ firstName, surname, email, mobileNumber, category, accountType })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Could not create account.');
+      alert(data.message || 'Account created.');
+      await fetchAdminData();
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  const handleEditAccount = async (account: User) => {
+    const firstName = prompt('First name', account.firstName || account.name.split(' ')[0] || '');
+    if (firstName === null) return;
+    const surname = prompt('Surname', account.surname || '');
+    if (surname === null) return;
+    const email = prompt('Email address', account.email);
+    if (email === null) return;
+    const mobileNumber = prompt('10-digit Indian mobile number', account.mobileNumber || '');
+    if (mobileNumber === null) return;
+    const category = prompt('Category ID', account.category);
+    if (category === null) return;
+    try {
+      const res = await fetch(`/api/admin/customers/${account.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ firstName, surname, email, mobileNumber, category })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Could not update account.');
+      alert(data.message || 'Account updated.');
+      await fetchAdminData();
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  const handleDeleteAccount = async (account: User) => {
+    const confirmed = confirm(
+      `PERMANENTLY DELETE ${account.name} (ID ${account.id})?\\n\\nThis removes the account and its linked payments, subscriptions, sessions and Telegram records. This cannot be undone.`
+    );
+    if (!confirmed) return;
+    try {
+      const res = await fetch(`/api/admin/customers/${account.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Could not delete account.');
+      alert(data.message || 'Account deleted.');
+      await fetchAdminData();
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  const handleExportAccounts = async () => {
+    try {
+      const res = await fetch('/api/admin/customers/export.csv', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'CSV export failed.');
+      }
+      const blob = await res.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = objectUrl;
+      link.download = 'mydigitasset-accounts.csv';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(objectUrl);
     } catch (err: any) {
       alert(err.message);
     }
@@ -371,15 +437,22 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
             <div className="flex items-center gap-2 bg-slate-800 p-1 rounded-xl border border-slate-700 flex-wrap">
               <button
-                onClick={() => setActiveTab('customers')}
+                onClick={() => setActiveTab('users')}
                 className={`px-4 py-2 rounded-lg text-xs font-semibold transition-colors flex items-center gap-2 ${
-                  activeTab === 'customers'
-                    ? 'bg-indigo-600 text-white'
-                    : 'text-slate-300 hover:text-white'
+                  activeTab === 'users' ? 'bg-indigo-600 text-white' : 'text-slate-300 hover:text-white'
                 }`}
               >
                 <Users className="w-4 h-4" />
-                Customers ({customers.length})
+                Users ({customers.filter(c => c.accountType !== 'customer').length})
+              </button>
+              <button
+                onClick={() => setActiveTab('customers')}
+                className={`px-4 py-2 rounded-lg text-xs font-semibold transition-colors flex items-center gap-2 ${
+                  activeTab === 'customers' ? 'bg-indigo-600 text-white' : 'text-slate-300 hover:text-white'
+                }`}
+              >
+                <Users className="w-4 h-4" />
+                Customers ({customers.filter(c => c.accountType === 'customer').length})
               </button>
 
               <button
@@ -621,22 +694,30 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
               )}
 
               {/* CUSTOMERS TAB */}
-              {activeTab === 'customers' && (
+              {(activeTab === 'users' || activeTab === 'customers') && (
                 <div className="bg-white rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden">
                   <div className="p-6 border-b border-slate-100 flex items-center justify-between">
                     <h3 className="text-lg font-bold text-slate-900">
-                      Registered Customers Overview & Management
+                      {activeTab === 'customers' ? 'Paid Customers' : 'Free-Tier Users'} Management
                     </h3>
-                    <span className="text-xs text-slate-500 font-mono">
-                      Total: {customers.length}
-                    </span>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs text-slate-500 font-mono">
+                        Total: {customers.filter(c => activeTab === 'customers' ? c.accountType === 'customer' : c.accountType !== 'customer').length}
+                      </span>
+                      <button onClick={() => handleCreateAccount(activeTab === 'customers' ? 'customer' : 'user')} className="px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold">
+                        Add {activeTab === 'customers' ? 'Customer' : 'User'}
+                      </button>
+                      <button onClick={handleExportAccounts} className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold">
+                        Export CSV
+                      </button>
+                    </div>
                   </div>
 
                   <div className="overflow-x-auto">
                     <table className="w-full text-left border-collapse text-xs">
                       <thead>
                         <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold">
-                          <th className="p-4">Customer Name</th>
+                          <th className="p-4">Account Type</th>\n                          <th className="p-4">Name</th>
                           <th className="p-4">Email</th>
                           <th className="p-4">Mobile</th>
                           <th className="p-4">Subscription</th>
@@ -648,11 +729,14 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                       </thead>
 
                       <tbody className="divide-y divide-slate-100">
-                        {customers.map(c => (
+                        {customers.filter(c => activeTab === 'customers' ? c.accountType === 'customer' : c.accountType !== 'customer').map(c => (
                           <tr key={c.id} className="hover:bg-slate-50/50">
-                            <td className="p-4 font-semibold text-slate-900">
-                              {c.name}
+                            <td className="p-4">
+                              <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${c.accountType === 'customer' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-700'}`}>
+                                {c.accountType === 'customer' ? 'Customer' : 'User'}
+                              </span>
                             </td>
+                            <td className="p-4 font-semibold text-slate-900">{c.name}</td>
                             <td className="p-4 text-slate-600">{c.email}</td>
                             <td className="p-4 font-mono text-slate-600">
                               {c.mobile}
@@ -713,11 +797,25 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                                   )}
 
                                   <button
+                                    onClick={() => handleEditAccount(c)}
+                                    className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded"
+                                    title="Edit account details"
+                                  >
+                                    Edit
+                                  </button>
+                                  <button
                                     onClick={() => handleResetPassword(c.id, c.email)}
                                     className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-white font-semibold rounded"
-                                    title="Reset Password"
+                                    title="Require account holder to reset password"
                                   >
-                                    Reset Pwd
+                                    Require Reset
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteAccount(c)}
+                                    className="px-2.5 py-1 bg-red-700 hover:bg-red-600 text-white font-semibold rounded"
+                                    title="Permanently delete account and linked records"
+                                  >
+                                    Delete
                                   </button>
                                 </>
                               )}
