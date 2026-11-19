@@ -27,8 +27,9 @@ const GOOGLE_NEWS_MAX_COOLDOWN_SECONDS = 24 * 60 * 60;
 export class GoogleNewsRateLimitError extends Error {
   retryAfterSeconds: number;
 
-  constructor(retryAfterSeconds: number) {
-    super("Google News is temporarily unavailable or rate-limiting requests. Pausing further RSS requests for about " + retryAfterSeconds + " seconds.");
+  constructor(retryAfterSeconds: number, diagnosticMessage = "") {
+    super((diagnosticMessage ? diagnosticMessage + " " : "") +
+      "Pausing further RSS requests for about " + retryAfterSeconds + " seconds.");
     this.name = "GoogleNewsRateLimitError";
     this.retryAfterSeconds = retryAfterSeconds;
   }
@@ -436,11 +437,35 @@ async function fetchGoogleNewsArticles(env: NewsEnv, googleNewsUrl: string): Pro
   }
 
   if (response.status === 429) {
-    const suppliedRetryAfter = parseRetryAfter(response.headers.get("Retry-After"));
+    const retryAfterHeader = response.headers.get("Retry-After");
+    const suppliedRetryAfter = parseRetryAfter(retryAfterHeader);
     const retryAfterSeconds = Math.min(
       Math.max(suppliedRetryAfter ?? GOOGLE_NEWS_DEFAULT_COOLDOWN_SECONDS, 1),
       GOOGLE_NEWS_MAX_COOLDOWN_SECONDS
     );
+    const diagnosticHeaders: Record<string, string> = {};
+    for (const name of ["content-type", "server", "date", "retry-after", "via", "x-cache", "cf-ray"]) {
+      const value = response.headers.get(name);
+      if (value) diagnosticHeaders[name] = value.slice(0, 200);
+    }
+
+    let bodyPreview = "";
+    try {
+      bodyPreview = (await response.clone().text())
+        .replace(/[\\r\\n\\t]+/g, " ")
+        .replace(/[\\u0000-\\u001f\\u007f]/g, "")
+        .slice(0, 600);
+    } catch {
+      bodyPreview = "[response body could not be read]";
+    }
+
+    console.error("Google News RSS upstream error diagnostic:", JSON.stringify({
+      status: response.status,
+      statusText: response.statusText,
+      headers: diagnosticHeaders,
+      bodyPreview
+    }));
+
     const cooldownUntil = Date.now() + retryAfterSeconds * 1000;
 
     try {
@@ -451,7 +476,9 @@ async function fetchGoogleNewsArticles(env: NewsEnv, googleNewsUrl: string): Pro
     }
 
     await response.body?.cancel().catch(() => undefined);
-    throw new GoogleNewsRateLimitError(retryAfterSeconds);
+    const retryDetail = "Google News returned HTTP 429 (Too Many Requests)." +
+      (retryAfterHeader ? " Retry-After header: " + retryAfterHeader.slice(0, 200) + "." : " No Retry-After header was supplied.");
+    throw new GoogleNewsRateLimitError(retryAfterSeconds, retryDetail);
   }
 
   if (!response.ok) {
