@@ -17,6 +17,7 @@ export interface User {
   mobile: string;
   role: 'admin' | 'customer';
   accountType?: 'user' | 'customer';
+  categoryTitle?: string;
   category: string;
   categories: string[];
   trialStart: string;
