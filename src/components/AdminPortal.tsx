@@ -742,7 +742,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                             <td className="p-4 font-mono text-slate-600">
                               {c.mobile}
                             </td>
-                            <td className="p-4 text-slate-600">{c.category || '—'}</td>
+                            <td className="p-4 text-slate-600">{c.categoryTitle || c.category || '—'}</td>
                             <td className="p-4">
                               <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide ${
                                 c.subscriptionStatus === 'active_paid'
