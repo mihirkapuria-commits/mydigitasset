@@ -39,6 +39,15 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
   const [testSending, setTestSending] = useState(false);
   const [testResult, setTestResult] = useState('');
+  const [allTelegramTesting, setAllTelegramTesting] = useState(false);
+  const [allTelegramResults, setAllTelegramResults] = useState<Array<{
+    category: string;
+    title: string;
+    status: 'sent' | 'failed';
+    error?: string;
+    messageIds?: number[];
+  }>>([]);
+  const [allTelegramSummary, setAllTelegramSummary] = useState('');
 
   // Pricing settings
   const [pricing, setPricing] = useState<PricingSettings | null>(null);
@@ -203,6 +212,36 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       setTestResult('Test failed: ' + err.message);
     } finally {
       setTestSending(false);
+    }
+  };
+
+  const handleTestAllTelegramChannels = async () => {
+    if (!confirm('Send a one-time Telegram connection-test message to all 15 configured channels?')) return;
+
+    setAllTelegramTesting(true);
+    setAllTelegramResults([]);
+    setAllTelegramSummary('');
+
+    try {
+      const res = await fetch('/api/admin/telegram/test-all', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      const data = await res.json();
+
+      if (!res.ok && res.status !== 207) {
+        throw new Error(data.error || 'All-channel Telegram test failed.');
+      }
+
+      setAllTelegramResults(Array.isArray(data.results) ? data.results : []);
+      setAllTelegramSummary(
+        `Completed: ${data.sent || 0} sent, ${data.failed || 0} failed, out of ${data.total || 0} channels.`
+      );
+    } catch (err: any) {
+      setAllTelegramSummary('Test could not be completed: ' + (err.message || 'Unknown error.'));
+    } finally {
+      setAllTelegramTesting(false);
     }
   };
 
@@ -435,6 +474,16 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 : 'Test 10 India Startups News'}
             </button>
 
+            <button
+              onClick={handleTestAllTelegramChannels}
+              disabled={allTelegramTesting}
+              className="px-4 py-2 text-xs font-semibold rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white"
+            >
+              {allTelegramTesting
+                ? 'Testing all 15 channels…'
+                : 'Test All 15 Telegram Channels'}
+            </button>
+
             <div className="flex items-center gap-2 bg-slate-800 p-1 rounded-xl border border-slate-700 flex-wrap">
               <button
                 onClick={() => setActiveTab('users')}
@@ -535,6 +584,40 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         {testResult && (
           <div className="p-4 rounded-xl bg-slate-100 border border-slate-200 text-slate-700 text-xs font-medium">
             {testResult}
+          </div>
+        )}
+
+        {allTelegramSummary && (
+          <div className="p-4 rounded-xl bg-slate-100 border border-slate-200 space-y-3">
+            <p className="text-sm font-semibold text-slate-800">{allTelegramSummary}</p>
+            {allTelegramResults.length > 0 && (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="border-b border-slate-300 text-slate-500">
+                      <th className="py-2 pr-4">Channel</th>
+                      <th className="py-2 pr-4">Result</th>
+                      <th className="py-2">Details</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {allTelegramResults.map((item, index) => (
+                      <tr key={item.category || index} className="border-b border-slate-200 last:border-0">
+                        <td className="py-2 pr-4 font-medium text-slate-800">{item.title || item.category}</td>
+                        <td className={`py-2 pr-4 font-semibold ${item.status === 'sent' ? 'text-emerald-700' : 'text-red-700'}`}>
+                          {item.status === 'sent' ? 'Sent' : 'Failed'}
+                        </td>
+                        <td className="py-2 text-slate-600">
+                          {item.status === 'sent'
+                            ? `Telegram message ID(s): ${(item.messageIds || []).join(', ') || 'confirmed'}`
+                            : (item.error || 'No error details returned.')}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         )}
 
