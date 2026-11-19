@@ -790,6 +790,21 @@ var worker_default = {
     const url = new URL(request.url);
     const method = request.method;
 
+    // PUBLIC: SERVE PROMOTIONAL IMAGES STORED IN THE PRIVATE R2 BUCKET.
+    // Telegram must be able to fetch these images without an admin cookie or token.
+    const promoImageMatch = url.pathname.match(/^\\/api\\/promo-images\\/(img_[A-Za-z0-9_-]+)\\.(jpg|png|webp)$/);
+    if (promoImageMatch && method === 'GET') {
+      if (!env.AD_IMAGES) return json({ error: 'Image storage is not configured.' }, 503);
+      const object = await env.AD_IMAGES.get(promoImageMatch[1] + '.' + promoImageMatch[2]);
+      if (!object) return json({ error: 'Image not found.' }, 404);
+      const headers = new Headers();
+      object.writeHttpMetadata(headers);
+      headers.set('Content-Type', object.httpMetadata?.contentType || 'application/octet-stream');
+      headers.set('Cache-Control', 'public, max-age=31536000, immutable');
+      headers.set('X-Content-Type-Options', 'nosniff');
+      return new Response(object.body, { headers });
+    }
+
     if (method === 'OPTIONS') {
       return new Response(null, {
         status: 204,
@@ -1909,6 +1924,52 @@ var worker_default = {
           await env.DB.prepare('DELETE FROM categories WHERE id = ?').bind(id).run();
         }
         return json({ success: true });
+      }
+
+
+      // ADMIN: UPLOAD A PROMOTIONAL IMAGE TO R2.
+      if (url.pathname === '/api/admin/promotions/upload-image' && method === 'POST') {
+        const admin = await getAuthorizedAdmin(request, env);
+        if (!admin) return json({ error: 'Administrator access required.' }, 403);
+        if (!env.AD_IMAGES) return json({ error: 'Promotional image storage is not configured.' }, 503);
+
+        const formData = await request.formData();
+        const file = formData.get('image');
+        if (!file || typeof file.arrayBuffer !== 'function') {
+          return json({ error: 'Please select an image file.' }, 400);
+        }
+        if (file.size <= 0 || file.size > 5 * 1024 * 1024) {
+          return json({ error: 'Image must be no larger than 5 MB.' }, 400);
+        }
+
+        const mime = String(file.type || '').toLowerCase();
+        const extensions = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
+        const extension = extensions[mime];
+        if (!extension) {
+          return json({ error: 'Only JPG, PNG and WebP images are supported.' }, 415);
+        }
+
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        const isJpeg = mime === 'image/jpeg' && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+        const isPng = mime === 'image/png' && bytes.length >= 8 &&
+          bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47 &&
+          bytes[4] === 0x0d && bytes[5] === 0x0a && bytes[6] === 0x1a && bytes[7] === 0x0a;
+        const isWebp = mime === 'image/webp' && bytes.length >= 12 &&
+          String.fromCharCode(...bytes.slice(0, 4)) === 'RIFF' &&
+          String.fromCharCode(...bytes.slice(8, 12)) === 'WEBP';
+        if (!(isJpeg || isPng || isWebp)) {
+          return json({ error: 'The selected file does not appear to be a valid JPG, PNG or WebP image.' }, 400);
+        }
+
+        const objectKey = randomId('img') + '.' + extension;
+        await env.AD_IMAGES.put(objectKey, bytes, {
+          httpMetadata: {
+            contentType: mime,
+            cacheControl: 'public, max-age=31536000, immutable'
+          }
+        });
+        const imageUrl = new URL('/api/promo-images/' + objectKey, url.origin).toString();
+        return json({ success: true, imageUrl });
       }
 
       // ADMIN: PROMOTIONAL CAMPAIGNS
