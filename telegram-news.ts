@@ -202,7 +202,7 @@ async function runCategoryNewsDelivery(env: NewsEnv, source: CategoryNewsSource,
     const rawMessage = String(error?.message || error || "Unknown error");
     const safeMessage = rawMessage
       .replace(env.TELEGRAM_BOT_TOKEN || "__NO_TELEGRAM_TOKEN__", "[REDACTED]")
-      .replace(/\\s+/g, " ")
+      .replace(/\s+/g, " ")
       .slice(0, 300);
     const failureRecord = "failed:" + Date.now() + ":" + failureStage + ":" + safeMessage;
 
