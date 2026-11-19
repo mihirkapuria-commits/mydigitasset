@@ -2619,8 +2619,22 @@ var worker_default = {
           return json({ error: 'TELEGRAM_BOT_TOKEN is not configured.' }, 500);
         }
 
+        const activeChannelsResult = await env.DB.prepare(`
+          SELECT id, title, telegram_chat_id AS telegramChatId
+          FROM managed_categories
+          WHERE active = 1
+            AND telegram_chat_id IS NOT NULL
+            AND telegram_chat_id <> ''
+          ORDER BY display_order, title
+        `).all();
+        const activeChannels = activeChannelsResult.results || [];
+
+        if (!activeChannels.length) {
+          return json({ error: 'No active Telegram channels are configured.' }, 409);
+        }
+
         const results = [];
-        for (const category of CATEGORIES) {
+        for (const category of activeChannels) {
           try {
             const messageId = await sendTelegramConnectionTest(
               env,
@@ -3013,6 +3027,27 @@ var worker_default = {
 
           if (!expectedChatId || String(chatId ?? '') !== expectedChatId) {
             return json({ error: 'Unauthorized' }, 403);
+          }
+
+          // Acknowledge the Telegram button promptly so the client stops showing a spinner.
+          try {
+            const acknowledgement = await fetch(
+              `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/answerCallbackQuery`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ callback_query_id: callback.id })
+              }
+            );
+            const acknowledgementResult = await acknowledgement.json().catch(() => ({}));
+            if (!acknowledgement.ok || acknowledgementResult.ok !== true) {
+              console.warn('Telegram callback acknowledgement was not accepted:', {
+                httpStatus: acknowledgement.status,
+                description: acknowledgementResult.description || 'Unknown Telegram response'
+              });
+            }
+          } catch (acknowledgementError) {
+            console.warn('Telegram callback acknowledgement failed:', String(acknowledgementError));
           }
 
           const match = callbackData.match(/^(APPROVE|STOP)_(\d+)$/);
