@@ -71,7 +71,11 @@ export async function runIndiaStartupsNewsDelivery(env: NewsEnv, telegramChannel
 
 export async function runAllCategoryNewsDeliveries(
   env: NewsEnv,
-  channels: Array<{ id: string; title: string; telegram_chat_id: string }>
+  channels: Array<{ id: string; title: string; telegram_chat_id: string }>,
+  afterChannelDelivery?: (
+    channel: { id: string; title: string; telegram_chat_id: string },
+    status: string
+  ) => Promise<void>
 ): Promise<void> {
   const channelByCategory = new Map(channels.map(channel => [String(channel.id), channel]));
   for (const source of CATEGORY_NEWS_SOURCES) {
@@ -80,7 +84,15 @@ export async function runAllCategoryNewsDeliveries(
       console.error(source.topic + " delivery skipped: active Telegram channel mapping is missing.");
       continue;
     }
-    await runCategoryNewsDelivery(env, source, String(channel.telegram_chat_id));
+    const status = await runCategoryNewsDelivery(env, source, String(channel.telegram_chat_id));
+    if (afterChannelDelivery) {
+      try {
+        await afterChannelDelivery(channel, status);
+      } catch (error) {
+        // An advertisement failure must never interrupt the remaining category news deliveries.
+        console.error("Post-news channel action failed for " + channel.title + ":", String(error));
+      }
+    }
     // Space out RSS requests to reduce the chance of triggering Google's shared rate limit.
     await new Promise(resolve => setTimeout(resolve, 1200));
   }

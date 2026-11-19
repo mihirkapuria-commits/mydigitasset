@@ -804,8 +804,9 @@ async function deliverPromotionCampaign(env, campaign, channels) {
     failed: results.filter(row => row.status === "failed").length, allSent, results };
 }
 
-async function runDuePromotionCampaigns(env) {
+async function runDuePromotionCampaignsForChannel(env, channel) {
   const parts = getIndiaDateTimeParts();
+  if (parts.day !== "14" && parts.day !== "28") return;
   const today = parts.year + "-" + parts.month + "-" + parts.day;
   const campaigns = await env.DB.prepare(`
     SELECT * FROM promo_campaigns
@@ -813,12 +814,13 @@ async function runDuePromotionCampaigns(env) {
     ORDER BY updated_at ASC
   `).bind(today).all();
   for (const campaign of (campaigns.results || [])) {
-    const channels = await getPromotionChannels(env, campaign.id);
-    if (!channels.length) {
-      console.error("Promotion skipped: no selected active Telegram channels are configured.");
-      continue;
-    }
-    await deliverPromotionCampaign(env, campaign, channels);
+    const selectedChannels = await getPromotionChannels(env, campaign.id);
+    const isTargeted = selectedChannels.some(item =>
+      String(item.id) === String(channel.id) &&
+      String(item.telegram_chat_id) === String(channel.telegram_chat_id)
+    );
+    if (!isTargeted) continue;
+    await deliverPromotionCampaign(env, campaign, [channel]);
   }
 }
 var worker_default = {
@@ -838,20 +840,32 @@ var worker_default = {
     `).all();
     const channels = channelsResult.results || [];
 
-    if (cron === "45 0 * * *") {
-      // 06:15 IST: finish the daily news run first, then send the ad as a separate
-      // Telegram message in the same delivery window on the 14th and 28th only.
-      ctx.waitUntil((async () => {
-        await runAllCategoryNewsDeliveries(env, channels);
+    const runNewsAndMatchingChannelAds = () => runAllCategoryNewsDeliveries(
+      env,
+      channels,
+      async (channel, newsStatus) => {
         const parts = getIndiaDateTimeParts();
-        if (parts.day === "14" || parts.day === "28") {
-          await runDuePromotionCampaigns(env);
+        if ((parts.day === "14" || parts.day === "28") && newsStatus === "sent") {
+          // Deliver the ad immediately after this same channel's news message.
+          await runDuePromotionCampaignsForChannel(env, channel);
         }
-      })());
+      }
+    );
+
+    if (cron === "45 0 * * *") {
+      // 06:15 IST: news is delivered channel by channel; on the 14th/28th,
+      // that channel's separate advertisement follows its successful news message.
+      ctx.waitUntil(runNewsAndMatchingChannelAds());
       return;
     }
 
-    // 06:45 IST: retry failed news only. Advertisements are not repeated here.
+    if (cron === "15 1 * * *") {
+      // 06:45 IST: retry failed news. If a retry succeeds on an ad date,
+      // send that channel's advertisement immediately after the successful news.
+      ctx.waitUntil(runNewsAndMatchingChannelAds());
+      return;
+    }
+
     ctx.waitUntil(runAllCategoryNewsDeliveries(env, channels));
   },
 
