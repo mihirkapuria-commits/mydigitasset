@@ -44,10 +44,34 @@ export const AdminCampaignManager: React.FC<Props> = ({ token }) => {
   const [conversionForm, setConversionForm] = useState({ trackingCode: '', networkName: '', orderReference: '', orderAmount: '', commissionAmount: '', purchasedAt: '', currency: 'INR' });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [imageUploading, setImageUploading] = useState(false);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
 
   const headers = { Authorization: `Bearer ${token}` };
+
+  const uploadCampaignImage = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setImageUploading(true); setError(''); setNotice('');
+    try {
+      const formData = new FormData();
+      formData.append('image', file);
+      const response = await fetch('/api/admin/promotions/upload-image', {
+        method: 'POST', headers, body: formData
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Image upload failed.');
+      setCampaignForm(current => ({ ...current, imageUrl: data.imageUrl }));
+      setNotice('Image uploaded and attached to this campaign.');
+    } catch (e: any) {
+      setError(e.message || 'Image upload failed.');
+    } finally {
+      setImageUploading(false);
+      event.target.value = '';
+    }
+  };
+
 
   const loadAll = async () => {
     setLoading(true); setError('');
@@ -249,7 +273,11 @@ export const AdminCampaignManager: React.FC<Props> = ({ token }) => {
             <label className="text-xs font-semibold text-slate-700 md:col-span-2">Promotional message
               <textarea rows={4} className="mt-1 w-full border rounded-lg p-2 text-sm" value={campaignForm.messageText} onChange={e => setCampaignForm({ ...campaignForm, messageText: e.target.value })} />
             </label>
-            <label className="text-xs font-semibold text-slate-700">Product image URL
+            <label className="text-xs font-semibold text-slate-700">Upload product image (JPG, PNG or WebP; max 5 MB)
+              <input type="file" accept="image/jpeg,image/png,image/webp" disabled={imageUploading} onChange={uploadCampaignImage} className="mt-1 block w-full border rounded-lg p-2 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-1.5" />
+              {imageUploading && <span className="block mt-1 text-[11px] text-slate-500">Uploading image...</span>}
+            </label>
+            <label className="text-xs font-semibold text-slate-700">Or use an existing product image URL
               <input className="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="https://..." value={campaignForm.imageUrl} onChange={e => setCampaignForm({ ...campaignForm, imageUrl: e.target.value })} />
             </label>
             <label className="text-xs font-semibold text-slate-700">Affiliate purchase URL
@@ -278,7 +306,7 @@ export const AdminCampaignManager: React.FC<Props> = ({ token }) => {
             <button disabled={saving} onClick={saveCampaign} className="px-5 py-2.5 rounded-xl bg-slate-900 text-white text-sm font-semibold disabled:opacity-50">{saving ? 'Saving...' : 'Save draft'}</button>
             <button onClick={() => { setCampaignForm(emptyCampaign); setEditingCampaignId(''); }} className="px-4 py-2.5 rounded-xl border text-sm">Clear form</button>
           </div>
-          <p className="text-xs text-slate-500">Images currently use a hosted HTTPS image URL. Direct file uploads need a Cloudflare R2 image-storage bucket, which is not configured yet. Telegram displays the purchase button below the photo; Telegram does not make the photo itself a direct external hyperlink.</p>
+          <p className="text-xs text-slate-500">Uploaded images are stored in Cloudflare R2. Telegram displays the affiliate purchase button below the photo; Telegram does not make the photo itself a direct external hyperlink.</p>
         </section>
 
         <section className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
