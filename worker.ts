@@ -1,6 +1,6 @@
 // @ts-nocheck
 
-import { runAllCategoryNewsDeliveries, sendIndiaStartupsNewsTest, retryBankingFintechNewsDelivery, sendTelegramConnectionTest, sendAllCategoryNewsTests } from "./telegram-news";
+import { runAllCategoryNewsDeliveries, sendIndiaStartupsNewsTest, retryBankingFintechNewsDelivery, sendTelegramConnectionTest, sendAllCategoryNewsTests, sendCategoryNewsTest } from "./telegram-news";
 
 const CATEGORIES = [
   { id: 'banking-fintech', title: 'Banking and Fintech', telegramChatId: '-1004377330142' },
@@ -2477,6 +2477,27 @@ var worker_default = {
             error: error?.message || 'Could not retry Banking and Fintech news delivery.'
           }, 500);
         }
+      }
+
+      // ADMIN: PROCESS ONE NEWS-CHANNEL TEST PER REQUEST. This avoids relying on a long
+      // waitUntil task that may be terminated before all 15 channels finish.
+      if (url.pathname === '/api/admin/news/test/channel' && method === 'POST') {
+        const admin = await getAuthorizedAdmin(request, env);
+        if (!admin) return json({ error: 'Administrator access required.' }, 403);
+
+        const body = await parseRequestBody(request);
+        const categoryId = String(body.categoryId || '').trim();
+        if (!categoryId) return json({ error: 'A news category is required.' }, 400);
+
+        const channel = await env.DB.prepare(`
+          SELECT id, title, telegram_chat_id
+          FROM managed_categories
+          WHERE id = ? AND active = 1
+          LIMIT 1
+        `).bind(categoryId).first();
+
+        const result = await sendCategoryNewsTest(env, categoryId, channel || null);
+        return json({ success: result.status === 'sent', result }, result.status === 'sent' ? 200 : 502);
       }
 
       // ADMIN: START A SEPARATE, LABELLED 10-STORY TEST FOR ALL 15 NEWS CHANNELS.
