@@ -1153,6 +1153,8 @@ var worker_default = {
       if (url.pathname === '/api/admin/customers/export.csv' && method === 'GET') {
         const admin = await getAuthorizedAdmin(request, env);
         if (!admin) return json({ error: 'Administrator access required.' }, 403);
+        const exportType = url.searchParams.get('type') === 'customers' ? 'Customer' :
+          (url.searchParams.get('type') === 'users' ? 'User' : '');
         const result = await env.DB.prepare(`
           SELECT u.id, u.first_name, u.surname, u.email, u.country_code, u.mobile_number,
                  u.category, u.status, u.created_at, u.trial_expires_at,
@@ -1171,8 +1173,14 @@ var worker_default = {
                  ) THEN 'Connected' ELSE 'Not connected' END AS telegram_status
           FROM users u
           WHERE lower(u.email) <> ?
+            AND (? = '' OR (CASE WHEN EXISTS (
+              SELECT 1 FROM payments p
+              WHERE p.user_id = u.id AND lower(p.status) IN ('approved', 'verified')
+            ) OR EXISTS (
+              SELECT 1 FROM customer_subscription_periods sp WHERE sp.user_id = u.id
+            ) THEN 'Customer' ELSE 'User' END) = ?)
           ORDER BY u.id ASC
-        `).bind(ADMIN_EMAIL).all();
+        `).bind(ADMIN_EMAIL, exportType, exportType).all();
         const columns = [
           ['ID','id'],['Account Type','account_type'],['First Name','first_name'],
           ['Surname','surname'],['Email','email'],['Country Code','country_code'],
