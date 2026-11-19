@@ -128,8 +128,8 @@ export const AdminCampaignManager: React.FC<Props> = ({ token }) => {
         body: JSON.stringify({
           ...campaignForm,
           messageText: testMode
-            ? (campaignForm.messageText.startsWith('🧪 TEST ADVERTISEMENT') ? campaignForm.messageText : '🧪 TEST ADVERTISEMENT\\n\\n' + campaignForm.messageText)
-            : campaignForm.messageText.replace(/^🧪 TEST ADVERTISEMENT\\n\\n/, ''),
+            ? (campaignForm.messageText.startsWith('🧪 TEST ADVERTISEMENT') ? campaignForm.messageText : '🧪 TEST ADVERTISEMENT\n\n' + campaignForm.messageText)
+            : campaignForm.messageText.replace(/^🧪 TEST ADVERTISEMENT\n\n/, ''),
           targetChannelIds: selectedChannelIds
         })
       });
@@ -188,7 +188,7 @@ export const AdminCampaignManager: React.FC<Props> = ({ token }) => {
     setTestMode(isTestCampaign);
     setCampaignForm({
       campaignName: c.campaign_name || '', productName: c.product_name || '',
-      messageText: isTestCampaign ? String(c.message_text || '').replace(/^🧪 TEST ADVERTISEMENT\\n\\n/, '') : (c.message_text || ''), imageUrl: c.image_url || '',
+      messageText: isTestCampaign ? String(c.message_text || '').replace(/^🧪 TEST ADVERTISEMENT\n\n/, '') : (c.message_text || ''), imageUrl: c.image_url || '',
       affiliateUrl: c.affiliate_url || '', trackingParameter: c.tracking_parameter || 'subid', linkLabel: c.link_label || 'View Offer',
       affiliateDisclosure: c.affiliate_disclosure || ''
     });
