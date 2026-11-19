@@ -792,7 +792,7 @@ var worker_default = {
 
     // PUBLIC: SERVE PROMOTIONAL IMAGES STORED IN THE PRIVATE R2 BUCKET.
     // Telegram must be able to fetch these images without an admin cookie or token.
-    const promoImageMatch = url.pathname.match(/^\\/api\\/promo-images\\/(img_[A-Za-z0-9_-]+)\\.(jpg|png|webp)$/);
+    const promoImageMatch = url.pathname.match(/^\/api\/promo-images\/(img_[A-Za-z0-9_-]+)\.(jpg|png|webp)$/);
     if (promoImageMatch && method === 'GET') {
       if (!env.AD_IMAGES) return json({ error: 'Image storage is not configured.' }, 503);
       const object = await env.AD_IMAGES.get(promoImageMatch[1] + '.' + promoImageMatch[2]);
