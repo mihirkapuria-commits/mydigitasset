@@ -1,6 +1,6 @@
 // @ts-nocheck
 
-import { runAllCategoryNewsDeliveries, sendIndiaStartupsNewsTest, retryBankingFintechNewsDelivery } from "./telegram-news";
+import { runAllCategoryNewsDeliveries, sendIndiaStartupsNewsTest, retryBankingFintechNewsDelivery, sendTelegramConnectionTest } from "./telegram-news";
 
 const CATEGORIES = [
   { id: 'banking-fintech', title: 'Banking and Fintech', telegramChatId: '-1004377330142' },
@@ -2373,6 +2373,52 @@ var worker_default = {
           messageIds: result.messageIds,
           message: 'Exactly 10 India Startups stories were delivered to the Startup Telegram channel.'
         });
+      }
+
+      // ADMIN: ONE-TIME TELEGRAM CONNECTION TEST FOR ALL 15 CHANNELS.
+      // Sends a short labelled message only; does not fetch RSS or call Gemini.
+      if (url.pathname === '/api/admin/telegram/test-all' && method === 'POST') {
+        const admin = await getAuthorizedAdmin(request, env);
+        if (!admin) return json({ error: 'Administrator access required.' }, 403);
+        if (!env.TELEGRAM_BOT_TOKEN) {
+          return json({ error: 'TELEGRAM_BOT_TOKEN is not configured.' }, 500);
+        }
+
+        const results = [];
+        for (const category of CATEGORIES) {
+          try {
+            const messageId = await sendTelegramConnectionTest(
+              env,
+              category.telegramChatId,
+              category.title
+            );
+            results.push({
+              category: category.id,
+              title: category.title,
+              status: 'sent',
+              messageId
+            });
+          } catch (error) {
+            results.push({
+              category: category.id,
+              title: category.title,
+              status: 'failed',
+              error: String(error?.message || error).slice(0, 250)
+            });
+          }
+          await new Promise(resolve => setTimeout(resolve, 350));
+        }
+
+        const sentCount = results.filter(item => item.status === 'sent').length;
+        const failedCount = results.length - sentCount;
+        return json({
+          success: failedCount === 0,
+          total: results.length,
+          sent: sentCount,
+          failed: failedCount,
+          results,
+          message: 'Telegram connection test completed for all configured channels.'
+        }, failedCount === 0 ? 200 : 207);
       }
 
       // CUSTOMER LOGIN
