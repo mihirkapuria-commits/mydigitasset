@@ -36,6 +36,7 @@ export const AdminCampaignManager: React.FC<Props> = ({ token }) => {
   const [deliveryCampaignName, setDeliveryCampaignName] = useState('');
   const [deliveryCampaignId, setDeliveryCampaignId] = useState('');
   const [campaignForm, setCampaignForm] = useState(emptyCampaign);
+  const [testMode, setTestMode] = useState(true);
   const [selectedChannelIds, setSelectedChannelIds] = useState<string[]>([]);
   const [editingCampaignId, setEditingCampaignId] = useState('');
   const [categoryForm, setCategoryForm] = useState({
@@ -124,12 +125,19 @@ export const AdminCampaignManager: React.FC<Props> = ({ token }) => {
       const response = await fetch(url, {
         method: editingCampaignId ? 'PUT' : 'POST',
         headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...campaignForm, targetChannelIds: selectedChannelIds })
+        body: JSON.stringify({
+          ...campaignForm,
+          messageText: testMode
+            ? (campaignForm.messageText.startsWith('🧪 TEST ADVERTISEMENT') ? campaignForm.messageText : '🧪 TEST ADVERTISEMENT\\n\\n' + campaignForm.messageText)
+            : campaignForm.messageText.replace(/^🧪 TEST ADVERTISEMENT\\n\\n/, ''),
+          targetChannelIds: selectedChannelIds
+        })
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Could not save campaign.');
       setCampaignForm(emptyCampaign); setEditingCampaignId('');
-      setNotice('Campaign draft saved.');
+      setTestMode(true);
+      setNotice(testMode ? 'TEST advertisement draft saved. The test label will appear in Telegram.' : 'Campaign draft saved.');
       await loadAll();
     } catch (e: any) { setError(e.message); }
     finally { setSaving(false); }
@@ -176,9 +184,11 @@ export const AdminCampaignManager: React.FC<Props> = ({ token }) => {
   const editCampaign = (c: Campaign) => {
     setSelectedChannelIds((() => { try { const ids = JSON.parse(c.target_channel_ids || '[]'); return ids.length ? ids : categories.filter(x => x.active).map(x => x.id); } catch { return categories.filter(x => x.active).map(x => x.id); } })());
     setEditingCampaignId(c.id);
+    const isTestCampaign = String(c.message_text || '').startsWith('🧪 TEST ADVERTISEMENT');
+    setTestMode(isTestCampaign);
     setCampaignForm({
       campaignName: c.campaign_name || '', productName: c.product_name || '',
-      messageText: c.message_text || '', imageUrl: c.image_url || '',
+      messageText: isTestCampaign ? String(c.message_text || '').replace(/^🧪 TEST ADVERTISEMENT\\n\\n/, '') : (c.message_text || ''), imageUrl: c.image_url || '',
       affiliateUrl: c.affiliate_url || '', trackingParameter: c.tracking_parameter || 'subid', linkLabel: c.link_label || 'View Offer',
       affiliateDisclosure: c.affiliate_disclosure || ''
     });
@@ -310,6 +320,10 @@ export const AdminCampaignManager: React.FC<Props> = ({ token }) => {
               <input className="mt-1 w-full border rounded-lg p-2 text-sm" value={campaignForm.affiliateDisclosure} onChange={e => setCampaignForm({ ...campaignForm, affiliateDisclosure: e.target.value })} />
             </label>
           </div>
+          <label className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
+            <input type="checkbox" checked={testMode} onChange={e => setTestMode(e.target.checked)} className="mt-0.5" />
+            <span><strong>TEST advertisement mode</strong><span className="block">Recommended for the first live channel test. Adds a clear TEST label to the Telegram message. Turn this off only for a real advertisement.</span></span>
+          </label>
           <div className="rounded-xl border border-slate-200 p-4 space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div><h3 className="text-sm font-bold">Target Telegram channels</h3><p className="text-xs text-slate-500">Select one or more active channels. All 15 are selected by default.</p></div>
