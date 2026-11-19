@@ -654,14 +654,14 @@ function escapeTelegramHtml(value: string): string {
 export async function sendTelegramConnectionTest(
   env: NewsEnv,
   channelId: string,
-  categoryTitle: string
+  categoryId: string
 ): Promise<{ storyCount: number; messageIds: number[] }> {
   if (!env.TELEGRAM_BOT_TOKEN) throw new Error("TELEGRAM_BOT_TOKEN is not configured.");
   if (!env.GEMINI_API_KEY) throw new Error("GEMINI_API_KEY is not configured.");
   if (!channelId) throw new Error("Telegram channel ID is missing.");
 
-  const source = CATEGORY_NEWS_SOURCES.find(item => item.topic === categoryTitle);
-  if (!source) throw new Error("No news source is configured for " + categoryTitle + ".");
+  const source = CATEGORY_NEWS_SOURCES.find(item => item.categoryId === categoryId);
+  if (!source) throw new Error("No news source is configured for category " + categoryId + ".");
 
   let failureStage = "google_news_rss";
   try {
