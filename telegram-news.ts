@@ -651,6 +651,27 @@ function escapeTelegramHtml(value: string): string {
     .replace(/"/g, "&quot;");
 }
 
+export async function sendTelegramConnectionTest(
+  env: NewsEnv,
+  channelId: string,
+  categoryTitle: string
+): Promise<number> {
+  if (!env.TELEGRAM_BOT_TOKEN) throw new Error("TELEGRAM_BOT_TOKEN is not configured.");
+  if (!channelId) throw new Error("Telegram channel ID is missing.");
+
+  const message = [
+    "<b>MyDigitAsset — Telegram Connection Test</b>",
+    "",
+    "Channel: " + escapeTelegramHtml(categoryTitle),
+    "Status: This test message confirms that MyDigitAsset can post to this channel.",
+    "",
+    "This is a one-time technical test. No action is required."
+  ].join("\n");
+
+  const sent = await sendTelegramChannelMessage(env.TELEGRAM_BOT_TOKEN, channelId, message);
+  return sent.message_id;
+}
+
 async function sendTelegramChannelMessage(
   botToken: string,
   channelId: string,
