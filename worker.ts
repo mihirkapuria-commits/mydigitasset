@@ -1141,8 +1141,7 @@ var worker_default = {
 
         return json((result.results || []).map(user => ({
           ...publicUser(user),
-          category: user.category_display || user.category || '',
-          categories: (user.category_display || user.category) ? [user.category_display || user.category] : [],
+          categoryTitle: user.category_display || user.category || '',
           accountType: Number(user.has_paid_history) === 1 ? 'customer' : 'user',
           paymentStatus: user.latest_payment_status === 'approved'
             ? 'verified'
