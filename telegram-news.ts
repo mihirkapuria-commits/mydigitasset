@@ -657,28 +657,24 @@ export async function sendTelegramConnectionTest(
   categoryId: string
 ): Promise<{ storyCount: number; messageIds: number[] }> {
   if (!env.TELEGRAM_BOT_TOKEN) throw new Error("TELEGRAM_BOT_TOKEN is not configured.");
-  if (!env.GEMINI_API_KEY) throw new Error("GEMINI_API_KEY is not configured.");
   if (!channelId) throw new Error("Telegram channel ID is missing.");
 
-  const source = CATEGORY_NEWS_SOURCES.find(item => item.categoryId === categoryId);
-  if (!source) throw new Error("No news source is configured for category " + categoryId + ".");
+  // This is deliberately a Telegram-only test: no Google News RSS or Gemini calls.
+  const testMessage =
+    "<b>MYDIGITASSET — TELEGRAM CONNECTION TEST</b>\n" +
+    "Channel: " + escapeTelegramHtml(categoryId) + "\n" +
+    "Time: " + new Date().toISOString() + "\n\n" +
+    "This is a one-time delivery test. No action is required.";
 
-  let failureStage = "google_news_rss";
   try {
-    const articles = await fetchGoogleNewsArticles(env, source.googleNewsUrl);
-    failureStage = "gemini_summarization";
-    const stories = await summarizeArticles(env.GEMINI_API_KEY, source.topic, articles);
-    failureStage = "message_formatting";
-    const message = buildNewsMessage(source.topic + " — TEST DELIVERY", stories, articles);
-    failureStage = "telegram_send";
-    const messageIds = await sendNewsMessage(env.TELEGRAM_BOT_TOKEN, channelId, message);
-    return { storyCount: stories.length, messageIds };
+    const messageIds = await sendNewsMessage(env.TELEGRAM_BOT_TOKEN, channelId, testMessage);
+    return { storyCount: 0, messageIds };
   } catch (error: any) {
     const safeMessage = String(error?.message || error)
       .replace(env.TELEGRAM_BOT_TOKEN, "[REDACTED]")
       .replace(/\s+/g, " ")
       .slice(0, 300);
-    throw new Error(failureStage + ": " + safeMessage);
+    throw new Error("telegram_send: " + safeMessage);
   }
 }
 
