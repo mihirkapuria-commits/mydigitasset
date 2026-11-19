@@ -727,7 +727,7 @@ async function getPromotionChannels(env, campaignId) {
   return all.results || [];
 }
 
-async function deliverPromotionCampaign(env, campaign, channels) {
+async function deliverPromotionCampaign(env, campaign, channels, expectedTotal = channels.length) {
   const results = [];
   for (const channel of channels) {
     const chatId = String(channel.telegram_chat_id);
@@ -792,8 +792,9 @@ async function deliverPromotionCampaign(env, campaign, channels) {
       SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed
     FROM promo_deliveries WHERE campaign_id = ?
   `).bind(campaign.id).first();
-  const allSent = Number(counts?.total || 0) > 0 &&
-    Number(counts?.sent || 0) === channels.length;
+  const allSent = Number(expectedTotal) > 0 &&
+    Number(counts?.total || 0) >= Number(expectedTotal) &&
+    Number(counts?.sent || 0) === Number(expectedTotal);
   if (allSent) {
     await env.DB.prepare(`
       UPDATE promo_campaigns SET status = 'sent', sent_at = ?, updated_at = ?
@@ -820,7 +821,7 @@ async function runDuePromotionCampaignsForChannel(env, channel) {
       String(item.telegram_chat_id) === String(channel.telegram_chat_id)
     );
     if (!isTargeted) continue;
-    await deliverPromotionCampaign(env, campaign, [channel]);
+    await deliverPromotionCampaign(env, campaign, [channel], selectedChannels.length);
   }
 }
 var worker_default = {
