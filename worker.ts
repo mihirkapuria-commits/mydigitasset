@@ -2411,7 +2411,7 @@ var worker_default = {
         const data = await parseRequestBody(request);
         const mobileNumber = String(data.mobileNumber || '').replace(/\D/g, '');
 
-            !/^[6-9]\d{9}$/.test(mobile) || !category) {
+        if (!/^[6-9]\d{9}$/.test(mobileNumber)) {
           return json({
             error: 'Please enter a valid 10-digit Indian mobile number.'
           }, 400);
