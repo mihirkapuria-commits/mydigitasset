@@ -1103,32 +1103,251 @@ var worker_default = {
         });
       }
 
-      // ADMIN: CUSTOMER, PAYMENT AND AUDIT DATA
-      // These routes are shared by the original Admin Portal tabs.
+      // ADMIN: USER AND CUSTOMER MANAGEMENT
+      // "User" means no verified paid history; "Customer" means a verified payment
+      // or an admin-created paid subscription. The internal auth role stays unchanged.
       if (url.pathname === '/api/admin/customers' && method === 'GET') {
         const admin = await getAuthorizedAdmin(request, env);
         if (!admin) return json({ error: 'Administrator access required.' }, 403);
 
         const result = await env.DB.prepare(`
-          SELECT id, first_name, surname, email, country_code, mobile_number,
-                 category, trial_expires_at, status, role, created_at,
+          SELECT u.id, u.first_name, u.surname, u.email, u.country_code, u.mobile_number,
+                 u.category, u.trial_expires_at, u.status, u.role, u.created_at,
                  EXISTS (
-                   SELECT 1 FROM telegram_connections tc WHERE tc.user_id = users.id
+                   SELECT 1 FROM telegram_connections tc WHERE tc.user_id = u.id
                  ) AS telegram_connected,
                  (
                    SELECT tc.telegram_username FROM telegram_connections tc
-                   WHERE tc.user_id = users.id LIMIT 1
-                 ) AS telegram_username
-          FROM users
-          WHERE lower(email) <> ?
-          ORDER BY created_at DESC
+                   WHERE tc.user_id = u.id LIMIT 1
+                 ) AS telegram_username,
+                 EXISTS (
+                   SELECT 1 FROM payments p
+                   WHERE p.user_id = u.id AND lower(p.status) IN ('approved', 'verified')
+                 ) OR EXISTS (
+                   SELECT 1 FROM customer_subscription_periods sp WHERE sp.user_id = u.id
+                 ) AS has_paid_history,
+                 (
+                   SELECT lower(p.status) FROM payments p
+                   WHERE p.user_id = u.id ORDER BY p.rowid DESC LIMIT 1
+                 ) AS latest_payment_status,
+                 (
+                   SELECT MAX(sp.expires_at) FROM customer_subscription_periods sp
+                   WHERE sp.user_id = u.id
+                 ) AS subscription_expires_at
+          FROM users u
+          WHERE lower(u.email) <> ?
+          ORDER BY u.created_at DESC
         `).bind(ADMIN_EMAIL).all();
 
         return json((result.results || []).map(user => ({
           ...publicUser(user),
-          paymentStatus: user.payment_status || 'none'
+          accountType: Number(user.has_paid_history) === 1 ? 'customer' : 'user',
+          paymentStatus: user.latest_payment_status === 'approved'
+            ? 'verified'
+            : (user.latest_payment_status || 'none'),
+          subscriptionExpiry: user.subscription_expires_at || ''
         })));
       }
+
+      // ADMIN: CSV EXPORT. Never include passwords, hashes, tokens or session data.
+      if (url.pathname === '/api/admin/customers/export.csv' && method === 'GET') {
+        const admin = await getAuthorizedAdmin(request, env);
+        if (!admin) return json({ error: 'Administrator access required.' }, 403);
+        const result = await env.DB.prepare(`
+          SELECT u.id, u.first_name, u.surname, u.email, u.country_code, u.mobile_number,
+                 u.category, u.status, u.created_at, u.trial_expires_at,
+                 CASE WHEN EXISTS (
+                   SELECT 1 FROM payments p
+                   WHERE p.user_id = u.id AND lower(p.status) IN ('approved', 'verified')
+                 ) OR EXISTS (
+                   SELECT 1 FROM customer_subscription_periods sp WHERE sp.user_id = u.id
+                 ) THEN 'Customer' ELSE 'User' END AS account_type,
+                 (SELECT lower(p.status) FROM payments p WHERE p.user_id = u.id
+                  ORDER BY p.rowid DESC LIMIT 1) AS payment_status,
+                 (SELECT MAX(sp.expires_at) FROM customer_subscription_periods sp
+                  WHERE sp.user_id = u.id) AS subscription_expires_at,
+                 CASE WHEN EXISTS (
+                   SELECT 1 FROM telegram_connections tc WHERE tc.user_id = u.id
+                 ) THEN 'Connected' ELSE 'Not connected' END AS telegram_status
+          FROM users u
+          WHERE lower(u.email) <> ?
+          ORDER BY u.id ASC
+        `).bind(ADMIN_EMAIL).all();
+        const columns = [
+          ['ID','id'],['Account Type','account_type'],['First Name','first_name'],
+          ['Surname','surname'],['Email','email'],['Country Code','country_code'],
+          ['Mobile','mobile_number'],['Category','category'],['Account Status','status'],
+          ['Payment Status','payment_status'],['Registration Date','created_at'],
+          ['Trial Expiry','trial_expires_at'],['Paid Subscription Expiry','subscription_expires_at'],
+          ['Telegram','telegram_status']
+        ];
+        const csvCell = value => {
+          let text = value == null ? '' : String(value);
+          if (/^[\\s]*[=+\\-@\\t\\r]/.test(text)) text = "'" + text;
+          return '"' + text.replace(/"/g, '""') + '"';
+        };
+        const csv = [
+          columns.map(c => csvCell(c[0])).join(','),
+          ...(result.results || []).map(row => columns.map(c => csvCell(row[c[1]])).join(','))
+        ].join('\\r\\n');
+        return new Response(csv, {
+          status: 200,
+          headers: {
+            'Content-Type': 'text/csv; charset=utf-8',
+            'Content-Disposition': 'attachment; filename="mydigitasset-accounts.csv"',
+            'Cache-Control': 'no-store'
+          }
+        });
+      }
+
+      // ADMIN: CREATE USER OR PAID CUSTOMER. New accounts must set their own password
+      // through the existing email + registered-mobile recovery process.
+      if (url.pathname === '/api/admin/customers' && method === 'POST') {
+        const admin = await getAuthorizedAdmin(request, env);
+        if (!admin) return json({ error: 'Administrator access required.' }, 403);
+        const data = await parseRequestBody(request);
+        const firstName = String(data.firstName || '').trim();
+        const surname = String(data.surname || '').trim();
+        const email = String(data.email || '').trim().toLowerCase();
+        const mobile = String(data.mobileNumber || '').replace(/\\D/g, '');
+        const category = String(data.category || '').trim();
+        const accountType = data.accountType === 'customer' ? 'customer' : 'user';
+        if (!firstName || !email || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email) ||
+            !/^[6-9]\\d{9}$/.test(mobile) || !category) {
+          return json({ error: 'Enter a first name, valid email, valid 10-digit mobile number and category.' }, 400);
+        }
+        if (email === ADMIN_EMAIL) return json({ error: 'The administrator identity cannot be added as a user.' }, 403);
+        const duplicate = await env.DB.prepare('SELECT id FROM users WHERE lower(email) = ? LIMIT 1').bind(email).first();
+        if (duplicate) return json({ error: 'An account with this email already exists.' }, 409);
+
+        const randomPassword = base64url(crypto.getRandomValues(new Uint8Array(32)));
+        const passwordHash = await hashPassword(randomPassword);
+        const now = new Date();
+        const trialExpiry = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000).toISOString();
+        const inserted = await env.DB.prepare(`
+          INSERT INTO users (first_name, surname, email, country_code, mobile_number,
+                             password, category, trial_expires_at, status, role)
+          VALUES (?, ?, ?, '+91', ?, ?, ?, ?, ?, 'customer')
+        `).bind(firstName, surname, email, mobile, passwordHash, category,
+          accountType === 'user' ? trialExpiry : null,
+          accountType === 'customer' ? 'active' : 'trial').run();
+        const userId = Number(inserted.meta?.last_row_id || 0);
+        if (accountType === 'customer') {
+          await env.DB.prepare(`
+            CREATE TABLE IF NOT EXISTS customer_subscription_periods (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              user_id INTEGER NOT NULL,
+              started_at TEXT NOT NULL,
+              expires_at TEXT NOT NULL,
+              created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+          `).run();
+          const expiry = new Date(now);
+          expiry.setUTCFullYear(expiry.getUTCFullYear() + 1);
+          await env.DB.prepare(`
+            INSERT INTO customer_subscription_periods (user_id, started_at, expires_at)
+            VALUES (?, ?, ?)
+          `).bind(userId, now.toISOString(), expiry.toISOString()).run();
+        }
+        await env.DB.prepare(`
+          INSERT INTO audit_logs (timestamp, admin_email, action, details)
+          VALUES (?, ?, ?, ?)
+        `).bind(new Date().toISOString(), admin.email, 'account_created',
+          'Created ' + accountType + ' account ID ' + userId).run();
+        return json({ success: true, id: String(userId), accountType,
+          message: 'Account created. The account holder must use Forgot Password with their registered email and mobile number to create their own password.' }, 201);
+      }
+
+      // ADMIN: EDIT ACCOUNT DETAILS. Payment and subscription records are not altered here.
+      const editCustomerMatch = url.pathname.match(/^\\/api\\/admin\\/customers\\/(\\d+)$/);
+      if (editCustomerMatch && method === 'PUT') {
+        const admin = await getAuthorizedAdmin(request, env);
+        if (!admin) return json({ error: 'Administrator access required.' }, 403);
+        const userId = Number(editCustomerMatch[1]);
+        const data = await parseRequestBody(request);
+        const firstName = String(data.firstName || '').trim();
+        const surname = String(data.surname || '').trim();
+        const email = String(data.email || '').trim().toLowerCase();
+        const mobile = String(data.mobileNumber || '').replace(/\\D/g, '');
+        const category = String(data.category || '').trim();
+        if (!firstName || !email || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email) ||
+            !/^[6-9]\\d{9}$/.test(mobile) || !category) {
+          return json({ error: 'Enter a first name, valid email, valid 10-digit mobile number and category.' }, 400);
+        }
+        if (email === ADMIN_EMAIL) return json({ error: 'The administrator identity cannot be assigned to a customer account.' }, 403);
+        const duplicate = await env.DB.prepare('SELECT id FROM users WHERE lower(email) = ? AND id <> ? LIMIT 1').bind(email, userId).first();
+        if (duplicate) return json({ error: 'Another account already uses this email.' }, 409);
+        const updated = await env.DB.prepare(`
+          UPDATE users SET first_name = ?, surname = ?, email = ?,
+            country_code = '+91', mobile_number = ?, category = ?
+          WHERE id = ? AND lower(email) <> ?
+        `).bind(firstName, surname, email, mobile, category, userId, ADMIN_EMAIL).run();
+        if (Number(updated.meta?.changes || 0) !== 1) return json({ error: 'Account not found.' }, 404);
+        await env.DB.prepare(`
+          INSERT INTO audit_logs (timestamp, admin_email, action, details)
+          VALUES (?, ?, ?, ?)
+        `).bind(new Date().toISOString(), admin.email, 'account_updated',
+          'Updated account ID ' + userId).run();
+        return json({ success: true, message: 'Account details updated.' });
+      }
+
+      // ADMIN: PERMANENTLY DELETE AN ACCOUNT AND ITS USER-OWNED RECORDS.
+      const deleteCustomerMatch = url.pathname.match(/^\\/api\\/admin\\/customers\\/(\\d+)$/);
+      if (deleteCustomerMatch && method === 'DELETE') {
+        const admin = await getAuthorizedAdmin(request, env);
+        if (!admin) return json({ error: 'Administrator access required.' }, 403);
+        const userId = Number(deleteCustomerMatch[1]);
+        const existing = await env.DB.prepare(
+          'SELECT id FROM users WHERE id = ? AND lower(email) <> ? LIMIT 1'
+        ).bind(userId, ADMIN_EMAIL).first();
+        if (!existing) return json({ error: 'Account not found.' }, 404);
+        await env.DB.batch([
+          env.DB.prepare('DELETE FROM auth_sessions WHERE user_id = ?').bind(userId),
+          env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(String(userId)),
+          env.DB.prepare('DELETE FROM delivery_logs WHERE user_id = ?').bind(String(userId)),
+          env.DB.prepare('DELETE FROM telegram_link_tokens WHERE user_id = ?').bind(String(userId)),
+          env.DB.prepare('DELETE FROM telegram_verification_tokens WHERE user_id = ?').bind(userId),
+          env.DB.prepare('DELETE FROM telegram_connections WHERE user_id = ?').bind(userId),
+          env.DB.prepare('DELETE FROM customer_telegram_notification_log WHERE user_id = ?').bind(userId),
+          env.DB.prepare('DELETE FROM customer_subscription_periods WHERE user_id = ?').bind(userId),
+          env.DB.prepare('DELETE FROM subscriptions WHERE user_id = ?').bind(userId),
+          env.DB.prepare('DELETE FROM category_access WHERE user_id = ?').bind(userId),
+          env.DB.prepare('DELETE FROM payments WHERE user_id = ?').bind(userId),
+          env.DB.prepare('DELETE FROM users WHERE id = ?').bind(userId)
+        ]);
+        await env.DB.prepare(`
+          INSERT INTO audit_logs (timestamp, admin_email, action, details)
+          VALUES (?, ?, ?, ?)
+        `).bind(new Date().toISOString(), admin.email, 'account_deleted',
+          'Permanently deleted account ID ' + userId + ' and associated records').run();
+        return json({ success: true, message: 'Account and associated database records deleted.' });
+      }
+
+      // ADMIN: REQUIRE PASSWORD RESET. Admin never receives or chooses a password.
+      const resetCustomerMatch = url.pathname.match(/^\\/api\\/admin\\/customers\\/(\\d+)\\/reset-password$/);
+      if (resetCustomerMatch && method === 'POST') {
+        const admin = await getAuthorizedAdmin(request, env);
+        if (!admin) return json({ error: 'Administrator access required.' }, 403);
+        const userId = Number(resetCustomerMatch[1]);
+        const existing = await env.DB.prepare(
+          'SELECT id FROM users WHERE id = ? AND lower(email) <> ? LIMIT 1'
+        ).bind(userId, ADMIN_EMAIL).first();
+        if (!existing) return json({ error: 'Account not found.' }, 404);
+        const inaccessiblePassword = base64url(crypto.getRandomValues(new Uint8Array(32)));
+        const passwordHash = await hashPassword(inaccessiblePassword);
+        await env.DB.batch([
+          env.DB.prepare('UPDATE users SET password = ? WHERE id = ?').bind(passwordHash, userId),
+          env.DB.prepare('DELETE FROM auth_sessions WHERE user_id = ?').bind(userId)
+        ]);
+        await env.DB.prepare(`
+          INSERT INTO audit_logs (timestamp, admin_email, action, details)
+          VALUES (?, ?, ?, ?)
+        `).bind(new Date().toISOString(), admin.email, 'password_reset_required',
+          'Invalidated password and sessions for account ID ' + userId).run();
+        return json({ success: true, message: 'Existing password invalidated. The account holder must use Forgot Password with their registered email and mobile number to create a new password.' });
+      }
+
+      // ADMIN: CUSTOMER, PAYMENT AND AUDIT DATA
 
       if (url.pathname === '/api/admin/payments' && method === 'GET') {
         const admin = await getAuthorizedAdmin(request, env);
