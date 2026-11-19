@@ -2390,13 +2390,14 @@ var worker_default = {
             const messageId = await sendTelegramConnectionTest(
               env,
               category.telegramChatId,
-              category.title
+              category.id
             );
             results.push({
               category: category.id,
               title: category.title,
               status: 'sent',
-              messageId
+              storyCount: messageId.storyCount,
+              messageIds: messageId.messageIds
             });
           } catch (error) {
             results.push({
@@ -2406,7 +2407,8 @@ var worker_default = {
               error: String(error?.message || error).slice(0, 250)
             });
           }
-          await new Promise(resolve => setTimeout(resolve, 350));
+          // Match the daily delivery pacing to reduce Google's shared RSS rate-limit risk.
+          await new Promise(resolve => setTimeout(resolve, 1200));
         }
 
         const sentCount = results.filter(item => item.status === 'sent').length;
