@@ -1,6 +1,6 @@
 // @ts-nocheck
 
-import { runAllCategoryNewsDeliveries, sendIndiaStartupsNewsTest } from "./telegram-news";
+import { runAllCategoryNewsDeliveries, sendIndiaStartupsNewsTest, retryBankingFintechNewsDelivery } from "./telegram-news";
 
 const CATEGORIES = [
   { id: 'banking-fintech', title: 'Banking and Fintech', telegramChatId: '-1004377330142' },
@@ -2328,6 +2328,29 @@ var worker_default = {
           success: true,
           user: publicUser(refreshedUser)
         });
+      }
+
+      // ADMIN: MANUAL RETRY FOR BANKING AND FINTECH ONLY (INITIAL CONTROLLED TEST).
+      if (url.pathname === '/api/admin/news/banking-fintech/retry' && method === 'POST') {
+        const admin = await getAuthorizedAdmin(request, env);
+        if (!admin) return json({ error: 'Administrator access required.' }, 403);
+
+        try {
+          const result = await retryBankingFintechNewsDelivery(env);
+          const statusCode = result.status === 'sent' ? 200 :
+            result.status === 'failed' ? 502 :
+            result.status === 'sending' ? 409 : 409;
+          return json({
+            success: result.status === 'sent',
+            category: 'banking-fintech',
+            status: result.status,
+            message: result.message
+          }, statusCode);
+        } catch (error) {
+          return json({
+            error: error?.message || 'Could not retry Banking and Fintech news delivery.'
+          }, 500);
+        }
       }
 
       // ADMIN: SEND A REAL 10-STORY INDIA STARTUPS NEWS TEST TO THE STARTUP CHANNEL
