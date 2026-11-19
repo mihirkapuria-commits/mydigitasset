@@ -1189,7 +1189,7 @@ var worker_default = {
         const csv = [
           columns.map(c => csvCell(c[0])).join(','),
           ...(result.results || []).map(row => columns.map(c => csvCell(row[c[1]])).join(','))
-        ].join('\\r\\n');
+        ].join('\r\n');
         return new Response(csv, {
           status: 200,
           headers: {
@@ -1209,11 +1209,11 @@ var worker_default = {
         const firstName = String(data.firstName || '').trim();
         const surname = String(data.surname || '').trim();
         const email = String(data.email || '').trim().toLowerCase();
-        const mobile = String(data.mobileNumber || '').replace(/\\D/g, '');
+        const mobile = String(data.mobileNumber || '').replace(/\D/g, '');
         const category = String(data.category || '').trim();
         const accountType = data.accountType === 'customer' ? 'customer' : 'user';
-        if (!firstName || !email || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email) ||
-            !/^[6-9]\\d{9}$/.test(mobile) || !category) {
+        if (!firstName || !email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ||
+            !/^[6-9]\d{9}$/.test(mobile) || !category) {
           return json({ error: 'Enter a first name, valid email, valid 10-digit mobile number and category.' }, 400);
         }
         if (email === ADMIN_EMAIL) return json({ error: 'The administrator identity cannot be added as a user.' }, 403);
@@ -1274,10 +1274,10 @@ var worker_default = {
         const firstName = String(data.firstName || '').trim();
         const surname = String(data.surname || '').trim();
         const email = String(data.email || '').trim().toLowerCase();
-        const mobile = String(data.mobileNumber || '').replace(/\\D/g, '');
+        const mobile = String(data.mobileNumber || '').replace(/\D/g, '');
         const category = String(data.category || '').trim();
-        if (!firstName || !email || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email) ||
-            !/^[6-9]\\d{9}$/.test(mobile) || !category) {
+        if (!firstName || !email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ||
+            !/^[6-9]\d{9}$/.test(mobile) || !category) {
           return json({ error: 'Enter a first name, valid email, valid 10-digit mobile number and category.' }, 400);
         }
         if (email === ADMIN_EMAIL) return json({ error: 'The administrator identity cannot be assigned to a customer account.' }, 403);
@@ -2087,7 +2087,7 @@ var worker_default = {
           return json({ error: 'Please enter a valid email address.' }, 400);
         }
 
-        if (!/^[6-9]\d{9}$/.test(mobileNumber)) {
+            !/^[6-9]\d{9}$/.test(mobile) || !category) {
           return json({ error: 'Please enter a valid 10-digit Indian mobile number.' }, 400);
         }
 
@@ -2342,7 +2342,7 @@ var worker_default = {
         const data = await parseRequestBody(request);
         const mobileNumber = String(data.mobileNumber || '').replace(/\D/g, '');
 
-        if (!/^[6-9]\d{9}$/.test(mobileNumber)) {
+            !/^[6-9]\d{9}$/.test(mobile) || !category) {
           return json({
             error: 'Please enter a valid 10-digit Indian mobile number.'
           }, 400);
