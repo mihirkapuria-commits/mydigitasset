@@ -1324,7 +1324,7 @@ var worker_default = {
       }
 
       // ADMIN: PRESERVE THE EXISTING APPROVE / STOP CONTROLS.
-      const statusCustomerMatch = url.pathname.match(/^\\/api\\/admin\\/customers\\/(\\d+)\\/status$/);
+      const statusCustomerMatch = url.pathname.match(/^\/api\/admin\/customers\/(\d+)\/status$/);
       if (statusCustomerMatch && method === 'POST') {
         const admin = await getAuthorizedAdmin(request, env);
         if (!admin) return json({ error: 'Administrator access required.' }, 403);
