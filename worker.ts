@@ -1,6 +1,6 @@
 // @ts-nocheck
 
-import { runAllCategoryNewsDeliveries, sendIndiaStartupsNewsTest, retryBankingFintechNewsDelivery, sendTelegramConnectionTest } from "./telegram-news";
+import { runAllCategoryNewsDeliveries, sendIndiaStartupsNewsTest, retryBankingFintechNewsDelivery, sendTelegramConnectionTest, sendAllCategoryNewsTests } from "./telegram-news";
 
 const CATEGORIES = [
   { id: 'banking-fintech', title: 'Banking and Fintech', telegramChatId: '-1004377330142' },
@@ -2476,6 +2476,94 @@ var worker_default = {
           return json({
             error: error?.message || 'Could not retry Banking and Fintech news delivery.'
           }, 500);
+        }
+      }
+
+      // ADMIN: START A SEPARATE, LABELLED 10-STORY TEST FOR ALL 15 NEWS CHANNELS.
+      // This does not write the daily delivery keys and therefore cannot mark the scheduled digest as sent.
+      if (url.pathname === '/api/admin/news/all/test' && method === 'POST') {
+        const admin = await getAuthorizedAdmin(request, env);
+        if (!admin) return json({ error: 'Administrator access required.' }, 403);
+
+        const channelsResult = await env.DB.prepare(`
+          SELECT id, title, telegram_chat_id
+          FROM managed_categories
+          WHERE active = 1 AND telegram_chat_id IS NOT NULL AND telegram_chat_id <> ''
+          ORDER BY display_order, title
+        `).all();
+        const channels = channelsResult.results || [];
+        const runId = randomId("news_test");
+        const settingKey = "news_all_channel_test:" + runId;
+        const initial = {
+          status: "running",
+          total: 15,
+          sent: 0,
+          failed: 0,
+          results: [],
+          startedAt: new Date().toISOString()
+        };
+        await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)")
+          .bind(settingKey, JSON.stringify(initial)).run();
+
+        ctx.waitUntil((async () => {
+          try {
+            const results = await sendAllCategoryNewsTests(env, channels, async (item) => {
+              const current = await env.DB.prepare("SELECT value FROM settings WHERE key = ?")
+                .bind(settingKey).first();
+              let progress = initial;
+              try { progress = JSON.parse(String(current?.value || "")) || initial; } catch {}
+              progress.results = [...(progress.results || []).filter(row => row.category !== item.category), item];
+              progress.sent = progress.results.filter(row => row.status === "sent").length;
+              progress.failed = progress.results.filter(row => row.status === "failed").length;
+              await env.DB.prepare("UPDATE settings SET value = ? WHERE key = ?")
+                .bind(JSON.stringify(progress), settingKey).run();
+            });
+            const completed = {
+              status: "completed",
+              total: 15,
+              sent: results.filter(item => item.status === "sent").length,
+              failed: results.filter(item => item.status === "failed").length,
+              results,
+              startedAt: initial.startedAt,
+              completedAt: new Date().toISOString()
+            };
+            await env.DB.prepare("UPDATE settings SET value = ? WHERE key = ?")
+              .bind(JSON.stringify(completed), settingKey).run();
+          } catch (error) {
+            const failed = {
+              ...initial,
+              status: "failed",
+              error: String(error?.message || error).slice(0, 250),
+              completedAt: new Date().toISOString()
+            };
+            await env.DB.prepare("UPDATE settings SET value = ? WHERE key = ?")
+              .bind(JSON.stringify(failed), settingKey).run();
+          }
+        })());
+
+        return json({
+          success: true,
+          runId,
+          status: "running",
+          total: 15,
+          message: "The all-channel news test has started. Each channel will receive a separate TEST DELIVERY message if its 10-story digest succeeds."
+        }, 202);
+      }
+
+      if (url.pathname === '/api/admin/news/all/test/status' && method === 'GET') {
+        const admin = await getAuthorizedAdmin(request, env);
+        if (!admin) return json({ error: 'Administrator access required.' }, 403);
+        const runId = String(url.searchParams.get('runId') || "");
+        if (!/^news_test_[A-Za-z0-9_-]{10,80}$/.test(runId)) {
+          return json({ error: 'A valid news test run ID is required.' }, 400);
+        }
+        const record = await env.DB.prepare("SELECT value FROM settings WHERE key = ?")
+          .bind("news_all_channel_test:" + runId).first();
+        if (!record?.value) return json({ error: 'News test run was not found.' }, 404);
+        try {
+          return json(JSON.parse(String(record.value)));
+        } catch {
+          return json({ error: 'News test progress could not be read.' }, 500);
         }
       }
 
