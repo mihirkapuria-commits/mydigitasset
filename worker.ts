@@ -1248,6 +1248,12 @@ var worker_default = {
             INSERT INTO customer_subscription_periods (user_id, started_at, expires_at)
             VALUES (?, ?, ?)
           `).bind(userId, now.toISOString(), expiry.toISOString()).run();
+          const pricing = await getPricingSettings(env);
+          const adminReference = 'ADMIN-MANUAL-' + userId + '-' + Date.now();
+          await env.DB.prepare(`
+            INSERT INTO payments (user_id, amount, utr_number, status)
+            VALUES (?, ?, ?, 'approved')
+          `).bind(userId, pricing.totalAmount, adminReference).run();
         }
         await env.DB.prepare(`
           INSERT INTO audit_logs (timestamp, admin_email, action, details)
