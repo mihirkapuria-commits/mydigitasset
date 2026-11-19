@@ -181,10 +181,17 @@ async function runCategoryNewsDelivery(env: NewsEnv, source: CategoryNewsSource,
     return "skipped";
   }
 
+  let failureStage = "google_news_rss";
   try {
     const articles = await fetchGoogleNewsArticles(env, source.googleNewsUrl);
+
+    failureStage = "gemini_summarization";
     const stories = await summarizeArticles(env.GEMINI_API_KEY!, source.topic, articles);
+
+    failureStage = "message_formatting";
     const message = buildNewsMessage(source.topic, stories, articles);
+
+    failureStage = "telegram_send";
     const sentIds = await sendNewsMessage(env.TELEGRAM_BOT_TOKEN!, telegramChannelId, message);
 
     await env.DB.prepare("UPDATE settings SET value = ? WHERE key = ?")
@@ -192,10 +199,17 @@ async function runCategoryNewsDelivery(env: NewsEnv, source: CategoryNewsSource,
     console.log(source.topic + " daily news digest sent. Story count:", stories.length, "Message IDs:", sentIds.join(","));
     return "sent";
   } catch (error: any) {
+    const rawMessage = String(error?.message || error || "Unknown error");
+    const safeMessage = rawMessage
+      .replace(env.TELEGRAM_BOT_TOKEN || "__NO_TELEGRAM_TOKEN__", "[REDACTED]")
+      .replace(/\\s+/g, " ")
+      .slice(0, 300);
+    const failureRecord = "failed:" + Date.now() + ":" + failureStage + ":" + safeMessage;
+
     await env.DB.prepare("UPDATE settings SET value = ? WHERE key = ?")
-      .bind("failed:" + Date.now(), deliveryKey).run()
+      .bind(failureRecord, deliveryKey).run()
       .catch((dbError: any) => console.error("Could not record failed delivery:", dbError));
-    console.error(source.topic + " daily news delivery failed:", error?.message || error);
+    console.error(source.topic + " daily news delivery failed at " + failureStage + ":", safeMessage);
     return "failed";
   }
 }
