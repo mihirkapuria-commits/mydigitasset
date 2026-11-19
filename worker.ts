@@ -1112,7 +1112,8 @@ var worker_default = {
 
         const result = await env.DB.prepare(`
           SELECT u.id, u.first_name, u.surname, u.email, u.country_code, u.mobile_number,
-                 u.category, u.trial_expires_at, u.status, u.role, u.created_at,
+                 u.category, COALESCE(mc.title, u.category) AS category_display,
+                 u.trial_expires_at, u.status, u.role, u.created_at,
                  EXISTS (
                    SELECT 1 FROM telegram_connections tc WHERE tc.user_id = u.id
                  ) AS telegram_connected,
@@ -1133,12 +1134,15 @@ var worker_default = {
                    WHERE sp.user_id = u.id
                  ) AS subscription_expires_at
           FROM users u
+          LEFT JOIN managed_categories mc ON mc.id = u.category
           WHERE lower(u.email) <> ?
           ORDER BY u.created_at DESC
         `).bind(ADMIN_EMAIL).all();
 
         return json((result.results || []).map(user => ({
           ...publicUser(user),
+          category: user.category_display || user.category || '',
+          categories: (user.category_display || user.category) ? [user.category_display || user.category] : [],
           accountType: Number(user.has_paid_history) === 1 ? 'customer' : 'user',
           paymentStatus: user.latest_payment_status === 'approved'
             ? 'verified'
@@ -1155,7 +1159,7 @@ var worker_default = {
           (url.searchParams.get('type') === 'users' ? 'User' : '');
         const result = await env.DB.prepare(`
           SELECT u.id, u.first_name, u.surname, u.email, u.country_code, u.mobile_number,
-                 u.category, u.status, u.created_at, u.trial_expires_at,
+                 COALESCE(mc.title, u.category) AS category, u.status, u.created_at, u.trial_expires_at,
                  CASE WHEN EXISTS (
                    SELECT 1 FROM payments p
                    WHERE p.user_id = u.id AND lower(p.status) IN ('approved', 'verified')
@@ -1168,6 +1172,7 @@ var worker_default = {
                    SELECT 1 FROM telegram_connections tc WHERE tc.user_id = u.id
                  ) THEN 'Connected' ELSE 'Not connected' END AS telegram_status
           FROM users u
+          LEFT JOIN managed_categories mc ON mc.id = u.category
           WHERE lower(u.email) <> ?
             AND (? = '' OR (CASE WHEN EXISTS (
               SELECT 1 FROM payments p
