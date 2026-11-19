@@ -1220,6 +1220,7 @@ var worker_default = {
         const duplicate = await env.DB.prepare('SELECT id FROM users WHERE lower(email) = ? LIMIT 1').bind(email).first();
         if (duplicate) return json({ error: 'An account with this email already exists.' }, 409);
 
+        const pricing = accountType === 'customer' ? await getPricingSettings(env) : null;
         const randomPassword = base64url(crypto.getRandomValues(new Uint8Array(32)));
         const passwordHash = await hashPassword(randomPassword);
         const now = new Date();
@@ -1248,7 +1249,6 @@ var worker_default = {
             INSERT INTO customer_subscription_periods (user_id, started_at, expires_at)
             VALUES (?, ?, ?)
           `).bind(userId, now.toISOString(), expiry.toISOString()).run();
-          const pricing = await getPricingSettings(env);
           const adminReference = 'ADMIN-MANUAL-' + userId + '-' + Date.now();
           await env.DB.prepare(`
             INSERT INTO payments (user_id, amount, utr_number, status)
