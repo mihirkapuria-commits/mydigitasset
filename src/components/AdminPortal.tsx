@@ -37,6 +37,17 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
+  const [allNewsTesting, setAllNewsTesting] = useState(false);
+  const [allNewsTestResults, setAllNewsTestResults] = useState<Array<{
+    category: string;
+    title: string;
+    status: 'sent' | 'failed';
+    storyCount?: number;
+    error?: string;
+    messageIds?: number[];
+  }>>([]);
+  const [allNewsTestSummary, setAllNewsTestSummary] = useState('');
+
   const [testSending, setTestSending] = useState(false);
   const [testResult, setTestResult] = useState('');
   const [allTelegramTesting, setAllTelegramTesting] = useState(false);
@@ -212,6 +223,62 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       setTestResult('Test failed: ' + err.message);
     } finally {
       setTestSending(false);
+    }
+  };
+
+  const handleTestAllNewsChannels = async () => {
+    if (!confirm('Send a separate TEST DELIVERY containing 10 real news stories to each of the 15 Telegram channels? This will send up to 150 stories in total. It will NOT mark today’s scheduled news as delivered.')) return;
+
+    setAllNewsTesting(true);
+    setAllNewsTestResults([]);
+    setAllNewsTestSummary('Starting the 15-channel news test…');
+
+    try {
+      const startRes = await fetch('/api/admin/news/all/test', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const startData = await startRes.json();
+      if (!startRes.ok || !startData.runId) {
+        throw new Error(startData.error || 'Could not start the all-channel news test.');
+      }
+
+      setAllNewsTestSummary('Test started. Preparing 10 stories for each channel…');
+
+      for (let attempt = 0; attempt < 180; attempt++) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        const statusRes = await fetch(
+          '/api/admin/news/all/test/status?runId=' + encodeURIComponent(startData.runId),
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        const statusData = await statusRes.json();
+        if (!statusRes.ok) throw new Error(statusData.error || 'Could not read news test progress.');
+
+        const results = Array.isArray(statusData.results) ? statusData.results : [];
+        setAllNewsTestResults(results);
+        setAllNewsTestSummary(
+          'Progress: ' + results.length + ' of 15 channels processed; ' +
+          (statusData.sent || 0) + ' sent, ' + (statusData.failed || 0) + ' failed.'
+        );
+
+        if (statusData.status === 'completed') {
+          setAllNewsTestSummary(
+            'Completed: ' + (statusData.sent || 0) + ' channels received 10 stories; ' +
+            (statusData.failed || 0) + ' failed, out of 15.'
+          );
+          break;
+        }
+        if (statusData.status === 'failed') {
+          throw new Error(statusData.error || 'The all-channel news test stopped unexpectedly.');
+        }
+        if (attempt === 179) {
+          setAllNewsTestSummary('The test is still running in the background. Please refresh the Admin Dashboard shortly to check again.');
+        }
+      }
+    } catch (err: any) {
+      setAllNewsTestSummary('News test error: ' + (err.message || 'Unknown error.'));
+    } finally {
+      setAllNewsTesting(false);
     }
   };
 
@@ -465,6 +532,16 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
           <div className="flex items-center gap-3 flex-wrap">
             <button
+              onClick={handleTestAllNewsChannels}
+              disabled={allNewsTesting}
+              className="px-4 py-2 text-xs font-semibold rounded-lg bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white"
+            >
+              {allNewsTesting
+                ? 'Testing 10 stories in all 15…'
+                : 'Test 10 News × 15 Channels'}
+            </button>
+
+            <button
               onClick={handleTestIndiaStartupsNews}
               disabled={testSending}
               className="px-4 py-2 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white"
@@ -584,6 +661,40 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         {testResult && (
           <div className="p-4 rounded-xl bg-slate-100 border border-slate-200 text-slate-700 text-xs font-medium">
             {testResult}
+          </div>
+        )}
+
+        {allNewsTestSummary && (
+          <div className="p-4 rounded-xl bg-violet-50 border border-violet-200 text-violet-900 space-y-3">
+            <p className="text-sm font-semibold">{allNewsTestSummary}</p>
+            {allNewsTestResults.length > 0 && (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="border-b border-violet-200 text-violet-700">
+                      <th className="py-2 pr-4">Channel</th>
+                      <th className="py-2 pr-4">Result</th>
+                      <th className="py-2">Details</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {allNewsTestResults.map((item, index) => (
+                      <tr key={item.category || index} className="border-b border-violet-100 last:border-0">
+                        <td className="py-2 pr-4 font-medium">{item.title || item.category}</td>
+                        <td className={`py-2 pr-4 font-semibold ${item.status === 'sent' ? 'text-emerald-700' : 'text-red-700'}`}>
+                          {item.status === 'sent' ? 'Sent · ' + (item.storyCount || 0) + ' stories' : 'Failed'}
+                        </td>
+                        <td className="py-2">
+                          {item.status === 'sent'
+                            ? 'Telegram message ID(s): ' + ((item.messageIds || []).join(', ') || 'confirmed')
+                            : (item.error || 'No error details returned.')}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         )}
 
