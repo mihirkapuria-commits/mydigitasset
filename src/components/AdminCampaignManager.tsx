@@ -8,7 +8,7 @@ type Campaign = {
   id: string; campaign_name: string; product_name: string; message_text: string;
   image_url: string; affiliate_url: string; tracking_parameter: string; link_label: string;
   affiliate_disclosure: string; status: string; scheduled_for: string;
-  sent_channels: number; failed_channels: number;
+  sent_channels: number; failed_channels: number; target_channel_ids?: string;
 };
 type ConversionRow = { id: string; networkName: string; orderReference: string; orderAmount: number; commissionAmount: number; currency: string; status: string; purchasedAt?: string; reportedAt: string; productName: string; sourceType: string; sourceId: string; sourceName: string; campaignName: string; };
 type DeliveryRow = { channelName: string; channelId: string; status: string; telegramMessageId?: string; trackingCode?: string; errorMessage?: string; attempts: number; deliveredAt?: string; };
@@ -36,6 +36,7 @@ export const AdminCampaignManager: React.FC<Props> = ({ token }) => {
   const [deliveryCampaignName, setDeliveryCampaignName] = useState('');
   const [deliveryCampaignId, setDeliveryCampaignId] = useState('');
   const [campaignForm, setCampaignForm] = useState(emptyCampaign);
+  const [selectedChannelIds, setSelectedChannelIds] = useState<string[]>([]);
   const [editingCampaignId, setEditingCampaignId] = useState('');
   const [categoryForm, setCategoryForm] = useState({
     id: '', title: '', description: '', telegramChatId: '', displayOrder: '0'
@@ -90,6 +91,7 @@ export const AdminCampaignManager: React.FC<Props> = ({ token }) => {
         throw new Error(catData.error || campaignData.error || analyticsData.error || conversionsData.error || 'Unable to load campaign administration data.');
       }
       setCategories(catData);
+      setSelectedChannelIds(current => current.length ? current.filter(id => catData.some((c: Category) => c.id === id && c.active)) : catData.filter((c: Category) => c.active).map((c: Category) => c.id));
       setCampaigns(campaignData);
       setAnalytics(analyticsData);
       setConversionReports(conversionsData);
@@ -122,7 +124,7 @@ export const AdminCampaignManager: React.FC<Props> = ({ token }) => {
       const response = await fetch(url, {
         method: editingCampaignId ? 'PUT' : 'POST',
         headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify(campaignForm)
+        body: JSON.stringify({ ...campaignForm, targetChannelIds: selectedChannelIds })
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Could not save campaign.');
@@ -144,7 +146,7 @@ export const AdminCampaignManager: React.FC<Props> = ({ token }) => {
   };
 
   const approveCampaign = async (id: string) => {
-    if (!window.confirm('Approve this campaign? It will be sent to every active, configured category Telegram channel on its scheduled 14th or 28th date.')) return;
+    if (!window.confirm('Schedule this advertisement for the next fixed 14th or 28th date at 06:15 IST? It will be sent only to the channels selected for this campaign, as a separate message after that day’s news delivery.')) return;
     setError(''); setNotice('');
     try {
       const response = await fetch(`/api/admin/promotions/${encodeURIComponent(id)}/approve`, {
@@ -152,12 +154,27 @@ export const AdminCampaignManager: React.FC<Props> = ({ token }) => {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Could not approve campaign.');
-      setNotice(`Approved. Scheduled for ${data.scheduledFor} (India time).`);
+      setNotice(`Scheduled for ${data.scheduledFor} at 06:15 IST. The advertisement will be a separate message after the news delivery.`);
       await loadAll();
     } catch (e: any) { setError(e.message); }
   };
 
+  const sendCampaignNow = async (campaign: Campaign) => {
+    const selectedCount = (() => { try { return JSON.parse(campaign.target_channel_ids || '[]').length || categories.filter(c => c.active).length; } catch { return categories.filter(c => c.active).length; } })();
+    if (!window.confirm(`Send this advertisement now to ${selectedCount} selected channel(s)? This sends a separate Telegram message and cannot be recalled.`)) return;
+    setError(''); setNotice('');
+    try {
+      const response = await fetch(`/api/admin/promotions/${encodeURIComponent(campaign.id)}/send-now`, { method: 'POST', headers });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Could not send advertisement.');
+      setNotice(`Advertisement send attempt finished: ${data.sent} sent, ${data.failed} failed.`);
+      await viewDeliveries(campaign);
+      await loadAll();
+    } catch (e: any) { setError(e.message || 'Could not send advertisement.'); }
+  };
+
   const editCampaign = (c: Campaign) => {
+    setSelectedChannelIds((() => { try { const ids = JSON.parse(c.target_channel_ids || '[]'); return ids.length ? ids : categories.filter(x => x.active).map(x => x.id); } catch { return categories.filter(x => x.active).map(x => x.id); } })());
     setEditingCampaignId(c.id);
     setCampaignForm({
       campaignName: c.campaign_name || '', productName: c.product_name || '',
@@ -261,7 +278,7 @@ export const AdminCampaignManager: React.FC<Props> = ({ token }) => {
         <section className="bg-white border border-slate-200 rounded-2xl p-5 space-y-4">
           <div>
             <h2 className="font-bold text-slate-900">{editingCampaignId ? 'Edit promotional campaign' : 'Create promotional campaign'}</h2>
-            <p className="text-xs text-slate-500 mt-1">Drafts can be prepared early. Approval schedules the latest version for the next 14th or 28th at 06:15 IST. Sending is limited to every active, configured category channel. Edits are allowed until delivery starts.</p>
+            <p className="text-xs text-slate-500 mt-1">Choose the channels for this campaign. Scheduling is restricted to the 14th and 28th at 06:15 IST. On those dates, the advertisement is sent as a separate message after that channel’s daily news delivery.</p>
           </div>
           <div className="grid md:grid-cols-2 gap-3">
             <label className="text-xs font-semibold text-slate-700">Campaign name
@@ -292,6 +309,22 @@ export const AdminCampaignManager: React.FC<Props> = ({ token }) => {
             <label className="text-xs font-semibold text-slate-700">Affiliate disclosure
               <input className="mt-1 w-full border rounded-lg p-2 text-sm" value={campaignForm.affiliateDisclosure} onChange={e => setCampaignForm({ ...campaignForm, affiliateDisclosure: e.target.value })} />
             </label>
+          </div>
+          <div className="rounded-xl border border-slate-200 p-4 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div><h3 className="text-sm font-bold">Target Telegram channels</h3><p className="text-xs text-slate-500">Select one or more active channels. All 15 are selected by default.</p></div>
+              <div className="flex gap-2">
+                <button type="button" onClick={() => setSelectedChannelIds(categories.filter(c => c.active).map(c => c.id))} className="px-3 py-1.5 rounded-lg border text-xs">Select all</button>
+                <button type="button" onClick={() => setSelectedChannelIds([])} className="px-3 py-1.5 rounded-lg border text-xs">Clear</button>
+              </div>
+            </div>
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
+              {categories.filter(c => c.active).map(c => <label key={c.id} className="flex items-center gap-2 rounded-lg border border-slate-200 p-2 text-xs">
+                <input type="checkbox" checked={selectedChannelIds.includes(c.id)} onChange={e => setSelectedChannelIds(current => e.target.checked ? [...current, c.id] : current.filter(id => id !== c.id))} />
+                <span>{c.title}</span>
+              </label>)}
+            </div>
+            {!selectedChannelIds.length && <p className="text-xs text-red-600">Select at least one channel before saving.</p>}
           </div>
           <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 space-y-3">
             <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500">Telegram message preview</h3>
@@ -324,9 +357,10 @@ export const AdminCampaignManager: React.FC<Props> = ({ token }) => {
                   <td className="p-3 whitespace-nowrap space-x-1">
                     {c.status !== 'sent' && c.status !== 'cancelled' && <>
                       <button onClick={() => editCampaign(c)} className="px-2 py-1 rounded bg-slate-100">Edit</button>
-                      <button onClick={() => approveCampaign(c.id)} className="px-2 py-1 rounded bg-emerald-600 text-white">{c.status === 'approved' ? 'Retry / Reschedule' : 'Approve'}</button>
+                      <button onClick={() => approveCampaign(c.id)} className="px-2 py-1 rounded bg-emerald-600 text-white">{c.status === 'approved' ? 'Retry / Reschedule' : 'Schedule Advertisement'}</button>
                       <button onClick={() => deleteCampaign(c.id)} className="px-2 py-1 rounded bg-red-50 text-red-700">Delete</button>
                     </>}
+                    {(c.status !== 'sent' || c.failed_channels > 0) && <button onClick={() => sendCampaignNow(c)} className="px-2 py-1 rounded bg-sky-700 text-white">Send Advertisement Now</button>}
                     <button onClick={() => viewDeliveries(c)} className="px-2 py-1 rounded bg-indigo-50 text-indigo-700">Delivery report</button>
                   </td>
                 </tr>)}

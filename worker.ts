@@ -595,6 +595,9 @@ function getIndiaDateTimeParts(date = new Date()) {
 }
 
 function nextPromotionDate(date = new Date()) {
+  // Promotional campaigns may only be scheduled for the 14th or 28th
+  // in India time. If today's 06:15 IST delivery window has passed,
+  // choose the next fixed date rather than shifting to another day.
   const p = getIndiaDateTimeParts(date);
   let year = Number(p.year);
   let month = Number(p.month);
@@ -671,38 +674,71 @@ async function sendPromotionToChannel(env, campaign, channel, delivery) {
   return String(result.result?.message_id || "");
 }
 
-async function runDuePromotionCampaigns(env) {
-  const today = getIndiaDateTimeParts().year + "-" +
-    getIndiaDateTimeParts().month + "-" + getIndiaDateTimeParts().day;
-  const campaign = await env.DB.prepare(`
-    SELECT * FROM promo_campaigns
-    WHERE status = 'approved' AND scheduled_for = ?
-    ORDER BY updated_at DESC
-    LIMIT 1
-  `).bind(today).first();
-  if (!campaign) return;
+async function ensurePromotionTargetTable(env) {
+  await env.DB.prepare(`
+    CREATE TABLE IF NOT EXISTS promo_campaign_targets (
+      campaign_id TEXT NOT NULL,
+      category_id TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (campaign_id, category_id)
+    )
+  `).run();
+}
 
-  const channelsResult = await env.DB.prepare(`
+async function savePromotionTargets(env, campaignId, targetCategoryIds) {
+  await ensurePromotionTargetTable(env);
+  const requested = Array.isArray(targetCategoryIds)
+    ? [...new Set(targetCategoryIds.map(value => String(value || "").trim()).filter(Boolean))]
+    : [];
+  const valid = await env.DB.prepare(`
+    SELECT id FROM managed_categories
+    WHERE active = 1 AND telegram_chat_id <> ''
+  `).all();
+  const allowed = new Set((valid.results || []).map(row => String(row.id)));
+  const selected = requested.filter(id => allowed.has(id));
+  if (!selected.length) throw new Error("Select at least one active Telegram channel.");
+  await env.DB.prepare("DELETE FROM promo_campaign_targets WHERE campaign_id = ?").bind(campaignId).run();
+  for (const categoryId of selected) {
+    await env.DB.prepare(`
+      INSERT OR IGNORE INTO promo_campaign_targets (campaign_id, category_id)
+      VALUES (?, ?)
+    `).bind(campaignId, categoryId).run();
+  }
+  return selected;
+}
+
+async function getPromotionChannels(env, campaignId) {
+  await ensurePromotionTargetTable(env);
+  const targets = await env.DB.prepare(`
+    SELECT mc.id, mc.title, mc.telegram_chat_id
+    FROM promo_campaign_targets t
+    JOIN managed_categories mc ON mc.id = t.category_id
+    WHERE t.campaign_id = ? AND mc.active = 1 AND mc.telegram_chat_id <> ''
+    ORDER BY mc.display_order, mc.title
+  `).bind(campaignId).all();
+  if ((targets.results || []).length) return targets.results;
+  // Backward compatibility: campaigns created before channel targeting go to all active channels.
+  const all = await env.DB.prepare(`
     SELECT id, title, telegram_chat_id
     FROM managed_categories
     WHERE active = 1 AND telegram_chat_id <> ''
     ORDER BY display_order, title
   `).all();
-  const channels = channelsResult.results || [];
-  if (!channels.length) {
-    console.error("Promotion skipped: no active Telegram channels are configured.");
-    return;
-  }
+  return all.results || [];
+}
 
+async function deliverPromotionCampaign(env, campaign, channels) {
+  const results = [];
   for (const channel of channels) {
+    const chatId = String(channel.telegram_chat_id);
     let delivery = await env.DB.prepare(`
       SELECT * FROM promo_deliveries
-      WHERE campaign_id = ? AND channel_id = ?
-      LIMIT 1
-    `).bind(campaign.id, String(channel.telegram_chat_id)).first();
-
-    if (delivery?.status === "sent") continue;
-
+      WHERE campaign_id = ? AND channel_id = ? LIMIT 1
+    `).bind(campaign.id, chatId).first();
+    if (delivery?.status === "sent") {
+      results.push({ channelId: chatId, channelName: channel.title, status: "sent", skipped: true });
+      continue;
+    }
     if (!delivery) {
       const trackingCode = base64url(crypto.getRandomValues(new Uint8Array(24)));
       const deliveryId = randomId("pd");
@@ -710,80 +746,113 @@ async function runDuePromotionCampaigns(env) {
         INSERT OR IGNORE INTO promo_deliveries
           (id, campaign_id, channel_id, channel_name, status, tracking_code, attempts)
         VALUES (?, ?, ?, ?, 'pending', ?, 0)
-      `).bind(deliveryId, campaign.id, String(channel.telegram_chat_id),
-        channel.title, trackingCode).run();
-
-      await env.DB.prepare(`
-        INSERT OR IGNORE INTO affiliate_tracking_links
-          (tracking_code, campaign_id, product_name, source_type, source_id, outbound_url, created_at)
-        VALUES (?, ?, ?, 'telegram', ?, ?, ?)
-      `).bind(trackingCode, campaign.id, campaign.product_name || campaign.campaign_name,
-        String(channel.id), makeAffiliateDestination(campaign.affiliate_url, campaign.tracking_parameter, trackingCode), new Date().toISOString()).run();
-
+      `).bind(deliveryId, campaign.id, chatId, channel.title, trackingCode).run();
       delivery = await env.DB.prepare(`
         SELECT * FROM promo_deliveries
-        WHERE campaign_id = ? AND channel_id = ?
-        LIMIT 1
-      `).bind(campaign.id, String(channel.telegram_chat_id)).first();
+        WHERE campaign_id = ? AND channel_id = ? LIMIT 1
+      `).bind(campaign.id, chatId).first();
     }
-
+    let trackingCode = String(delivery?.tracking_code || "");
+    if (!trackingCode) {
+      trackingCode = base64url(crypto.getRandomValues(new Uint8Array(24)));
+      await env.DB.prepare("UPDATE promo_deliveries SET tracking_code = ? WHERE id = ?")
+        .bind(trackingCode, delivery.id).run();
+    }
+    await env.DB.prepare(`
+      INSERT OR IGNORE INTO affiliate_tracking_links
+        (tracking_code, campaign_id, product_name, source_type, source_id, outbound_url, created_at)
+      VALUES (?, ?, ?, 'telegram', ?, ?, ?)
+    `).bind(trackingCode, campaign.id, campaign.product_name || campaign.campaign_name,
+      String(channel.id), makeAffiliateDestination(campaign.affiliate_url, campaign.tracking_parameter, trackingCode),
+      new Date().toISOString()).run();
     try {
-      if (!campaign.affiliate_url) {
-        throw new Error("Campaign has no affiliate destination URL.");
-      }
-      const messageId = await sendPromotionToChannel(env, campaign, channel, delivery);
+      if (!campaign.affiliate_url) throw new Error("Campaign has no affiliate destination URL.");
+      const messageId = await sendPromotionToChannel(env, campaign, channel, { ...delivery, tracking_code: trackingCode });
       await env.DB.prepare(`
         UPDATE promo_deliveries
         SET status = 'sent', telegram_message_id = ?, error_message = NULL,
             attempts = attempts + 1, delivered_at = ?, updated_at = ?
         WHERE id = ?
       `).bind(messageId, new Date().toISOString(), new Date().toISOString(), delivery.id).run();
+      results.push({ channelId: chatId, channelName: channel.title, status: "sent", messageId });
     } catch (error) {
+      const message = String(error?.message || error).slice(0, 500);
       await env.DB.prepare(`
         UPDATE promo_deliveries
         SET status = 'failed', error_message = ?, attempts = attempts + 1, updated_at = ?
         WHERE id = ?
-      `).bind(String(error?.message || error).slice(0, 500),
-        new Date().toISOString(), delivery.id).run();
-      console.error("Promotion delivery failed for channel " + channel.title + ":", String(error));
+      `).bind(message, new Date().toISOString(), delivery.id).run();
+      results.push({ channelId: chatId, channelName: channel.title, status: "failed", error: message });
+      console.error("Promotion delivery failed for channel " + channel.title + ":", message);
     }
   }
-
-  const remaining = await env.DB.prepare(`
-    SELECT COUNT(*) AS count FROM promo_deliveries
-    WHERE campaign_id = ? AND status <> 'sent'
+  const counts = await env.DB.prepare(`
+    SELECT COUNT(*) AS total,
+      SUM(CASE WHEN status = 'sent' THEN 1 ELSE 0 END) AS sent,
+      SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed
+    FROM promo_deliveries WHERE campaign_id = ?
   `).bind(campaign.id).first();
-  if (Number(remaining?.count || 0) === 0) {
+  const allSent = Number(counts?.total || 0) > 0 &&
+    Number(counts?.sent || 0) === channels.length;
+  if (allSent) {
     await env.DB.prepare(`
       UPDATE promo_campaigns SET status = 'sent', sent_at = ?, updated_at = ?
-      WHERE id = ? AND status = 'approved'
+      WHERE id = ?
     `).bind(new Date().toISOString(), new Date().toISOString(), campaign.id).run();
   }
+  return { total: channels.length, sent: results.filter(row => row.status === "sent").length,
+    failed: results.filter(row => row.status === "failed").length, allSent, results };
 }
 
+async function runDuePromotionCampaigns(env) {
+  const parts = getIndiaDateTimeParts();
+  const today = parts.year + "-" + parts.month + "-" + parts.day;
+  const campaigns = await env.DB.prepare(`
+    SELECT * FROM promo_campaigns
+    WHERE status = 'approved' AND scheduled_for = ?
+    ORDER BY updated_at ASC
+  `).bind(today).all();
+  for (const campaign of (campaigns.results || [])) {
+    const channels = await getPromotionChannels(env, campaign.id);
+    if (!channels.length) {
+      console.error("Promotion skipped: no selected active Telegram channels are configured.");
+      continue;
+    }
+    await deliverPromotionCampaign(env, campaign, channels);
+  }
+}
 var worker_default = {
   async scheduled(controller, env, ctx) {
+    const cron = String(controller.cron || "");
     // The 07:15 IST cron sends private customer account reminders.
-    if (String(controller.cron || "") === "45 1 * * *") {
+    if (cron === "45 1 * * *") {
       ctx.waitUntil(sendScheduledCustomerReminders(env));
       return;
     }
 
-    // The 06:15 IST run sends the daily digests; the 06:45 IST run retries failed category deliveries.
-    // Daily news is delivered to active category channels only, never to individual customers.
     const channelsResult = await env.DB.prepare(`
       SELECT id, title, telegram_chat_id
       FROM managed_categories
       WHERE active = 1 AND telegram_chat_id IS NOT NULL AND telegram_chat_id <> ''
       ORDER BY display_order, title
     `).all();
-    ctx.waitUntil(runAllCategoryNewsDeliveries(env, channelsResult.results || []));
+    const channels = channelsResult.results || [];
 
-    // Existing channel-only promotional campaigns remain scheduled for the 14th and 28th.
-    const parts = getIndiaDateTimeParts();
-    if (parts.day === "14" || parts.day === "28") {
-      ctx.waitUntil(runDuePromotionCampaigns(env));
+    if (cron === "45 0 * * *") {
+      // 06:15 IST: finish the daily news run first, then send the ad as a separate
+      // Telegram message in the same delivery window on the 14th and 28th only.
+      ctx.waitUntil((async () => {
+        await runAllCategoryNewsDeliveries(env, channels);
+        const parts = getIndiaDateTimeParts();
+        if (parts.day === "14" || parts.day === "28") {
+          await runDuePromotionCampaigns(env);
+        }
+      })());
+      return;
     }
+
+    // 06:45 IST: retry failed news only. Advertisements are not repeated here.
+    ctx.waitUntil(runAllCategoryNewsDeliveries(env, channels));
   },
 
   async fetch(request, env, ctx) {
@@ -1976,8 +2045,10 @@ var worker_default = {
       if (url.pathname === '/api/admin/promotions' && method === 'GET') {
         const admin = await getAuthorizedAdmin(request, env);
         if (!admin) return json({ error: 'Administrator access required.' }, 403);
+        await ensurePromotionTargetTable(env);
         const result = await env.DB.prepare(`
           SELECT p.*,
+            COALESCE((SELECT json_group_array(category_id) FROM promo_campaign_targets t WHERE t.campaign_id = p.id), '[]') AS target_channel_ids,
             (SELECT COUNT(*) FROM promo_deliveries d WHERE d.campaign_id = p.id AND d.status = 'sent') AS sent_channels,
             (SELECT COUNT(*) FROM promo_deliveries d WHERE d.campaign_id = p.id AND d.status = 'failed') AS failed_channels
           FROM promo_campaigns p ORDER BY p.created_at DESC LIMIT 100
@@ -2022,6 +2093,12 @@ var worker_default = {
           String(data.linkLabel || 'View Offer'),
           String(data.affiliateDisclosure || 'We may earn a commission from qualifying purchases.'),
           nextPromotionDate(), now, now).run();
+        try {
+          await savePromotionTargets(env, id, data.targetChannelIds);
+        } catch (error) {
+          await env.DB.prepare("DELETE FROM promo_campaigns WHERE id = ?").bind(id).run();
+          return json({ error: String(error?.message || error) }, 400);
+        }
         return json({ success: true, id });
       }
 
@@ -2054,12 +2131,46 @@ var worker_default = {
           String(data.affiliateDisclosure || 'We may earn a commission from qualifying purchases.'),
           nextPromotionDate(),
           new Date().toISOString(), id).run();
+        try {
+          await savePromotionTargets(env, id, data.targetChannelIds);
+        } catch (error) {
+          return json({ error: String(error?.message || error) }, 400);
+        }
         const links = await env.DB.prepare("SELECT tracking_code FROM affiliate_tracking_links WHERE campaign_id = ? AND tracking_code IN (SELECT tracking_code FROM promo_deliveries WHERE campaign_id = ? AND status <> 'sent')").bind(id, id).all();
         for (const link of (links.results || [])) {
           await env.DB.prepare('UPDATE affiliate_tracking_links SET outbound_url = ? WHERE tracking_code = ?')
             .bind(makeAffiliateDestination(affiliateUrl, String(data.trackingParameter || 'subid'), link.tracking_code), link.tracking_code).run();
         }
         return json({ success: true });
+      }
+
+      if (url.pathname.startsWith('/api/admin/promotions/') && url.pathname.endsWith('/send-now') && method === 'POST') {
+        const admin = await getAuthorizedAdmin(request, env);
+        if (!admin) return json({ error: 'Administrator access required.' }, 403);
+        const parts = url.pathname.split('/');
+        const id = decodeURIComponent(parts[4] || '');
+        const campaign = await env.DB.prepare('SELECT * FROM promo_campaigns WHERE id = ?').bind(id).first();
+        if (!campaign) return json({ error: 'Campaign not found.' }, 404);
+        if (!campaign.message_text || !campaign.affiliate_url) {
+          return json({ error: 'Add a message and valid affiliate URL before sending.' }, 400);
+        }
+        if (!['draft', 'approved', 'sent', 'cancelled'].includes(campaign.status)) {
+          return json({ error: 'This campaign cannot be sent in its current status.' }, 409);
+        }
+        const channels = await getPromotionChannels(env, id);
+        if (!channels.length) return json({ error: 'No selected active Telegram channels are configured.' }, 400);
+        if (campaign.status === 'approved') {
+          await env.DB.prepare("UPDATE promo_campaigns SET status = 'cancelled', updated_at = ? WHERE id = ?")
+            .bind(new Date().toISOString(), id).run();
+        }
+        const result = await deliverPromotionCampaign(env, campaign, channels);
+        const report = await env.DB.prepare(`
+          SELECT channel_name AS channelName, channel_id AS channelId, status,
+                 telegram_message_id AS telegramMessageId, tracking_code AS trackingCode,
+                 error_message AS errorMessage, attempts, delivered_at AS deliveredAt
+          FROM promo_deliveries WHERE campaign_id = ? ORDER BY channel_name
+        `).bind(id).all();
+        return json({ success: result.allSent, ...result, deliveries: report.results || [] });
       }
 
       if (url.pathname.startsWith('/api/admin/promotions/') && url.pathname.endsWith('/approve') && method === 'POST') {
