@@ -344,6 +344,7 @@ export const AdminCampaignManager: React.FC<Props> = ({ token }) => {
             <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500">Telegram message preview</h3>
             <div className="max-w-md bg-white rounded-xl border p-3 space-y-3">
               {campaignForm.imageUrl && <img src={campaignForm.imageUrl} alt="Product preview" className="w-full max-h-56 object-cover rounded-lg" />}
+              {testMode && <p className="text-xs font-bold text-amber-700">🧪 TEST ADVERTISEMENT</p>}
               <p className="text-sm text-slate-800 whitespace-pre-wrap">{campaignForm.messageText || 'Your promotional message will appear here.'}</p>
               {campaignForm.affiliateUrl && <div className="text-center rounded-lg bg-sky-50 border border-sky-100 p-2 text-sm font-semibold text-sky-800">{campaignForm.linkLabel || 'View Offer'} ↗</div>}
               {campaignForm.affiliateDisclosure && <p className="text-[10px] text-slate-500">{campaignForm.affiliateDisclosure}</p>}
@@ -351,7 +352,7 @@ export const AdminCampaignManager: React.FC<Props> = ({ token }) => {
           </div>
           <div className="flex flex-wrap gap-2">
             <button disabled={saving} onClick={saveCampaign} className="px-5 py-2.5 rounded-xl bg-slate-900 text-white text-sm font-semibold disabled:opacity-50">{saving ? 'Saving...' : 'Save draft'}</button>
-            <button onClick={() => { setCampaignForm(emptyCampaign); setEditingCampaignId(''); }} className="px-4 py-2.5 rounded-xl border text-sm">Clear form</button>
+            <button onClick={() => { setCampaignForm(emptyCampaign); setEditingCampaignId(''); setTestMode(true); setSelectedChannelIds(categories.filter(c => c.active).map(c => c.id)); }} className="px-4 py-2.5 rounded-xl border text-sm">Clear form</button>
           </div>
           <p className="text-xs text-slate-500">Uploaded images are stored in Cloudflare R2. Telegram displays the affiliate purchase button below the photo; Telegram does not make the photo itself a direct external hyperlink.</p>
         </section>
