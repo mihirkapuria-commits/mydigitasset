@@ -174,7 +174,7 @@ async function runCategoryNewsDelivery(env: NewsEnv, source: CategoryNewsSource,
       const claim = await env.DB.prepare(
         "UPDATE settings SET value = 'sending' WHERE key = ? AND value = ?"
       ).bind(deliveryKey, priorStatus).run();
-      if (Number(claim?.meta?.changes || 0) !== 1) return;
+      if (Number(claim?.meta?.changes || 0) !== 1) return "claimed_elsewhere";
     }
   } catch (error) {
     console.error("Could not claim " + source.topic + " delivery slot:", error);
