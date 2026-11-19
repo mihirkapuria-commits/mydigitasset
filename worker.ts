@@ -1183,7 +1183,7 @@ var worker_default = {
         ];
         const csvCell = value => {
           let text = value == null ? '' : String(value);
-          if (/^[\\s]*[=+\\-@\\t\\r]/.test(text)) text = "'" + text;
+          if (/^[\s]*[=+\-@\t\r]/.test(text)) text = "'" + text;
           return '"' + text.replace(/"/g, '""') + '"';
         };
         const csv = [
@@ -1259,7 +1259,7 @@ var worker_default = {
       }
 
       // ADMIN: EDIT ACCOUNT DETAILS. Payment and subscription records are not altered here.
-      const editCustomerMatch = url.pathname.match(/^\\/api\\/admin\\/customers\\/(\\d+)$/);
+      const editCustomerMatch = url.pathname.match(/^\/api\/admin\/customers\/(\d+)$/);
       if (editCustomerMatch && method === 'PUT') {
         const admin = await getAuthorizedAdmin(request, env);
         if (!admin) return json({ error: 'Administrator access required.' }, 403);
@@ -1292,7 +1292,7 @@ var worker_default = {
       }
 
       // ADMIN: PERMANENTLY DELETE AN ACCOUNT AND ITS USER-OWNED RECORDS.
-      const deleteCustomerMatch = url.pathname.match(/^\\/api\\/admin\\/customers\\/(\\d+)$/);
+      const deleteCustomerMatch = url.pathname.match(/^\/api\/admin\/customers\/(\d+)$/);
       if (deleteCustomerMatch && method === 'DELETE') {
         const admin = await getAuthorizedAdmin(request, env);
         if (!admin) return json({ error: 'Administrator access required.' }, 403);
@@ -1323,8 +1323,55 @@ var worker_default = {
         return json({ success: true, message: 'Account and associated database records deleted.' });
       }
 
+      // ADMIN: PRESERVE THE EXISTING APPROVE / STOP CONTROLS.
+      const statusCustomerMatch = url.pathname.match(/^\\/api\\/admin\\/customers\\/(\\d+)\\/status$/);
+      if (statusCustomerMatch && method === 'POST') {
+        const admin = await getAuthorizedAdmin(request, env);
+        if (!admin) return json({ error: 'Administrator access required.' }, 403);
+        const userId = Number(statusCustomerMatch[1]);
+        const data = await parseRequestBody(request);
+        const requestedStatus = String(data.status || '');
+        const status = requestedStatus === 'active_paid' ? 'active' : requestedStatus;
+        if (!['active', 'trial', 'stopped'].includes(status)) {
+          return json({ error: 'Unsupported account status.' }, 400);
+        }
+        const existing = await env.DB.prepare(
+          'SELECT id FROM users WHERE id = ? AND lower(email) <> ? LIMIT 1'
+        ).bind(userId, ADMIN_EMAIL).first();
+        if (!existing) return json({ error: 'Account not found.' }, 404);
+        await env.DB.prepare('UPDATE users SET status = ? WHERE id = ?').bind(status, userId).run();
+        if (status === 'active') {
+          await env.DB.prepare(`
+            CREATE TABLE IF NOT EXISTS customer_subscription_periods (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              user_id INTEGER NOT NULL,
+              started_at TEXT NOT NULL,
+              expires_at TEXT NOT NULL,
+              created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+          `).run();
+          const current = await env.DB.prepare(
+            'SELECT MAX(expires_at) AS expires_at FROM customer_subscription_periods WHERE user_id = ?'
+          ).bind(userId).first();
+          if (!current?.expires_at || new Date(current.expires_at) <= new Date()) {
+            const start = new Date();
+            const expiry = new Date(start);
+            expiry.setUTCFullYear(expiry.getUTCFullYear() + 1);
+            await env.DB.prepare(
+              'INSERT INTO customer_subscription_periods (user_id, started_at, expires_at) VALUES (?, ?, ?)'
+            ).bind(userId, start.toISOString(), expiry.toISOString()).run();
+          }
+        }
+        await env.DB.prepare(`
+          INSERT INTO audit_logs (timestamp, admin_email, action, details)
+          VALUES (?, ?, ?, ?)
+        `).bind(new Date().toISOString(), admin.email, 'account_status_updated',
+          'Updated account status for ID ' + userId + ' to ' + status).run();
+        return json({ success: true, message: 'Account status updated.' });
+      }
+
       // ADMIN: REQUIRE PASSWORD RESET. Admin never receives or chooses a password.
-      const resetCustomerMatch = url.pathname.match(/^\\/api\\/admin\\/customers\\/(\\d+)\\/reset-password$/);
+      const resetCustomerMatch = url.pathname.match(/^\/api\/admin\/customers\/(\d+)\/reset-password$/);
       if (resetCustomerMatch && method === 'POST') {
         const admin = await getAuthorizedAdmin(request, env);
         if (!admin) return json({ error: 'Administrator access required.' }, 403);
