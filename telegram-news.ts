@@ -614,18 +614,48 @@ async function summarizeArticles(apiKey: string, categoryTopic: string, articles
     articleInput
   ].join("\n");
 
-  const response = await fetch(
-    "https://generativelanguage.googleapis.com/v1beta/models/" + GEMINI_MODEL +
-      ":generateContent?key=" + encodeURIComponent(apiKey),
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-        generationConfig: { maxOutputTokens: 2600 }
-      })
+  let response: Response | null = null;
+  let lastGeminiError: unknown = null;
+  const geminiRetryDelays = [2000, 5000];
+
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const attemptResponse = await fetch(
+        "https://generativelanguage.googleapis.com/v1beta/models/" + GEMINI_MODEL +
+          ":generateContent?key=" + encodeURIComponent(apiKey),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ role: "user", parts: [{ text: prompt }] }],
+            generationConfig: { maxOutputTokens: 2600 }
+          }),
+          signal: AbortSignal.timeout(25_000)
+        }
+      );
+
+      if ((attemptResponse.status === 429 || (attemptResponse.status >= 500 && attemptResponse.status <= 599)) && attempt < 3) {
+        await attemptResponse.body?.cancel().catch(() => undefined);
+        await new Promise(resolve => setTimeout(resolve, geminiRetryDelays[attempt - 1]));
+        continue;
+      }
+
+      response = attemptResponse;
+      break;
+    } catch (error) {
+      lastGeminiError = error;
+      if (attempt < 3) {
+        await new Promise(resolve => setTimeout(resolve, geminiRetryDelays[attempt - 1]));
+      }
     }
-  );
+  }
+
+  if (!response) {
+    throw new Error(
+      "Gemini request failed after 3 attempts: " +
+      String(lastGeminiError instanceof Error ? lastGeminiError.message : lastGeminiError || "unknown network error")
+    );
+  }
 
   if (!response.ok) {
     throw new Error("Gemini request failed with HTTP " + response.status + ".");
