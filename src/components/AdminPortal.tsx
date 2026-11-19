@@ -188,52 +188,87 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const handleTestAllNewsChannels = async () => {
     if (!confirm('Send a separate TEST DELIVERY containing 10 real news stories to each of the 15 Telegram channels? This will send up to 150 stories in total. It will NOT mark today’s scheduled news as delivered.')) return;
 
+    const categoryIds = [
+      'banking-fintech',
+      'consumer-fmcg',
+      'economy-business',
+      'energy-renewal',
+      'hr-employment',
+      'it-ai-cybersecurity',
+      'manufacturing-auto',
+      'marketing-advertising',
+      'real-estate',
+      'bollywood',
+      'kids',
+      'women',
+      'politics',
+      'stock-market',
+      'startup'
+    ];
+
     setAllNewsTesting(true);
     setAllNewsTestResults([]);
-    setAllNewsTestSummary('Starting the 15-channel news test…');
+    setAllNewsTestSummary('Starting the channel-by-channel news test…');
+
+    const results: Array<{
+      category: string;
+      title: string;
+      status: 'sent' | 'failed';
+      storyCount?: number;
+      error?: string;
+      messageIds?: number[];
+    }> = [];
 
     try {
-      const startRes = await fetch('/api/admin/news/all/test', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      const startData = await startRes.json();
-      if (!startRes.ok || !startData.runId) {
-        throw new Error(startData.error || 'Could not start the all-channel news test.');
-      }
-
-      setAllNewsTestSummary('Test started. Preparing 10 stories for each channel…');
-
-      for (let attempt = 0; attempt < 180; attempt++) {
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        const statusRes = await fetch(
-          '/api/admin/news/all/test/status?runId=' + encodeURIComponent(startData.runId),
-          { headers: { Authorization: `Bearer ${token}` } }
+      for (const categoryId of categoryIds) {
+        setAllNewsTestSummary(
+          'Testing ' + (results.length + 1) + ' of 15 channels… ' +
+          results.filter(item => item.status === 'sent').length + ' sent, ' +
+          results.filter(item => item.status === 'failed').length + ' failed.'
         );
-        const statusData = await statusRes.json();
-        if (!statusRes.ok) throw new Error(statusData.error || 'Could not read news test progress.');
 
-        const results = Array.isArray(statusData.results) ? statusData.results : [];
-        setAllNewsTestResults(results);
+        try {
+          const response = await fetch('/api/admin/news/test/channel', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`
+            },
+            body: JSON.stringify({ categoryId })
+          });
+          const data = await response.json();
+          if (data.result) {
+            results.push(data.result);
+          } else {
+            results.push({
+              category: categoryId,
+              title: categoryId,
+              status: 'failed',
+              error: data.error || 'The channel test request failed.'
+            });
+          }
+        } catch (err: any) {
+          results.push({
+            category: categoryId,
+            title: categoryId,
+            status: 'failed',
+            error: err.message || 'The channel test request could not be completed.'
+          });
+        }
+
+        setAllNewsTestResults([...results]);
         setAllNewsTestSummary(
           'Progress: ' + results.length + ' of 15 channels processed; ' +
-          (statusData.sent || 0) + ' sent, ' + (statusData.failed || 0) + ' failed.'
+          results.filter(item => item.status === 'sent').length + ' sent, ' +
+          results.filter(item => item.status === 'failed').length + ' failed.'
         );
-
-        if (statusData.status === 'completed') {
-          setAllNewsTestSummary(
-            'Completed: ' + (statusData.sent || 0) + ' channels received 10 stories; ' +
-            (statusData.failed || 0) + ' failed, out of 15.'
-          );
-          break;
-        }
-        if (statusData.status === 'failed') {
-          throw new Error(statusData.error || 'The all-channel news test stopped unexpectedly.');
-        }
-        if (attempt === 179) {
-          setAllNewsTestSummary('The test is still running in the background. Please refresh the Admin Dashboard shortly to check again.');
-        }
       }
+
+      setAllNewsTestSummary(
+        'Completed: ' + results.filter(item => item.status === 'sent').length +
+        ' channels received 10 stories; ' +
+        results.filter(item => item.status === 'failed').length + ' failed, out of 15.'
+      );
     } catch (err: any) {
       setAllNewsTestSummary('News test error: ' + (err.message || 'Unknown error.'));
     } finally {
