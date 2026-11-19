@@ -354,7 +354,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
   const handleExportAccounts = async () => {
     try {
-      const res = await fetch('/api/admin/customers/export.csv', {
+      const res = await fetch(`/api/admin/customers/export.csv?type=${activeTab}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (!res.ok) {
@@ -365,7 +365,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       const objectUrl = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = objectUrl;
-      link.download = 'mydigitasset-accounts.csv';
+      link.download = activeTab === 'customers' ? 'mydigitasset-customers.csv' : 'mydigitasset-users.csv';
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -720,6 +720,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                           <th className="p-4">Account Type</th>\n                          <th className="p-4">Name</th>
                           <th className="p-4">Email</th>
                           <th className="p-4">Mobile</th>
+                          <th className="p-4">Category</th>
                           <th className="p-4">Subscription</th>
                           <th className="p-4">Payment Status</th>
                           <th className="p-4">Telegram</th>
@@ -741,6 +742,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                             <td className="p-4 font-mono text-slate-600">
                               {c.mobile}
                             </td>
+                            <td className="p-4 text-slate-600">{c.category || '—'}</td>
                             <td className="p-4">
                               <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide ${
                                 c.subscriptionStatus === 'active_paid'
