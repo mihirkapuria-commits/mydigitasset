@@ -1123,8 +1123,6 @@ var worker_default = {
                  EXISTS (
                    SELECT 1 FROM payments p
                    WHERE p.user_id = u.id AND lower(p.status) IN ('approved', 'verified')
-                 ) OR EXISTS (
-                   SELECT 1 FROM customer_subscription_periods sp WHERE sp.user_id = u.id
                  ) AS has_paid_history,
                  (
                    SELECT lower(p.status) FROM payments p
@@ -1161,8 +1159,6 @@ var worker_default = {
                  CASE WHEN EXISTS (
                    SELECT 1 FROM payments p
                    WHERE p.user_id = u.id AND lower(p.status) IN ('approved', 'verified')
-                 ) OR EXISTS (
-                   SELECT 1 FROM customer_subscription_periods sp WHERE sp.user_id = u.id
                  ) THEN 'Customer' ELSE 'User' END AS account_type,
                  (SELECT lower(p.status) FROM payments p WHERE p.user_id = u.id
                   ORDER BY p.rowid DESC LIMIT 1) AS payment_status,
