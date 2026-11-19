@@ -98,6 +98,78 @@ export async function runAllCategoryNewsDeliveries(
   }
 }
 
+export async function sendAllCategoryNewsTests(
+  env: NewsEnv,
+  channels: Array<{ id: string; title: string; telegram_chat_id: string }>,
+  onChannelResult?: (result: {
+    category: string;
+    title: string;
+    status: "sent" | "failed";
+    storyCount?: number;
+    messageIds?: number[];
+    error?: string;
+  }) => Promise<void>
+): Promise<Array<{
+  category: string;
+  title: string;
+  status: "sent" | "failed";
+  storyCount?: number;
+  messageIds?: number[];
+  error?: string;
+}>> {
+  const channelByCategory = new Map(channels.map(channel => [String(channel.id), channel]));
+  const results = [];
+
+  for (const source of CATEGORY_NEWS_SOURCES) {
+    const channel = channelByCategory.get(source.categoryId);
+    let result: any;
+
+    if (!channel?.telegram_chat_id) {
+      result = {
+        category: source.categoryId,
+        title: source.topic,
+        status: "failed",
+        error: "Active Telegram channel mapping is missing."
+      };
+    } else {
+      try {
+        if (!env.TELEGRAM_BOT_TOKEN) throw new Error("TELEGRAM_BOT_TOKEN is not configured.");
+        if (!env.GEMINI_API_KEY) throw new Error("GEMINI_API_KEY is not configured.");
+        const articles = await fetchGoogleNewsArticles(env, source.googleNewsUrl);
+        const stories = await summarizeArticles(env.GEMINI_API_KEY, source.topic, articles);
+        const message = buildNewsMessage(source.topic + " — TEST DELIVERY", stories, articles);
+        const messageIds = await sendNewsMessage(env.TELEGRAM_BOT_TOKEN, String(channel.telegram_chat_id), message);
+        result = {
+          category: source.categoryId,
+          title: channel.title || source.topic,
+          status: "sent",
+          storyCount: stories.length,
+          messageIds
+        };
+      } catch (error: any) {
+        result = {
+          category: source.categoryId,
+          title: channel.title || source.topic,
+          status: "failed",
+          error: String(error?.message || error || "Unknown error")
+            .replace(env.TELEGRAM_BOT_TOKEN || "__NO_TELEGRAM_TOKEN__", "[REDACTED]")
+            .replace(/\s+/g, " ")
+            .slice(0, 250)
+        };
+      }
+    }
+
+    results.push(result);
+    if (onChannelResult) {
+      try { await onChannelResult(result); }
+      catch (error) { console.error("Could not save all-channel news test progress:", String(error)); }
+    }
+    await new Promise(resolve => setTimeout(resolve, 1200));
+  }
+
+  return results;
+}
+
 export async function retryBankingFintechNewsDelivery(env: NewsEnv): Promise<{ status: string; message: string }> {
   const channel = await env.DB.prepare(
     "SELECT telegram_chat_id FROM managed_categories WHERE id = 'banking-fintech' AND active = 1 LIMIT 1"
