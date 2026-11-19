@@ -28,7 +28,7 @@ export class GoogleNewsRateLimitError extends Error {
   retryAfterSeconds: number;
 
   constructor(retryAfterSeconds: number) {
-    super("Google News is rate-limiting requests. Please try again in about " + retryAfterSeconds + " seconds.");
+    super("Google News is temporarily unavailable or rate-limiting requests. Pausing further RSS requests for about " + retryAfterSeconds + " seconds.");
     this.name = "GoogleNewsRateLimitError";
     this.retryAfterSeconds = retryAfterSeconds;
   }
@@ -392,7 +392,7 @@ async function fetchGoogleNewsArticles(env: NewsEnv, googleNewsUrl: string): Pro
     "Accept-Language": "en-IN,en;q=0.9"
   };
   const maxAttempts = 3;
-  const retryDelayMs = 2000;
+  const retryDelayMs = [2000, 5000];
   let response: Response | null = null;
   let lastFetchError: unknown = null;
 
@@ -413,7 +413,7 @@ async function fetchGoogleNewsArticles(env: NewsEnv, googleNewsUrl: string): Pro
       if (attemptResponse.status >= 500 && attemptResponse.status <= 599) {
         await attemptResponse.body?.cancel().catch(() => undefined);
         if (attempt < maxAttempts) {
-          await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+          await new Promise(resolve => setTimeout(resolve, retryDelayMs[attempt - 1]));
           continue;
         }
       }
@@ -423,7 +423,7 @@ async function fetchGoogleNewsArticles(env: NewsEnv, googleNewsUrl: string): Pro
     } catch (error) {
       lastFetchError = error;
       if (attempt < maxAttempts) {
-        await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+        await new Promise(resolve => setTimeout(resolve, retryDelayMs[attempt - 1]));
       }
     }
   }
@@ -478,6 +478,23 @@ async function fetchGoogleNewsArticles(env: NewsEnv, googleNewsUrl: string): Pro
         headers: diagnosticHeaders,
         bodyPreview
       }));
+
+      // A 5xx response is shared upstream trouble, not a category-specific failure.
+      // Pause later category requests so the same Google endpoint is not hammered 15 times.
+      const suppliedRetryAfter = parseRetryAfter(response.headers.get("Retry-After"));
+      const cooldownSeconds = Math.min(
+        Math.max(suppliedRetryAfter ?? 300, 60),
+        GOOGLE_NEWS_MAX_COOLDOWN_SECONDS
+      );
+      const cooldownUntil = Date.now() + cooldownSeconds * 1000;
+      try {
+        await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)")
+          .bind(GOOGLE_NEWS_COOLDOWN_SETTING_KEY, String(cooldownUntil)).run();
+      } catch (error) {
+        console.error("Could not save Google News 5xx cooldown in D1:", error);
+      }
+      await response.body?.cancel().catch(() => undefined);
+      throw new GoogleNewsRateLimitError(cooldownSeconds);
     }
 
     throw new Error("Google News RSS request failed with HTTP " + response.status + ".");
