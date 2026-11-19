@@ -86,6 +86,36 @@ export async function runAllCategoryNewsDeliveries(
   }
 }
 
+export async function retryBankingFintechNewsDelivery(env: NewsEnv): Promise<{ status: string; message: string }> {
+  const channel = await env.DB.prepare(
+    "SELECT telegram_chat_id FROM managed_categories WHERE id = 'banking-fintech' AND active = 1 LIMIT 1"
+  ).first();
+  if (!channel?.telegram_chat_id) {
+    throw new Error("The Banking and Fintech Telegram channel is not configured or active.");
+  }
+
+  const { date } = getIndiaDateAndTime(new Date());
+  const key = "telegram_news_delivery:banking-fintech:" + date;
+  const record = await env.DB.prepare("SELECT value FROM settings WHERE key = ?").bind(key).first();
+  const current = String(record?.value || "");
+  if (!current.startsWith("failed:")) {
+    return {
+      status: current.startsWith("sent:") ? "sent" : current === "sending" ? "sending" : "not_failed",
+      message: "Retry not started: today's Banking and Fintech delivery is not marked failed."
+    };
+  }
+
+  const status = await runCategoryNewsDelivery(env, CATEGORY_NEWS_SOURCES.find(source => source.categoryId === "banking-fintech")!, String(channel.telegram_chat_id), true);
+  return {
+    status,
+    message: status === "sent"
+      ? "Banking and Fintech daily news was successfully delivered."
+      : status === "failed"
+        ? "The retry failed. The category remains marked failed."
+        : "The retry was not started because the delivery status changed."
+  };
+}
+
 export async function fetchIndiaStartupsNewsPreview(env: NewsEnv): Promise<Array<{
   title: string;
   source: string;
@@ -99,18 +129,18 @@ export async function fetchIndiaStartupsNewsPreview(env: NewsEnv): Promise<Array
   }));
 }
 
-async function runCategoryNewsDelivery(env: NewsEnv, source: CategoryNewsSource, telegramChannelId: string): Promise<void> {
+async function runCategoryNewsDelivery(env: NewsEnv, source: CategoryNewsSource, telegramChannelId: string, manualRetry = false): Promise<string> {
   if (!env.TELEGRAM_BOT_TOKEN) {
     console.error(source.topic + " delivery skipped: TELEGRAM_BOT_TOKEN is not configured.");
-    return;
+    return "skipped";
   }
   if (!env.GEMINI_API_KEY) {
     console.error(source.topic + " delivery skipped: GEMINI_API_KEY is not configured.");
-    return;
+    return "skipped";
   }
   if (!telegramChannelId) {
     console.error(source.topic + " delivery skipped: its Telegram channel ID is missing.");
-    return;
+    return "skipped";
   }
 
   const { date, time } = getIndiaDateAndTime(new Date());
@@ -121,16 +151,17 @@ async function runCategoryNewsDelivery(env: NewsEnv, source: CategoryNewsSource,
     priorDelivery = await env.DB.prepare("SELECT value FROM settings WHERE key = ?").bind(deliveryKey).first();
   } catch (error) {
     console.error("Could not read " + source.topic + " delivery status from D1:", error);
-    return;
+    return "skipped";
   }
 
   const priorStatus = String(priorDelivery?.value || "");
-  if (priorStatus.startsWith("sent:") || priorStatus === "sending") return;
+  if (priorStatus.startsWith("sent:") || priorStatus === "sending") return priorStatus.startsWith("sent:") ? "sent" : "sending";
+  if (manualRetry && !priorStatus.startsWith("failed:")) return "not_failed";
   if (priorStatus.startsWith("failed:")) {
     const failedAt = Number(priorStatus.split(":")[1] || 0);
-    if (failedAt && Date.now() - failedAt < 15 * 60 * 1000) return;
+    if (!manualRetry && failedAt && Date.now() - failedAt < 15 * 60 * 1000) return "cooldown";
   } else if (time !== await getConfiguredDeliveryTime(env)) {
-    return;
+    return "not_due";
   }
 
   try {
@@ -138,7 +169,7 @@ async function runCategoryNewsDelivery(env: NewsEnv, source: CategoryNewsSource,
       const claim = await env.DB.prepare(
         "INSERT OR IGNORE INTO settings (key, value) VALUES (?, 'sending')"
       ).bind(deliveryKey).run();
-      if (Number(claim?.meta?.changes || 0) !== 1) return;
+      if (Number(claim?.meta?.changes || 0) !== 1) return "claimed_elsewhere";
     } else if (priorStatus.startsWith("failed:")) {
       const claim = await env.DB.prepare(
         "UPDATE settings SET value = 'sending' WHERE key = ? AND value = ?"
@@ -147,7 +178,7 @@ async function runCategoryNewsDelivery(env: NewsEnv, source: CategoryNewsSource,
     }
   } catch (error) {
     console.error("Could not claim " + source.topic + " delivery slot:", error);
-    return;
+    return "skipped";
   }
 
   try {
@@ -159,11 +190,13 @@ async function runCategoryNewsDelivery(env: NewsEnv, source: CategoryNewsSource,
     await env.DB.prepare("UPDATE settings SET value = ? WHERE key = ?")
       .bind("sent:" + sentIds.join(","), deliveryKey).run();
     console.log(source.topic + " daily news digest sent. Story count:", stories.length, "Message IDs:", sentIds.join(","));
+    return "sent";
   } catch (error: any) {
     await env.DB.prepare("UPDATE settings SET value = ? WHERE key = ?")
       .bind("failed:" + Date.now(), deliveryKey).run()
       .catch((dbError: any) => console.error("Could not record failed delivery:", dbError));
     console.error(source.topic + " daily news delivery failed:", error?.message || error);
+    return "failed";
   }
 }
 
