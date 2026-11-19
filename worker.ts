@@ -2156,7 +2156,7 @@ var worker_default = {
           return json({ error: 'Please enter a valid email address.' }, 400);
         }
 
-            !/^[6-9]\d{9}$/.test(mobile) || !category) {
+        if (!/^[6-9]\d{9}$/.test(mobileNumber)) {
           return json({ error: 'Please enter a valid 10-digit Indian mobile number.' }, 400);
         }
 
