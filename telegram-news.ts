@@ -411,8 +411,8 @@ async function fetchGoogleNewsArticles(env: NewsEnv, googleNewsUrl: string): Pro
 
       // Retry temporary upstream server errors, including HTTP 503.
       if (attemptResponse.status >= 500 && attemptResponse.status <= 599) {
-        await attemptResponse.body?.cancel().catch(() => undefined);
         if (attempt < maxAttempts) {
+          await attemptResponse.body?.cancel().catch(() => undefined);
           await new Promise(resolve => setTimeout(resolve, retryDelayMs[attempt - 1]));
           continue;
         }
@@ -534,7 +534,9 @@ async function fetchGoogleNewsArticles(env: NewsEnv, googleNewsUrl: string): Pro
 }
 
 function readGoogleNewsRssField(item: string, tagName: string): string {
-  const match = item.match(new RegExp("<" + tagName + "\\b[^>]*>([\s\\S]*?)<\\/" + tagName + "\s*>", "i"));
+  const match = item.match(
+    new RegExp("<" + tagName + "\\b[^>]*>([\\s\\S]*?)<\\/" + tagName + "\\s*>", "i")
+  );
   return match?.[1] || "";
 }
 

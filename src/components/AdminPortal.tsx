@@ -26,6 +26,24 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   token,
   onLogout
 }) => {
+  const newsTestCategories = [
+    { id: 'banking-fintech', title: 'Banking and Fintech' },
+    { id: 'consumer-fmcg', title: 'Consumer and FMCG' },
+    { id: 'economy-business', title: 'Economy and Business' },
+    { id: 'energy-renewal', title: 'Energy and Renewables' },
+    { id: 'hr-employment', title: 'HR and Employment' },
+    { id: 'it-ai-cybersecurity', title: 'IT, AI and Cybersecurity' },
+    { id: 'manufacturing-auto', title: 'Manufacturing and Auto' },
+    { id: 'marketing-advertising', title: 'Marketing and Advertising' },
+    { id: 'real-estate', title: 'Real Estate' },
+    { id: 'bollywood', title: 'Bollywood' },
+    { id: 'kids', title: 'Kids and Education' },
+    { id: 'women', title: 'Women in India' },
+    { id: 'politics', title: 'Politics and Governance' },
+    { id: 'stock-market', title: 'Stock Market' },
+    { id: 'startup', title: 'Startups' }
+  ];
+  const [selectedNewsTestCategory, setSelectedNewsTestCategory] = useState('banking-fintech');
   const [activeTab, setActiveTab] = useState<
     'users' | 'customers' | 'payments' | 'audit' | 'pricing' | 'marketing' | 'website'
   >('users');
@@ -185,92 +203,47 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     }
   };
 
-  const handleTestAllNewsChannels = async () => {
-    if (!confirm('Send a separate TEST DELIVERY containing 10 real news stories to each of the 15 Telegram channels? This will send up to 150 stories in total. It will NOT mark today’s scheduled news as delivered.')) return;
-
-    const categoryIds = [
-      'banking-fintech',
-      'consumer-fmcg',
-      'economy-business',
-      'energy-renewal',
-      'hr-employment',
-      'it-ai-cybersecurity',
-      'manufacturing-auto',
-      'marketing-advertising',
-      'real-estate',
-      'bollywood',
-      'kids',
-      'women',
-      'politics',
-      'stock-market',
-      'startup'
-    ];
+  const handleTestSelectedNewsChannel = async () => {
+    const selectedCategory = newsTestCategories.find(item => item.id === selectedNewsTestCategory);
+    if (!selectedCategory) return;
+    if (!confirm('Send one TEST DELIVERY containing 10 real news stories to the ' + selectedCategory.title + ' Telegram channel? This test will not mark today’s scheduled news as delivered.')) return;
 
     setAllNewsTesting(true);
     setAllNewsTestResults([]);
-    setAllNewsTestSummary('Starting the channel-by-channel news test…');
-
-    const results: Array<{
-      category: string;
-      title: string;
-      status: 'sent' | 'failed';
-      storyCount?: number;
-      error?: string;
-      messageIds?: number[];
-    }> = [];
+    setAllNewsTestSummary('Testing ' + selectedCategory.title + '…');
 
     try {
-      for (const categoryId of categoryIds) {
-        setAllNewsTestSummary(
-          'Testing ' + (results.length + 1) + ' of 15 channels… ' +
-          results.filter(item => item.status === 'sent').length + ' sent, ' +
-          results.filter(item => item.status === 'failed').length + ' failed.'
-        );
+      const response = await fetch('/api/admin/news/test/channel', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ categoryId: selectedCategory.id })
+      });
+      const data = await response.json();
+      const result = data.result || {
+        category: selectedCategory.id,
+        title: selectedCategory.title,
+        status: 'failed' as const,
+        error: data.error || 'The channel test request failed.'
+      };
 
-        try {
-          const response = await fetch('/api/admin/news/test/channel', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${token}`
-            },
-            body: JSON.stringify({ categoryId })
-          });
-          const data = await response.json();
-          if (data.result) {
-            results.push(data.result);
-          } else {
-            results.push({
-              category: categoryId,
-              title: categoryId,
-              status: 'failed',
-              error: data.error || 'The channel test request failed.'
-            });
-          }
-        } catch (err: any) {
-          results.push({
-            category: categoryId,
-            title: categoryId,
-            status: 'failed',
-            error: err.message || 'The channel test request could not be completed.'
-          });
-        }
-
-        setAllNewsTestResults([...results]);
-        setAllNewsTestSummary(
-          'Progress: ' + results.length + ' of 15 channels processed; ' +
-          results.filter(item => item.status === 'sent').length + ' sent, ' +
-          results.filter(item => item.status === 'failed').length + ' failed.'
-        );
-      }
-
+      setAllNewsTestResults([result]);
       setAllNewsTestSummary(
-        'Completed: ' + results.filter(item => item.status === 'sent').length +
-        ' channels received 10 stories; ' +
-        results.filter(item => item.status === 'failed').length + ' failed, out of 15.'
+        result.status === 'sent'
+          ? 'Completed: ' + (result.title || selectedCategory.title) + ' received ' + (result.storyCount || 0) + ' stories.'
+          : 'Failed: ' + (result.error || data.error || 'No error details returned.')
       );
     } catch (err: any) {
-      setAllNewsTestSummary('News test error: ' + (err.message || 'Unknown error.'));
+      const errorMessage = err.message || 'The channel test request could not be completed.';
+      setAllNewsTestResults([{
+        category: selectedCategory.id,
+        title: selectedCategory.title,
+        status: 'failed',
+        error: errorMessage
+      }]);
+      setAllNewsTestSummary('Failed: ' + errorMessage);
     } finally {
       setAllNewsTesting(false);
     }
@@ -495,14 +468,23 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
           </div>
 
           <div className="flex items-center gap-3 flex-wrap">
+            <select
+              value={selectedNewsTestCategory}
+              onChange={event => setSelectedNewsTestCategory(event.target.value)}
+              disabled={allNewsTesting}
+              aria-label="Choose one news channel to test"
+              className="px-3 py-2 text-xs font-semibold rounded-lg bg-slate-800 border border-slate-600 text-white disabled:opacity-50"
+            >
+              {newsTestCategories.map(category => (
+                <option key={category.id} value={category.id}>{category.title}</option>
+              ))}
+            </select>
             <button
-              onClick={handleTestAllNewsChannels}
+              onClick={handleTestSelectedNewsChannel}
               disabled={allNewsTesting}
               className="px-4 py-2 text-xs font-semibold rounded-lg bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white"
             >
-              {allNewsTesting
-                ? 'Testing 10 stories in all 15…'
-                : 'Test 10 News × 15 Channels'}
+              {allNewsTesting ? 'Testing selected channel…' : 'Test Selected Channel'}
             </button>
 
             <div className="flex items-center gap-2 bg-slate-800 p-1 rounded-xl border border-slate-700 flex-wrap">
