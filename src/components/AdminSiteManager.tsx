@@ -54,10 +54,33 @@ export const AdminSiteManager: React.FC<Props> = ({ token }) => {
   const [editingBlogId, setEditingBlogId] = useState('');
   const [editingToolId, setEditingToolId] = useState('');
   const [busy, setBusy] = useState(false);
+  const [blogImageUploading, setBlogImageUploading] = useState(false);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
 
   const headers = { Authorization: `Bearer ${token}` };
+
+  const uploadBlogImage = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setBlogImageUploading(true); setError(''); setNotice('');
+    try {
+      const formData = new FormData();
+      formData.append('image', file);
+      const response = await fetch('/api/admin/promotions/upload-image', {
+        method: 'POST', headers, body: formData
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Image upload failed.');
+      setBlogForm(current => ({ ...current, featuredImageUrl: data.imageUrl }));
+      setNotice('Blog featured image uploaded successfully.');
+    } catch (e: any) {
+      setError(e.message || 'Image upload failed.');
+    } finally {
+      setBlogImageUploading(false);
+      event.target.value = '';
+    }
+  };
 
   const loadContent = async (which = section) => {
     const r = await fetch(`/api/admin/site-content?section=${encodeURIComponent(which)}`, { headers });
@@ -268,7 +291,11 @@ export const AdminSiteManager: React.FC<Props> = ({ token }) => {
             <label className="text-xs font-semibold">URL slug<input className="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="my-article-title" value={blogForm.slug} onChange={e => setBlogForm({ ...blogForm, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-') })} /></label>
             <label className="text-xs font-semibold md:col-span-2">Short excerpt<textarea rows={2} className="mt-1 w-full border rounded-lg p-2 text-sm" value={blogForm.excerpt} onChange={e => setBlogForm({ ...blogForm, excerpt: e.target.value })} /></label>
             <label className="text-xs font-semibold md:col-span-2">Article body<textarea rows={10} className="mt-1 w-full border rounded-lg p-2 text-sm" value={blogForm.body} onChange={e => setBlogForm({ ...blogForm, body: e.target.value })} /></label>
-            <label className="text-xs font-semibold">Featured image URL<input className="mt-1 w-full border rounded-lg p-2 text-sm" value={blogForm.featuredImageUrl} onChange={e => setBlogForm({ ...blogForm, featuredImageUrl: e.target.value })} /></label>
+            <label className="text-xs font-semibold">Upload featured image (JPG, PNG or WebP; max 5 MB)
+              <input type="file" accept="image/jpeg,image/png,image/webp" disabled={blogImageUploading} onChange={uploadBlogImage} className="mt-1 block w-full border rounded-lg p-2 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-1.5" />
+              {blogImageUploading && <span className="block mt-1 text-[11px] text-slate-500">Uploading image...</span>}
+            </label>
+            <label className="text-xs font-semibold">Or use an existing featured image URL<input className="mt-1 w-full border rounded-lg p-2 text-sm" value={blogForm.featuredImageUrl} onChange={e => setBlogForm({ ...blogForm, featuredImageUrl: e.target.value })} /></label>
             <label className="text-xs font-semibold">SEO title<input className="mt-1 w-full border rounded-lg p-2 text-sm" value={blogForm.seoTitle} onChange={e => setBlogForm({ ...blogForm, seoTitle: e.target.value })} /></label>
             <label className="text-xs font-semibold md:col-span-2">SEO description<input className="mt-1 w-full border rounded-lg p-2 text-sm" value={blogForm.seoDescription} onChange={e => setBlogForm({ ...blogForm, seoDescription: e.target.value })} /></label>
             <label className="text-xs font-semibold">Publishing status<select className="mt-1 w-full border rounded-lg p-2 text-sm" value={blogForm.status} onChange={e => setBlogForm({ ...blogForm, status: e.target.value })}><option value="draft">Draft</option><option value="published">Publish</option><option value="unpublished">Unpublish</option></select></label>
