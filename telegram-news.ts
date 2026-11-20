@@ -66,6 +66,74 @@ function makeGoogleNewsUrl(query: string): string {
 
 const INDIA_STARTUPS_SOURCE = CATEGORY_NEWS_SOURCES.find(source => source.categoryId === "startup")!;
 
+
+export async function diagnoseStartupGoogleNews(env: NewsEnv): Promise<Record<string, unknown>> {
+  const startedAt = Date.now();
+  const response = await fetch(INDIA_STARTUPS_SOURCE.googleNewsUrl, {
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      "Accept": "application/rss+xml,application/xml,text/xml;q=0.9,*/*;q=0.8",
+      "Accept-Language": "en-IN,en;q=0.9"
+    },
+    signal: AbortSignal.timeout(20_000),
+    cf: { cacheTtl: 0, cacheEverything: false }
+  });
+  const body = await response.text();
+  const headers: Record<string, string> = {};
+  for (const name of ["content-type", "server", "date", "retry-after", "via", "x-cache", "cf-ray"]) {
+    const value = response.headers.get(name);
+    if (value) headers[name] = value.slice(0, 200);
+  }
+  const itemCount = (body.match(/<item\b/gi) || []).length;
+  return {
+    success: response.ok && itemCount > 0,
+    status: response.status,
+    statusText: response.statusText,
+    durationMs: Date.now() - startedAt,
+    itemCount,
+    headers,
+    bodyPreview: body.replace(/[\r\n\t]+/g, " ").replace(/[\u0000-\u001f\u007f]/g, "").slice(0, 800)
+  };
+}
+
+export async function diagnoseStartupGemini(env: NewsEnv): Promise<Record<string, unknown>> {
+  if (!env.GEMINI_API_KEY) {
+    return { success: false, model: GEMINI_MODEL, error: "GEMINI_API_KEY is not configured." };
+  }
+  const now = new Date();
+  const samples: NewsArticle[] = Array.from({ length: 10 }, (_, index) => ({
+    title: "India startup diagnostic sample " + (index + 1) + ": company announces a new product or funding update",
+    url: "https://example.com/startup-diagnostic-" + (index + 1),
+    description: "Synthetic diagnostic article " + (index + 1) + " used only to verify Gemini connectivity and the required STORY output format. This is not real news.",
+    source: "MyDigitAsset diagnostic sample",
+    publishedAt: now
+  }));
+  const startedAt = Date.now();
+  try {
+    const stories = await summarizeArticles(env.GEMINI_API_KEY, INDIA_STARTUPS_SOURCE.topic, samples);
+    return {
+      success: true,
+      model: GEMINI_MODEL,
+      durationMs: Date.now() - startedAt,
+      inputArticleCount: samples.length,
+      returnedStoryCount: stories.length,
+      outputPreview: stories.slice(0, 3).map(story => ({
+        articleNumber: story.articleNumber,
+        headline: story.headline,
+        explanation: story.explanation
+      })),
+      note: "Synthetic samples only. No real news was generated or sent to Telegram."
+    };
+  } catch (error) {
+    return {
+      success: false,
+      model: GEMINI_MODEL,
+      durationMs: Date.now() - startedAt,
+      error: String(error instanceof Error ? error.message : error).slice(0, 700)
+    };
+  }
+}
+
 export async function runIndiaStartupsNewsDelivery(env: NewsEnv, telegramChannelId: string): Promise<void> {
   await runCategoryNewsDelivery(env, INDIA_STARTUPS_SOURCE, telegramChannelId);
 }
