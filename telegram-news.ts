@@ -21,7 +21,9 @@ interface NewsStory {
 }
 
 const DEFAULT_NEWS_DELIVERY_TIME_IST = "06:15";
-const GEMINI_MODEL = "gemini-3.8-flash";
+const GEMINI_PRIMARY_MODEL = "gemini-3.5-flash-lite";
+const GEMINI_FALLBACK_MODEL = "gemini-3.8-flash";
+const GEMINI_MODELS = [GEMINI_PRIMARY_MODEL, GEMINI_FALLBACK_MODEL] as const;
 const GOOGLE_NEWS_COOLDOWN_SETTING_KEY = "google_news_rate_limit_until";
 const GOOGLE_NEWS_DEFAULT_COOLDOWN_SECONDS = 15 * 60;
 const GOOGLE_NEWS_MAX_COOLDOWN_SECONDS = 24 * 60 * 60;
@@ -104,7 +106,7 @@ export async function diagnoseStartupGoogleNews(env: NewsEnv): Promise<Record<st
 
 export async function diagnoseStartupGemini(env: NewsEnv): Promise<Record<string, unknown>> {
   if (!env.GEMINI_API_KEY) {
-    return { success: false, model: GEMINI_MODEL, error: "GEMINI_API_KEY is not configured." };
+    return { success: false, model: GEMINI_PRIMARY_MODEL, error: "GEMINI_API_KEY is not configured." };
   }
   const startedAt = Date.now();
   try {
@@ -113,7 +115,7 @@ export async function diagnoseStartupGemini(env: NewsEnv): Promise<Record<string
       "Return exactly this text and nothing else: MYDIGITASSET_GEMINI_OK"
     ].join("\n");
     const response = await fetch(
-      "https://generativelanguage.googleapis.com/v1beta/models/" + GEMINI_MODEL +
+      "https://generativelanguage.googleapis.com/v1beta/models/" + GEMINI_PRIMARY_MODEL +
         ":generateContent?key=" + encodeURIComponent(env.GEMINI_API_KEY),
       {
         method: "POST",
@@ -136,7 +138,7 @@ export async function diagnoseStartupGemini(env: NewsEnv): Promise<Record<string
       }
       return {
         success: false,
-        model: GEMINI_MODEL,
+        model: GEMINI_PRIMARY_MODEL,
         status: response.status,
         statusText: response.statusText,
         durationMs: Date.now() - startedAt,
@@ -148,7 +150,7 @@ export async function diagnoseStartupGemini(env: NewsEnv): Promise<Record<string
       .map((part: any) => part.text || "").join("\n").trim();
     return {
       success: generatedText.includes("MYDIGITASSET_GEMINI_OK"),
-      model: GEMINI_MODEL,
+      model: GEMINI_PRIMARY_MODEL,
       status: response.status,
       durationMs: Date.now() - startedAt,
       responsePreview: generatedText.slice(0, 160),
@@ -158,7 +160,7 @@ export async function diagnoseStartupGemini(env: NewsEnv): Promise<Record<string
   } catch (error) {
     return {
       success: false,
-      model: GEMINI_MODEL,
+      model: GEMINI_PRIMARY_MODEL,
       durationMs: Date.now() - startedAt,
       error: String(error instanceof Error ? error.message : error).slice(0, 700)
     };
@@ -800,44 +802,52 @@ async function summarizeArticles(apiKey: string, categoryTopic: string, articles
 
   let response: Response | null = null;
   let lastGeminiError: unknown = null;
-  const geminiRetryDelays = [2000, 5000];
 
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    try {
-      const attemptResponse = await fetch(
-        "https://generativelanguage.googleapis.com/v1beta/models/" + GEMINI_MODEL +
-          ":generateContent?key=" + encodeURIComponent(apiKey),
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{ role: "user", parts: [{ text: prompt }] }],
-            generationConfig: { maxOutputTokens: 2600 }
-          }),
-          signal: AbortSignal.timeout(25_000)
+  // Try the economical high-throughput model first, then the stronger Flash fallback.
+  // Each model gets at most two attempts; permanent client errors are not retried.
+  for (const model of GEMINI_MODELS) {
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        const attemptResponse = await fetch(
+          "https://generativelanguage.googleapis.com/v1beta/models/" + model +
+            ":generateContent?key=" + encodeURIComponent(apiKey),
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [{ role: "user", parts: [{ text: prompt }] }],
+              generationConfig: { maxOutputTokens: 2600 }
+            }),
+            signal: AbortSignal.timeout(25_000)
+          }
+        );
+
+        if ((attemptResponse.status === 429 || attemptResponse.status >= 500) && attempt < 2) {
+          await attemptResponse.body?.cancel().catch(() => undefined);
+          await new Promise(resolve => setTimeout(resolve, 1500));
+          continue;
         }
-      );
 
-      if ((attemptResponse.status === 429 || (attemptResponse.status >= 500 && attemptResponse.status <= 599)) && attempt < 3) {
-        await attemptResponse.body?.cancel().catch(() => undefined);
-        await new Promise(resolve => setTimeout(resolve, geminiRetryDelays[attempt - 1]));
-        continue;
-      }
-
-      response = attemptResponse;
-      break;
-    } catch (error) {
-      lastGeminiError = error;
-      if (attempt < 3) {
-        await new Promise(resolve => setTimeout(resolve, geminiRetryDelays[attempt - 1]));
+        response = attemptResponse;
+        break;
+      } catch (error) {
+        lastGeminiError = error;
+        if (attempt < 2) {
+          await new Promise(resolve => setTimeout(resolve, 1500));
+        }
       }
     }
+
+    if (response?.ok) break;
+    // Try the fallback for rate limits, server errors, or network timeouts.
+    if (response && response.status < 500 && response.status !== 429) break;
+    response = null;
   }
 
   if (!response) {
     throw new Error(
-      "Gemini request failed after 3 attempts: " +
-      String(lastGeminiError instanceof Error ? lastGeminiError.message : lastGeminiError || "unknown network error")
+      "Gemini primary and fallback models failed: " +
+      String(lastGeminiError instanceof Error ? lastGeminiError.message : lastGeminiError || "temporary API failure")
     );
   }
 
