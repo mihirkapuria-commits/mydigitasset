@@ -759,7 +759,18 @@ async function summarizeArticles(apiKey: string, categoryTopic: string, articles
   }
 
   if (!response.ok) {
-    throw new Error("Gemini request failed with HTTP " + response.status + ".");
+    let apiError = "";
+    try {
+      const errorBody: any = await response.json();
+      apiError = String(errorBody?.error?.message || errorBody?.error?.status || "").slice(0, 500);
+    } catch {
+      apiError = "";
+    }
+    throw new Error(
+      "Gemini request failed with HTTP " + response.status +
+      (response.statusText ? " (" + response.statusText + ")" : "") +
+      (apiError ? ": " + apiError : ".")
+    );
   }
 
   const result: any = await response.json();
