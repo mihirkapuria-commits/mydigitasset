@@ -546,11 +546,6 @@ async function fetchGoogleNewsArticles(env: NewsEnv, googleNewsUrl: string): Pro
 
   // Read Google's RSS feed directly. Do not request individual Google News article links.
   // Match the working PowerShell request headers and retry temporary network/5xx failures.
-  const requestHeaders = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-    "Accept-Language": "en-IN,en;q=0.9"
-  };
   const maxAttempts = 3;
   const retryDelayMs = [2000, 5000];
   let response: Response | null = null;
