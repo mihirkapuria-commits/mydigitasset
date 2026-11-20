@@ -66,6 +66,7 @@ After the diagnostic confirmed Google's automated-query 503 response from the Cl
 - `b33178a7cba58affea540de1eb38e642d7b10aaf` — add Apps Script relay
 - `aa63459ec53f71fe4140190ab2cb55936c2ebc89` — correct relay RSS validation
 - `78605e940efeea36357f037e2d65304b69ef2396` — add relay setup guide
+- `02fd6fca7535e8e7392d08dd3f152b40f1656244` — make relay URL validation compatible with Apps Script V8
 
 ### Required activation
 The code is committed, but the relay is not active until the standalone Apps Script Web App is deployed and the two Worker settings in the setup guide are configured. No token or deployment URL is committed to GitHub.
