@@ -57,6 +57,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
   const [allNewsTesting, setAllNewsTesting] = useState(false);
   const [telegramConnectionTesting, setTelegramConnectionTesting] = useState(false);
+  const [startupDiagnosticsRunning, setStartupDiagnosticsRunning] = useState(false);
+  const [startupDiagnosticsOutput, setStartupDiagnosticsOutput] = useState('');
   const [allNewsTestResults, setAllNewsTestResults] = useState<Array<{
     category: string;
     title: string;
@@ -203,6 +205,25 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       );
     } finally {
       setPricingSaving(false);
+    }
+  };
+
+
+  const handleStartupDiagnostics = async () => {
+    if (!confirm('Run independent Startup Google News and Gemini diagnostics? Google News will receive one test request. Gemini will receive synthetic sample articles. Nothing will be sent to Telegram.')) return;
+    setStartupDiagnosticsRunning(true);
+    setStartupDiagnosticsOutput('Running Startup Google News and Gemini diagnostics…');
+    try {
+      const response = await fetch('/api/admin/news/startup/diagnostics', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await response.json();
+      setStartupDiagnosticsOutput(JSON.stringify(data, null, 2));
+    } catch (err: any) {
+      setStartupDiagnosticsOutput('Diagnostic request failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setStartupDiagnosticsRunning(false);
     }
   };
 
@@ -530,6 +551,14 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 <option key={category.id} value={category.id}>{category.title}</option>
               ))}
             </select>
+
+            <button
+              onClick={handleStartupDiagnostics}
+              disabled={startupDiagnosticsRunning || allNewsTesting || telegramConnectionTesting}
+              className="px-4 py-2 text-xs font-semibold rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white"
+            >
+              {startupDiagnosticsRunning ? 'Running Startup diagnostics…' : 'Diagnose Startup RSS + Gemini'}
+            </button>
             <button
               onClick={handleTestSelectedNewsChannel}
               disabled={allNewsTesting || telegramConnectionTesting}
@@ -537,6 +566,12 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
             >
               {allNewsTesting ? 'Testing selected channel…' : 'Test Selected Channel'}
             </button>
+
+            {startupDiagnosticsOutput && (
+              <pre className="w-full max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-slate-700 bg-slate-950 p-3 text-xs text-slate-200">
+                {startupDiagnosticsOutput}
+              </pre>
+            )}
             <button
               onClick={handleTestSelectedTelegramConnection}
               disabled={allNewsTesting || telegramConnectionTesting}
