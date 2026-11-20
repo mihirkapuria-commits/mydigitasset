@@ -106,65 +106,77 @@ export async function diagnoseStartupGoogleNews(env: NewsEnv): Promise<Record<st
 
 export async function diagnoseStartupGemini(env: NewsEnv): Promise<Record<string, unknown>> {
   if (!env.GEMINI_API_KEY) {
-    return { success: false, model: GEMINI_PRIMARY_MODEL, error: "GEMINI_API_KEY is not configured." };
-  }
-  const startedAt = Date.now();
-  try {
-    const prompt = [
-      "This is a connectivity test for MyDigitAsset, not a real news request.",
-      "Return exactly this text and nothing else: MYDIGITASSET_GEMINI_OK"
-    ].join("\n");
-    const response = await fetch(
-      "https://generativelanguage.googleapis.com/v1beta/models/" + GEMINI_PRIMARY_MODEL +
-        ":generateContent?key=" + encodeURIComponent(env.GEMINI_API_KEY),
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ role: "user", parts: [{ text: prompt }] }],
-          generationConfig: { maxOutputTokens: 40, temperature: 0 }
-        }),
-        signal: AbortSignal.timeout(20_000)
-      }
-    );
-    const responseText = await response.text();
-    if (!response.ok) {
-      let providerMessage = "";
-      try {
-        const parsed = JSON.parse(responseText);
-        providerMessage = String(parsed?.error?.message || parsed?.error?.status || "").slice(0, 500);
-      } catch {
-        providerMessage = responseText.slice(0, 300);
-      }
-      return {
-        success: false,
-        model: GEMINI_PRIMARY_MODEL,
-        status: response.status,
-        statusText: response.statusText,
-        durationMs: Date.now() - startedAt,
-        error: providerMessage || "Gemini returned an unsuccessful HTTP response."
-      };
-    }
-    const result = JSON.parse(responseText);
-    const generatedText = (result?.candidates?.[0]?.content?.parts || [])
-      .map((part: any) => part.text || "").join("\n").trim();
-    return {
-      success: generatedText.includes("MYDIGITASSET_GEMINI_OK"),
-      model: GEMINI_PRIMARY_MODEL,
-      status: response.status,
-      durationMs: Date.now() - startedAt,
-      responsePreview: generatedText.slice(0, 160),
-      finishReason: result?.candidates?.[0]?.finishReason || "not supplied",
-      note: "One small synthetic connectivity request only. No news was generated and no Telegram message was sent."
-    };
-  } catch (error) {
     return {
       success: false,
       model: GEMINI_PRIMARY_MODEL,
-      durationMs: Date.now() - startedAt,
-      error: String(error instanceof Error ? error.message : error).slice(0, 700)
+      fallbackModel: GEMINI_FALLBACK_MODEL,
+      error: "GEMINI_API_KEY is not configured."
     };
   }
+
+  const startedAt = Date.now();
+  let lastError = "No Gemini model returned a successful response.";
+
+  for (const model of GEMINI_MODELS) {
+    try {
+      const prompt = [
+        "This is a connectivity test for MyDigitAsset, not a real news request.",
+        "Return exactly this text and nothing else: MYDIGITASSET_GEMINI_OK"
+      ].join("\n");
+      const response = await fetch(
+        "https://generativelanguage.googleapis.com/v1beta/models/" + model +
+          ":generateContent?key=" + encodeURIComponent(env.GEMINI_API_KEY),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ role: "user", parts: [{ text: prompt }] }],
+            generationConfig: { maxOutputTokens: 40, temperature: 0 }
+          }),
+          signal: AbortSignal.timeout(15_000)
+        }
+      );
+
+      const responseText = await response.text();
+      if (!response.ok) {
+        try {
+          const parsed = JSON.parse(responseText);
+          lastError = String(parsed?.error?.message || parsed?.error?.status || response.status).slice(0, 500);
+        } catch {
+          lastError = responseText.slice(0, 300) || ("Gemini returned HTTP " + response.status);
+        }
+        continue;
+      }
+
+      const result = JSON.parse(responseText);
+      const generatedText = (result?.candidates?.[0]?.content?.parts || [])
+        .map((part: any) => part.text || "").join("\n").trim();
+      const success = generatedText.includes("MYDIGITASSET_GEMINI_OK");
+      if (success) {
+        return {
+          success: true,
+          model,
+          primaryModel: GEMINI_PRIMARY_MODEL,
+          fallbackModel: GEMINI_FALLBACK_MODEL,
+          durationMs: Date.now() - startedAt,
+          responsePreview: generatedText.slice(0, 160),
+          finishReason: result?.candidates?.[0]?.finishReason || "not supplied",
+          note: "Connectivity test succeeded. The primary model is tried first; fallback is tested only if the primary fails. No news was generated and no Telegram message was sent."
+        };
+      }
+      lastError = "Gemini returned a response, but the expected test text was missing.";
+    } catch (error) {
+      lastError = String(error instanceof Error ? error.message : error).slice(0, 700);
+    }
+  }
+
+  return {
+    success: false,
+    primaryModel: GEMINI_PRIMARY_MODEL,
+    fallbackModel: GEMINI_FALLBACK_MODEL,
+    durationMs: Date.now() - startedAt,
+    error: lastError
+  };
 }
 
 export async function runIndiaStartupsNewsDelivery(env: NewsEnv, telegramChannelId: string): Promise<void> {
