@@ -249,7 +249,7 @@ export async function sendCategoryNewsTest(
       stories = await summarizeArticles(env.GEMINI_API_KEY, source.topic, articles);
     }
 
-    const message = buildNewsMessage(source.topic + " — TEST DELIVERY", stories, articles);
+    const message = buildNewsMessage(source.topic + " — TEST DELIVERY", stories, articles, source.categoryId);
     const messageIds = await sendNewsMessage(env.TELEGRAM_BOT_TOKEN, String(channel.telegram_chat_id), message);
     return {
       category: source.categoryId,
@@ -417,7 +417,7 @@ async function runCategoryNewsDelivery(env: NewsEnv, source: CategoryNewsSource,
     }
 
     failureStage = "message_formatting";
-    const message = buildNewsMessage(source.topic, stories, articles);
+    const message = buildNewsMessage(source.topic, stories, articles, source.categoryId);
 
     failureStage = "telegram_send";
     const sentIds = await sendNewsMessage(env.TELEGRAM_BOT_TOKEN!, telegramChannelId, message);
@@ -451,7 +451,7 @@ export async function sendIndiaStartupsNewsTest(
   if (!telegramChannelId) throw new Error("The Startup Telegram channel ID is missing.");
 
   const { articles, stories } = await summarizeStartupDigest(env);
-  const message = buildNewsMessage(INDIA_STARTUPS_SOURCE.topic + " — TEST DELIVERY", stories, articles);
+  const message = buildNewsMessage(INDIA_STARTUPS_SOURCE.topic + " — TEST DELIVERY", stories, articles, "startup");
   const messageIds = await sendNewsMessage(env.TELEGRAM_BOT_TOKEN, telegramChannelId, message);
 
   console.log("India Startups test digest sent. Story count:", stories.length, "Message IDs:", messageIds.join(","));
@@ -1025,8 +1025,10 @@ function telegramVisibleTextLength(htmlMessage: string): number {
 function buildNewsMessage(
   categoryTitle: string,
   stories: NewsStory[],
-  articles: NewsArticle[]
+  articles: NewsArticle[],
+  categoryId = ""
 ): string {
+  const isStartup = categoryId === "startup";
   if (stories.length !== 10) {
     throw new Error("The digest must contain exactly 10 stories. Nothing was sent.");
   }
@@ -1043,23 +1045,28 @@ function buildNewsMessage(
     if (!article) {
       throw new Error("A source article is missing for story " + (index + 1) + ". Nothing was sent.");
     }
-    const sourceDate = new Intl.DateTimeFormat("en-IN", {
-      timeZone: "Asia/Kolkata",
-      day: "2-digit",
-      month: "short",
-      year: "numeric"
-    }).format(article.publishedAt);
     return {
       headline: story.headline,
       explanation: story.explanation,
-      sourceLine: '<a href="' + escapeTelegramHtml(article.url) + '">Source: ' +
-        escapeTelegramHtml(article.source) + " · " + escapeTelegramHtml(sourceDate) + "</a>"
+      sourceLine: isStartup
+        ? '<a href="' + escapeTelegramHtml(article.url) + '">' + escapeTelegramHtml(article.source) + "</a>"
+        : '<a href="' + escapeTelegramHtml(article.url) + '">Source: ' +
+          escapeTelegramHtml(article.source) + " · " +
+          escapeTelegramHtml(new Intl.DateTimeFormat("en-IN", {
+            timeZone: "Asia/Kolkata",
+            day: "2-digit",
+            month: "short",
+            year: "numeric"
+          }).format(article.publishedAt)) + "</a>"
     };
   });
 
   const render = () => {
-    let output = "<b>" + escapeTelegramHtml(categoryTitle) + " — Daily News</b>\n<code>" +
-      escapeTelegramHtml(today) + "</code>\n\n";
+    let output = isStartup
+      ? "<b>MYDIGITASSET</b>\n<b>STARTUP</b>\n<i>INDIA · STARTUP INTELLIGENCE</i>\n<code>" +
+        escapeTelegramHtml(today) + "</code>\n\n"
+      : "<b>" + escapeTelegramHtml(categoryTitle) + " — Daily News</b>\n<code>" +
+        escapeTelegramHtml(today) + "</code>\n\n";
     for (let index = 0; index < prepared.length; index++) {
       const item = prepared[index];
       output += "<b>" + (index + 1) + ". " + escapeTelegramHtml(item.headline) + "</b>\n" +
