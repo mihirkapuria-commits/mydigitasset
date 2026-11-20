@@ -391,10 +391,18 @@ async function runCategoryNewsDelivery(env: NewsEnv, source: CategoryNewsSource,
 
   let failureStage = "google_news_rss";
   try {
-    const articles = await fetchGoogleNewsArticles(env, source.googleNewsUrl);
+    let articles: NewsArticle[];
+    let stories: NewsStory[];
 
     failureStage = "gemini_summarization";
-    const stories = await summarizeArticles(env.GEMINI_API_KEY!, source.topic, articles);
+    if (source.categoryId === "startup") {
+      const startupDigest = await summarizeStartupDigest(env);
+      articles = startupDigest.articles;
+      stories = startupDigest.stories;
+    } else {
+      articles = await fetchGoogleNewsArticles(env, source.googleNewsUrl);
+      stories = await summarizeArticles(env.GEMINI_API_KEY!, source.topic, articles);
+    }
 
     failureStage = "message_formatting";
     const message = buildNewsMessage(source.topic, stories, articles);
@@ -430,8 +438,7 @@ export async function sendIndiaStartupsNewsTest(
   if (!env.GEMINI_API_KEY) throw new Error("GEMINI_API_KEY is not configured.");
   if (!telegramChannelId) throw new Error("The Startup Telegram channel ID is missing.");
 
-  const articles = await fetchGoogleNewsArticles(env, INDIA_STARTUPS_SOURCE.googleNewsUrl);
-  const stories = await summarizeArticles(env.GEMINI_API_KEY, INDIA_STARTUPS_SOURCE.topic, articles);
+  const { articles, stories } = await summarizeStartupDigest(env);
   const message = buildNewsMessage(INDIA_STARTUPS_SOURCE.topic + " — TEST DELIVERY", stories, articles);
   const messageIds = await sendNewsMessage(env.TELEGRAM_BOT_TOKEN, telegramChannelId, message);
 
@@ -777,7 +784,76 @@ function safeHttpUrl(value: string): string {
   }
 }
 
-async function summarizeArticles(apiKey: string, categoryTopic: string, articles: NewsArticle[]): Promise<NewsStory[]> {
+async function summarizeStartupDigest(env: NewsEnv): Promise<{ articles: NewsArticle[]; stories: NewsStory[] }> {
+  if (!env.GEMINI_API_KEY) throw new Error("GEMINI_API_KEY is not configured.");
+
+  // India remains the first priority. Only expand internationally when the
+  // Indian feed does not contain 10 distinct, useful startup stories.
+  const indiaArticles = await fetchGoogleNewsArticles(env, INDIA_STARTUPS_SOURCE.googleNewsUrl);
+  const indiaStories = await summarizeArticles(
+    env.GEMINI_API_KEY,
+    "India Startups",
+    indiaArticles,
+    10,
+    true
+  );
+
+  if (indiaStories.length === 10) {
+    return { articles: indiaArticles, stories: indiaStories };
+  }
+
+  const remaining = 10 - indiaStories.length;
+  console.log("India Startups: found " + indiaStories.length +
+    " useful Indian stories; searching globally for " + remaining + " more.");
+
+  const globalUrl = "https://news.google.com/rss/search?q=" +
+    encodeURIComponent("global startups founders venture capital funding startup launches acquisitions") +
+    "&hl=en-US&gl=US&ceid=US:en";
+  const fetchedGlobalArticles = await fetchGoogleNewsArticles(env, globalUrl);
+
+  // Remove duplicate URLs and identical normalized headlines across both feeds.
+  const seenUrls = new Set(indiaArticles.map(article => article.url));
+  const seenTitles = new Set(indiaArticles.map(article => article.title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()));
+  const globalArticles = fetchedGlobalArticles.filter(article => {
+    const normalizedTitle = article.title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    if (seenUrls.has(article.url) || seenTitles.has(normalizedTitle)) return false;
+    seenUrls.add(article.url);
+    seenTitles.add(normalizedTitle);
+    return true;
+  });
+
+  if (globalArticles.length === 0) {
+    throw new Error("Only " + indiaStories.length +
+      " useful Indian startup stories were found, and no additional distinct global startup stories were available. Nothing was sent.");
+  }
+
+  const globalStories = await summarizeArticles(
+    env.GEMINI_API_KEY,
+    "Global Startups",
+    globalArticles,
+    remaining
+  );
+
+  const combinedArticles = indiaArticles.concat(globalArticles);
+  const combinedStories = indiaStories.concat(globalStories.map(story => ({
+    ...story,
+    articleNumber: story.articleNumber + indiaArticles.length
+  })));
+
+  if (combinedStories.length !== 10) {
+    throw new Error("Startup digest could not reach exactly 10 distinct stories after global expansion. Nothing was sent.");
+  }
+
+  return { articles: combinedArticles, stories: combinedStories };
+}
+
+async function summarizeArticles(
+  apiKey: string,
+  categoryTopic: string,
+  articles: NewsArticle[],
+  targetCount = 10,
+  allowFewer = false
+): Promise<NewsStory[]> {
   const articleInput = articles.map((article, index) => {
     const date = new Intl.DateTimeFormat("en-IN", {
       timeZone: "Asia/Kolkata",
@@ -797,10 +873,17 @@ async function summarizeArticles(apiKey: string, categoryTopic: string, articles
 
   const prompt = [
     "Prepare a concise daily " + categoryTopic + " news digest using only the supplied articles.",
-    "Select exactly 10 useful, recent and genuinely relevant stories. If fewer than 10 supplied articles are genuinely relevant, do not invent or pad stories; return the relevant stories and the application will reject the digest instead of sending an incomplete test or daily delivery.",
+    "Select " + targetCount + " useful, recent and genuinely relevant stories. " +
+      (allowFewer
+        ? "If fewer than " + targetCount + " supplied articles are genuinely relevant, return only the relevant stories; do not invent or pad."
+        : "Do not invent or pad stories. Return exactly " + targetCount + " distinct stories."),
     ...(categoryTopic === "India Startups" ? [
       "Include only Indian startup ecosystem stories: startup companies, founders, venture capital, angel investment, funding rounds, startup launches, acquisitions, incubators, accelerators, or unicorns.",
       "Exclude general business, established-company, stock-market, banking, and economy stories unless they directly concern an Indian startup.",
+    ] : []),
+    ...(categoryTopic === "Global Startups" ? [
+      "Include only startup ecosystem stories from outside India. Focus on startup companies, founders, venture capital, funding rounds, launches, acquisitions, incubators, accelerators, and unicorns.",
+      "Exclude general business and established-company news unless it directly concerns a startup.",
     ] : []),
     "Put constructive or positive developments first. If there is a genuine significant risk or setback, place it last.",
     "Use very simple English and short explanations. Do not use the words you or your.",
@@ -901,11 +984,11 @@ async function summarizeArticles(apiKey: string, categoryTopic: string, articles
       headline: match[2].trim(),
       explanation: match[3].trim()
     });
-    if (stories.length >= 10) break;
+    if (stories.length >= targetCount) break;
   }
 
-  if (stories.length !== 10) {
-    throw new Error("Category digest requires exactly 10 distinct relevant stories; Gemini returned " + stories.length + ". Nothing was sent.");
+  if (!allowFewer && stories.length !== targetCount) {
+    throw new Error("Category digest requires exactly " + targetCount + " distinct relevant stories; Gemini returned " + stories.length + ". Nothing was sent.");
   }
   return stories;
 }
