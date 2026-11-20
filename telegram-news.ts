@@ -1028,7 +1028,27 @@ function buildNewsMessage(
   articles: NewsArticle[],
   categoryId = ""
 ): string {
-  const isStartup = categoryId === "startup";
+  const channelBranding: Record<string, { heading: string; subtitle: string }> = {
+    "banking-fintech": { heading: "BANKING & FINTECH", subtitle: "INDIA · BANKING & FINTECH INTELLIGENCE" },
+    "consumer-fmcg": { heading: "CONSUMER & FMCG", subtitle: "INDIA · CONSUMER & FMCG INTELLIGENCE" },
+    "economy-business": { heading: "ECONOMY & BUSINESS", subtitle: "INDIA · ECONOMY & BUSINESS INTELLIGENCE" },
+    "energy-renewal": { heading: "ENERGY & RENEWABLES", subtitle: "INDIA · ENERGY & RENEWABLES INTELLIGENCE" },
+    "hr-employment": { heading: "HR & EMPLOYMENT", subtitle: "INDIA · HR & EMPLOYMENT INTELLIGENCE" },
+    "it-ai-cybersecurity": { heading: "IT, AI & CYBERSECURITY", subtitle: "INDIA · TECHNOLOGY INTELLIGENCE" },
+    "manufacturing-auto": { heading: "MANUFACTURING & AUTO", subtitle: "INDIA · MANUFACTURING & AUTO INTELLIGENCE" },
+    "marketing-advertising": { heading: "MARKETING & ADVERTISING", subtitle: "INDIA · MARKETING & ADVERTISING INTELLIGENCE" },
+    "real-estate": { heading: "REAL ESTATE & INFRASTRUCTURE", subtitle: "INDIA · REAL ESTATE & INFRASTRUCTURE INTELLIGENCE" },
+    "startup": { heading: "STARTUP", subtitle: "INDIA · STARTUP INTELLIGENCE" },
+    "bollywood": { heading: "BOLLYWOOD & ENTERTAINMENT", subtitle: "INDIA · ENTERTAINMENT INTELLIGENCE" },
+    "kids": { heading: "KIDS & PARENTING", subtitle: "INDIA · KIDS & PARENTING INTELLIGENCE" },
+    "women": { heading: "WOMEN IN FOCUS", subtitle: "INDIA · WOMEN IN FOCUS INTELLIGENCE" },
+    "politics": { heading: "POLITICS & GOVERNANCE", subtitle: "INDIA · POLITICS & GOVERNANCE INTELLIGENCE" },
+    "stock-market": { heading: "STOCK MARKET & D-STREET", subtitle: "INDIA · STOCK MARKET INTELLIGENCE" }
+  };
+  const branding = channelBranding[categoryId] || {
+    heading: categoryTitle.toUpperCase(),
+    subtitle: "INDIA · DAILY NEWS INTELLIGENCE"
+  };
   if (stories.length !== 10) {
     throw new Error("The digest must contain exactly 10 stories. Nothing was sent.");
   }
@@ -1048,25 +1068,16 @@ function buildNewsMessage(
     return {
       headline: story.headline,
       explanation: story.explanation,
-      sourceLine: isStartup
-        ? '<a href="' + escapeTelegramHtml(article.url) + '">' + escapeTelegramHtml(article.source) + "</a>"
-        : '<a href="' + escapeTelegramHtml(article.url) + '">Source: ' +
-          escapeTelegramHtml(article.source) + " · " +
-          escapeTelegramHtml(new Intl.DateTimeFormat("en-IN", {
-            timeZone: "Asia/Kolkata",
-            day: "2-digit",
-            month: "short",
-            year: "numeric"
-          }).format(article.publishedAt)) + "</a>"
+      sourceLine: '<a href="' + escapeTelegramHtml(article.url) + '">' +
+        escapeTelegramHtml(article.source) + "</a>"
     };
   });
 
   const render = () => {
-    let output = isStartup
-      ? "<b>MYDIGITASSET</b>\n<b>STARTUP</b>\n<i>INDIA · STARTUP INTELLIGENCE</i>\n<code>" +
-        escapeTelegramHtml(today) + "</code>\n\n"
-      : "<b>" + escapeTelegramHtml(categoryTitle) + " — Daily News</b>\n<code>" +
-        escapeTelegramHtml(today) + "</code>\n\n";
+    let output = "<b>MYDIGITASSET</b>\n<b>" +
+      escapeTelegramHtml(branding.heading) + "</b>\n<i>" +
+      escapeTelegramHtml(branding.subtitle) + "</i>\n<code>" +
+      escapeTelegramHtml(today) + "</code>\n\n";
     for (let index = 0; index < prepared.length; index++) {
       const item = prepared[index];
       output += "<b>" + (index + 1) + ". " + escapeTelegramHtml(item.headline) + "</b>\n" +
@@ -1079,7 +1090,7 @@ function buildNewsMessage(
 
   // Telegram allows up to 4,096 characters after entity parsing. If needed,
   // progressively shorten explanations first, then headlines, while retaining
-  // all 10 stories and every original source link. Other categories retain source dates.
+  // all 10 stories and every original clickable source name.
   let explanationIndex = 0;
   while (telegramVisibleTextLength(message) > 4096 && explanationIndex < prepared.length * 40) {
     const item = prepared[explanationIndex % prepared.length];
