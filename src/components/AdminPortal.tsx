@@ -56,6 +56,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [error, setError] = useState('');
 
   const [allNewsTesting, setAllNewsTesting] = useState(false);
+  const [telegramConnectionTesting, setTelegramConnectionTesting] = useState(false);
   const [allNewsTestResults, setAllNewsTestResults] = useState<Array<{
     category: string;
     title: string;
@@ -63,6 +64,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     storyCount?: number;
     error?: string;
     messageIds?: number[];
+    testType?: 'news' | 'telegram';
+    details?: string;
   }>>([]);
   const [allNewsTestSummary, setAllNewsTestSummary] = useState('');
 
@@ -246,6 +249,54 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       setAllNewsTestSummary('Failed: ' + errorMessage);
     } finally {
       setAllNewsTesting(false);
+    }
+  };
+
+  const handleTestSelectedTelegramConnection = async () => {
+    const selectedCategory = newsTestCategories.find(item => item.id === selectedNewsTestCategory);
+    if (!selectedCategory) return;
+    if (!confirm('Send a short Telegram-only connection test to the ' + selectedCategory.title + ' channel? This will not contact Google News or Gemini.')) return;
+
+    setTelegramConnectionTesting(true);
+    setAllNewsTestResults([]);
+    setAllNewsTestSummary('Checking the Telegram connection for ' + selectedCategory.title + '…');
+
+    try {
+      const response = await fetch('/api/admin/telegram/test/channel', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ categoryId: selectedCategory.id })
+      });
+      const data = await response.json();
+      const result = data.result || {
+        category: selectedCategory.id,
+        title: selectedCategory.title,
+        status: 'failed' as const,
+        testType: 'telegram' as const,
+        error: data.error || 'The Telegram connection test request failed.'
+      };
+
+      setAllNewsTestResults([result]);
+      setAllNewsTestSummary(
+        result.status === 'sent'
+          ? 'Telegram connection successful: ' + (result.title || selectedCategory.title) + ' received the test message.'
+          : 'Telegram connection failed: ' + (result.error || data.error || 'No error details returned.')
+      );
+    } catch (err: any) {
+      const errorMessage = err.message || 'The Telegram connection test could not be completed.';
+      setAllNewsTestResults([{
+        category: selectedCategory.id,
+        title: selectedCategory.title,
+        status: 'failed',
+        testType: 'telegram',
+        error: errorMessage
+      }]);
+      setAllNewsTestSummary('Telegram connection failed: ' + errorMessage);
+    } finally {
+      setTelegramConnectionTesting(false);
     }
   };
 
@@ -481,10 +532,17 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
             </select>
             <button
               onClick={handleTestSelectedNewsChannel}
-              disabled={allNewsTesting}
+              disabled={allNewsTesting || telegramConnectionTesting}
               className="px-4 py-2 text-xs font-semibold rounded-lg bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white"
             >
               {allNewsTesting ? 'Testing selected channel…' : 'Test Selected Channel'}
+            </button>
+            <button
+              onClick={handleTestSelectedTelegramConnection}
+              disabled={allNewsTesting || telegramConnectionTesting}
+              className="px-4 py-2 text-xs font-semibold rounded-lg bg-sky-700 hover:bg-sky-600 disabled:opacity-50 text-white"
+            >
+              {telegramConnectionTesting ? 'Testing Telegram…' : 'Test Telegram Connection'}
             </button>
 
             <div className="flex items-center gap-2 bg-slate-800 p-1 rounded-xl border border-slate-700 flex-wrap">
@@ -602,11 +660,11 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                       <tr key={item.category || index} className="border-b border-violet-100 last:border-0">
                         <td className="py-2 pr-4 font-medium">{item.title || item.category}</td>
                         <td className={`py-2 pr-4 font-semibold ${item.status === 'sent' ? 'text-emerald-700' : 'text-red-700'}`}>
-                          {item.status === 'sent' ? 'Sent · ' + (item.storyCount || 0) + ' stories' : 'Failed'}
+                          {item.status === 'sent' ? (item.testType === 'telegram' ? 'Connected' : 'Sent · ' + (item.storyCount || 0) + ' stories') : 'Failed'}
                         </td>
                         <td className="py-2">
                           {item.status === 'sent'
-                            ? 'Telegram message ID(s): ' + ((item.messageIds || []).join(', ') || 'confirmed')
+                            ? (item.details || 'Telegram message ID(s): ' + ((item.messageIds || []).join(', ') || 'confirmed'))
                             : (item.error || 'No error details returned.')}
                         </td>
                       </tr>
