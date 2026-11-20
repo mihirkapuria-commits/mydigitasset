@@ -1006,6 +1006,22 @@ async function summarizeArticles(
   return stories;
 }
 
+function telegramVisibleTextLength(htmlMessage: string): number {
+  // Telegram applies the 4,096-character limit to visible text after HTML
+  // entities are parsed. Link destinations in href attributes are not visible
+  // message text and must not be included in this count.
+  const visibleText = htmlMessage
+    .replace(/<[^>]*>/g, "")
+    .replace(/&#x([0-9a-f]+);/gi, (_match, hex) => String.fromCodePoint(parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_match, decimal) => String.fromCodePoint(parseInt(decimal, 10)))
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&amp;/g, "&");
+  return Array.from(visibleText).length;
+}
+
 function buildNewsMessage(
   categoryTitle: string,
   stories: NewsStory[],
@@ -1058,7 +1074,7 @@ function buildNewsMessage(
   // progressively shorten explanations first, then headlines, while retaining
   // all 10 stories and every original source link/date.
   let explanationIndex = 0;
-  while (Array.from(message).length > 4096 && explanationIndex < prepared.length * 40) {
+  while (telegramVisibleTextLength(message) > 4096 && explanationIndex < prepared.length * 40) {
     const item = prepared[explanationIndex % prepared.length];
     const chars = Array.from(item.explanation);
     if (chars.length > 35) {
@@ -1070,7 +1086,7 @@ function buildNewsMessage(
   }
 
   let headlineIndex = 0;
-  while (Array.from(message).length > 4096 && headlineIndex < prepared.length * 30) {
+  while (telegramVisibleTextLength(message) > 4096 && headlineIndex < prepared.length * 30) {
     const item = prepared[headlineIndex % prepared.length];
     const chars = Array.from(item.headline);
     if (chars.length > 35) {
@@ -1081,7 +1097,7 @@ function buildNewsMessage(
     if (prepared.every(entry => Array.from(entry.headline).length <= 36)) break;
   }
 
-  if (Array.from(message).length > 4096) {
+  if (telegramVisibleTextLength(message) > 4096) {
     throw new Error("The 10 stories and their source links still exceed Telegram's 4,096-character limit after shortening. Nothing was sent.");
   }
 
