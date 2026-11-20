@@ -235,8 +235,20 @@ export async function sendCategoryNewsTest(
   try {
     if (!env.TELEGRAM_BOT_TOKEN) throw new Error("TELEGRAM_BOT_TOKEN is not configured.");
     if (!env.GEMINI_API_KEY) throw new Error("GEMINI_API_KEY is not configured.");
-    const articles = await fetchGoogleNewsArticles(env, source.googleNewsUrl);
-    const stories = await summarizeArticles(env.GEMINI_API_KEY, source.topic, articles);
+    let articles: NewsArticle[];
+    let stories: NewsStory[];
+
+    // Keep the Startup test identical to the production digest: India first,
+    // then global startup stories only for any missing slots.
+    if (source.categoryId === "startup") {
+      const startupDigest = await summarizeStartupDigest(env);
+      articles = startupDigest.articles;
+      stories = startupDigest.stories;
+    } else {
+      articles = await fetchGoogleNewsArticles(env, source.googleNewsUrl);
+      stories = await summarizeArticles(env.GEMINI_API_KEY, source.topic, articles);
+    }
+
     const message = buildNewsMessage(source.topic + " — TEST DELIVERY", stories, articles);
     const messageIds = await sendNewsMessage(env.TELEGRAM_BOT_TOKEN, String(channel.telegram_chat_id), message);
     return {
