@@ -837,6 +837,7 @@ async function summarizeStartupDigest(env: NewsEnv): Promise<{ articles: NewsArt
   const combinedArticles = indiaArticles.concat(globalArticles);
   const combinedStories = indiaStories.concat(globalStories.map(story => ({
     ...story,
+    headline: "[GLOBAL] " + story.headline,
     articleNumber: story.articleNumber + indiaArticles.length
   })));
 
