@@ -53,7 +53,7 @@ const CATEGORY_NEWS_SOURCES: CategoryNewsSource[] = [
   { categoryId: "hr-employment", topic: "India HR and Employment", googleNewsUrl: makeGoogleNewsUrl("India employment jobs human resources workplace") },
   { categoryId: "it-ai-cybersecurity", topic: "India IT AI and Cybersecurity", googleNewsUrl: makeGoogleNewsUrl("India information technology artificial intelligence cybersecurity") },
   { categoryId: "manufacturing-auto", topic: "India Manufacturing and Auto", googleNewsUrl: makeGoogleNewsUrl("India manufacturing automobile auto industry") },
-  { categoryId: "marketing-advertising", topic: "India Marketing and Advertising", googleNewsUrl: makeGoogleNewsUrl("India marketing advertising digital marketing brands") },
+  { categoryId: "marketing-advertising", topic: "India Marketing and Advertising", googleNewsUrl: makeGoogleNewsUrl('India advertising OR India adtech OR India "media buying" OR India "media planning" OR India "brand campaign" OR India "digital marketing" OR India "influencer marketing" OR India MarTech OR India "advertising agency" OR India ASCI OR India "media spend"') },
   { categoryId: "real-estate", topic: "India Real Estate", googleNewsUrl: makeGoogleNewsUrl("India real estate housing property infrastructure") },
   { categoryId: "bollywood", topic: "Bollywood", googleNewsUrl: makeGoogleNewsUrl("Bollywood Hindi cinema Indian films entertainment") },
   { categoryId: "kids", topic: "Kids and Education", googleNewsUrl: makeGoogleNewsUrl("India children education schools learning kids") },
@@ -897,6 +897,13 @@ async function summarizeArticles(
     ...(categoryTopic === "Global Startups" ? [
       "Include only startup ecosystem stories from outside India. Focus on startup companies, founders, venture capital, funding rounds, launches, acquisitions, incubators, accelerators, and unicorns.",
       "Exclude general business and established-company news unless it directly concerns a startup.",
+    ] : []),
+    ...(categoryTopic === "India Marketing and Advertising" ? [
+      "This category is strictly about the marketing, advertising, media and brand-communications industry in India. Select stories only when marketing or advertising is the main subject, not a passing mention.",
+      "Prioritise Indian advertising and creative agencies; campaign launches and major brand campaigns; digital, social-media and video advertising; media planning and media buying; advertising and media spend; adtech and MarTech; influencer and creator marketing; brand strategy; public relations; sponsorships; marketing research and measurement; and material advertising-industry regulation or decisions by bodies such as ASCI.",
+      "Include global-company stories only when the article clearly describes a direct development or impact in the Indian advertising or marketing market.",
+      "Exclude general company results, product launches, retail and FMCG news, e-commerce sales, startup funding, celebrity news, job listings, and general business stories unless the central development is specifically about advertising, marketing, media, an agency, adtech or MarTech.",
+      "Do not treat an article as relevant merely because it mentions a brand, promotion, sales, customers or social media. If the article does not materially concern the Indian marketing or advertising industry, do not select it.",
     ] : []),
     "Put constructive or positive developments first. If there is a genuine significant risk or setback, place it last.",
     "Use very simple English and short explanations. Do not use the words you or your.",
