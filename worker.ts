@@ -2520,7 +2520,7 @@ var worker_default = {
         } catch (error) {
           const message = String(error?.message || error || 'Telegram connection test failed.')
             .replace(env.TELEGRAM_BOT_TOKEN || '__NO_TELEGRAM_TOKEN__', '[REDACTED]')
-            .replace(/\\s+/g, ' ')
+            .replace(/\s+/g, ' ')
             .slice(0, 250);
           return json({
             success: false,
