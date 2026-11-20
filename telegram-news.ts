@@ -756,9 +756,9 @@ async function fetchMarketingAdvertisingArticles(env: NewsEnv): Promise<NewsArti
   // Marketing news is spread across several specialist search terms. A single
   // broad RSS query was not supplying enough distinct, relevant candidates.
   const queries = [
-    'India advertising agencies OR advertising campaigns OR brand campaigns OR media buying OR media planning',
-    'India digital advertising OR adtech OR MarTech OR influencer marketing OR creator marketing',
-    'India advertising industry OR advertising spend OR ASCI OR public relations OR sponsorship OR marketing research'
+    'India advertising agency OR creative agency OR media agency OR agency account wins OR media mandates OR agency appointments OR brand campaigns',
+    'India digital advertising OR adtech OR MarTech OR influencer marketing OR creator marketing OR social media marketing OR programmatic advertising',
+    'India advertising market OR ad spend OR media investment OR ASCI OR advertising regulation OR public relations OR sponsorship OR marketing research'
   ];
 
   const collected: NewsArticle[] = [];
@@ -949,7 +949,7 @@ async function summarizeArticles(
     ] : []),
     ...(categoryTopic === "India Marketing and Advertising" ? [
       "This category is strictly about the marketing, advertising, media and brand-communications industry in India. Select stories only when marketing or advertising is the main subject, not a passing mention.",
-      "Prioritise Indian advertising and creative agencies; campaign launches and major brand campaigns; digital, social-media and video advertising; media planning and media buying; advertising and media spend; adtech and MarTech; influencer and creator marketing; brand strategy; public relations; sponsorships; marketing research and measurement; and material advertising-industry regulation or decisions by bodies such as ASCI.",
+      "Cover Indian advertising, creative and media agencies, including new business wins, account gains, media mandates, agency appointments and leadership changes; campaign launches and major brand campaigns; digital, social-media and video advertising; media planning and media buying; advertising and media spend; adtech and MarTech; influencer and creator marketing; brand strategy; public relations; sponsorships; marketing research and measurement; media-industry developments; and material advertising-industry regulation or decisions by bodies such as ASCI.",
       "Include global-company stories only when the article clearly describes a direct development or impact in the Indian advertising or marketing market.",
       "Exclude general company results, product launches, retail and FMCG news, e-commerce sales, startup funding, celebrity news, job listings, and general business stories unless the central development is specifically about advertising, marketing, media, an agency, adtech or MarTech.",
       "Do not treat an article as relevant merely because it mentions a brand, promotion, sales, customers or social media. If the article does not materially concern the Indian marketing or advertising industry, do not select it.",
