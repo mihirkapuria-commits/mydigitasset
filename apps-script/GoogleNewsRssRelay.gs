@@ -81,14 +81,14 @@ function doPost(e) {
       headers["Content-Type"] || headers["content-type"] || "application/xml; charset=utf-8"
     );
 
-    if (status !== 200 || !/<rss\\b/i.test(body) || !/<item\\b/i.test(body)) {
+    if (status !== 200 || !/<rss\b/i.test(body) || !/<item\b/i.test(body)) {
       return relayJson_({
         success: false,
         status: status >= 400 && status <= 599 ? status : 502,
         upstreamStatus: status,
         contentType: contentType,
         error: "Google News did not return a usable RSS feed. Response preview: " +
-          body.replace(/[\\r\\n\\t]+/g, " ").slice(0, 500)
+          body.replace(/[\r\n\t]+/g, " ").slice(0, 500)
       });
     }
 
@@ -96,7 +96,7 @@ function doPost(e) {
       success: true,
       status: status,
       contentType: contentType,
-      itemCount: (body.match(/<item\\b/gi) || []).length,
+      itemCount: (body.match(/<item\b/gi) || []).length,
       body: body
     });
   } catch (error) {
