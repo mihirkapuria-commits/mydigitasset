@@ -245,7 +245,9 @@ export async function sendCategoryNewsTest(
       articles = startupDigest.articles;
       stories = startupDigest.stories;
     } else {
-      articles = await fetchGoogleNewsArticles(env, source.googleNewsUrl);
+      articles = source.categoryId === "marketing-advertising"
+        ? await fetchMarketingAdvertisingArticles(env)
+        : await fetchGoogleNewsArticles(env, source.googleNewsUrl);
       stories = await summarizeArticles(env.GEMINI_API_KEY, source.topic, articles);
     }
 
@@ -412,7 +414,9 @@ async function runCategoryNewsDelivery(env: NewsEnv, source: CategoryNewsSource,
       articles = startupDigest.articles;
       stories = startupDigest.stories;
     } else {
-      articles = await fetchGoogleNewsArticles(env, source.googleNewsUrl);
+      articles = source.categoryId === "marketing-advertising"
+        ? await fetchMarketingAdvertisingArticles(env)
+        : await fetchGoogleNewsArticles(env, source.googleNewsUrl);
       stories = await summarizeArticles(env.GEMINI_API_KEY!, source.topic, articles);
     }
 
@@ -746,6 +750,51 @@ async function fetchGoogleNewsArticles(env: NewsEnv, googleNewsUrl: string): Pro
   }
 
   return articles;
+}
+
+async function fetchMarketingAdvertisingArticles(env: NewsEnv): Promise<NewsArticle[]> {
+  // Marketing news is spread across several specialist search terms. A single
+  // broad RSS query was not supplying enough distinct, relevant candidates.
+  const queries = [
+    'India advertising agencies OR advertising campaigns OR brand campaigns OR media buying OR media planning',
+    'India digital advertising OR adtech OR MarTech OR influencer marketing OR creator marketing',
+    'India advertising industry OR advertising spend OR ASCI OR public relations OR sponsorship OR marketing research'
+  ];
+
+  const collected: NewsArticle[] = [];
+  const seenUrls = new Set<string>();
+  const seenTitles = new Set<string>();
+
+  for (const query of queries) {
+    try {
+      const url = makeGoogleNewsUrl(query);
+      const batch = await fetchGoogleNewsArticles(env, url);
+      for (const article of batch) {
+        const normalizedTitle = article.title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+        if (seenUrls.has(article.url) || seenTitles.has(normalizedTitle)) continue;
+        seenUrls.add(article.url);
+        seenTitles.add(normalizedTitle);
+        collected.push(article);
+      }
+    } catch (error) {
+      // A shared Google rate-limit cooldown means further RSS requests must stop.
+      if (error instanceof GoogleNewsRateLimitError) {
+        console.error("Marketing and Advertising: stopping additional RSS searches because Google News is rate-limiting requests.");
+        break;
+      }
+      console.error("Marketing and Advertising: one specialist RSS search failed:", String(error));
+    }
+  }
+
+  collected.sort((a, b) => b.publishedAt.getTime() - a.publishedAt.getTime());
+  const candidates = collected.slice(0, 60);
+  if (candidates.length === 0) {
+    throw new Error("Marketing and Advertising: no usable articles were found across the specialist Google News searches.");
+  }
+
+  console.log("Marketing and Advertising: collected " + candidates.length +
+    " distinct candidate articles across " + queries.length + " specialist searches.");
+  return candidates;
 }
 
 function readGoogleNewsRssField(item: string, tagName: string): string {
