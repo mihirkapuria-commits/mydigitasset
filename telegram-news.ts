@@ -79,7 +79,7 @@ export async function diagnoseStartupGoogleNews(env: NewsEnv): Promise<Record<st
       const value = response.headers.get(name);
       if (value) headers[name] = value.slice(0, 200);
     }
-    const itemCount = (body.match(/<item\\b/gi) || []).length;
+    const itemCount = (body.match(/<item\b/gi) || []).length;
     return {
       success: response.ok && itemCount > 0,
       source: response.headers.get("x-mda-rss-source") || "direct-cloudflare",
@@ -89,7 +89,7 @@ export async function diagnoseStartupGoogleNews(env: NewsEnv): Promise<Record<st
       durationMs: Date.now() - startedAt,
       itemCount,
       headers,
-      bodyPreview: body.replace(/[\\r\\n\\t]+/g, " ").replace(/[\\u0000-\\u001f\\u007f]/g, "").slice(0, 800)
+      bodyPreview: body.replace(/[\r\n\t]+/g, " ").replace(/[\u0000-\u001f\u007f]/g, "").slice(0, 800)
     };
   } catch (error) {
     return {
@@ -111,7 +111,7 @@ export async function diagnoseStartupGemini(env: NewsEnv): Promise<Record<string
     const prompt = [
       "This is a connectivity test for MyDigitAsset, not a real news request.",
       "Return exactly this text and nothing else: MYDIGITASSET_GEMINI_OK"
-    ].join("\\n");
+    ].join("\n");
     const response = await fetch(
       "https://generativelanguage.googleapis.com/v1beta/models/" + GEMINI_MODEL +
         ":generateContent?key=" + encodeURIComponent(env.GEMINI_API_KEY),
@@ -145,7 +145,7 @@ export async function diagnoseStartupGemini(env: NewsEnv): Promise<Record<string
     }
     const result = JSON.parse(responseText);
     const generatedText = (result?.candidates?.[0]?.content?.parts || [])
-      .map((part: any) => part.text || "").join("\\n").trim();
+      .map((part: any) => part.text || "").join("\n").trim();
     return {
       success: generatedText.includes("MYDIGITASSET_GEMINI_OK"),
       model: GEMINI_MODEL,
@@ -603,8 +603,8 @@ async function fetchGoogleNewsArticles(env: NewsEnv, googleNewsUrl: string): Pro
     let bodyPreview = "";
     try {
       bodyPreview = (await response.clone().text())
-        .replace(/[\\r\\n\\t]+/g, " ")
-        .replace(/[\\u0000-\\u001f\\u007f]/g, "")
+        .replace(/[\r\n\t]+/g, " ")
+        .replace(/[\u0000-\u001f\u007f]/g, "")
         .slice(0, 600);
     } catch {
       bodyPreview = "[response body could not be read]";
@@ -644,7 +644,7 @@ async function fetchGoogleNewsArticles(env: NewsEnv, googleNewsUrl: string): Pro
       try {
         bodyPreview = (await response.clone().text())
           .replace(/[\\r\n\\t]+/g, " ")
-          .replace(/[\\u0000-\\u001f\\u007f]/g, "")
+          .replace(/[\u0000-\u001f\u007f]/g, "")
           .slice(0, 600);
       } catch {
         bodyPreview = "[response body could not be read]";
