@@ -110,19 +110,14 @@ function doPost(e) {
 
 function validateGoogleNewsFeedUrl_(value) {
   try {
-    const url = new URL(value);
-    if (
-      url.protocol !== "https:" ||
-      url.hostname !== "news.google.com" ||
-      url.pathname !== "/rss/search" ||
-      !url.searchParams.get("q") ||
-      url.searchParams.get("q").length > 300 ||
-      url.username ||
-      url.password
-    ) {
-      return "";
-    }
-    return url.toString();
+    const match = String(value).match(/^https:\/\/news\.google\.com\/rss\/search\?([^#]+)$/i);
+    if (!match) return "";
+    const queryParts = match[1].split("&");
+    const qPart = queryParts.find(function(part) { return /^q=/i.test(part); });
+    if (!qPart) return "";
+    const query = decodeURIComponent(qPart.slice(2).replace(/\+/g, " "));
+    if (!query || query.length > 300) return "";
+    return value;
   } catch (error) {
     return "";
   }
