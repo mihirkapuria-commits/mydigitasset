@@ -1079,7 +1079,7 @@ function buildNewsMessage(
 
   // Telegram allows up to 4,096 characters after entity parsing. If needed,
   // progressively shorten explanations first, then headlines, while retaining
-  // all 10 stories and every original source link/date.
+  // all 10 stories and every original source link. Other categories retain source dates.
   let explanationIndex = 0;
   while (telegramVisibleTextLength(message) > 4096 && explanationIndex < prepared.length * 40) {
     const item = prepared[explanationIndex % prepared.length];
