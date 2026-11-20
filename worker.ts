@@ -2479,6 +2479,62 @@ var worker_default = {
         }
       }
 
+      // ADMIN: TEST ONE TELEGRAM CHANNEL WITHOUT DEPENDING ON GOOGLE NEWS OR GEMINI.
+      if (url.pathname === '/api/admin/telegram/test/channel' && method === 'POST') {
+        const admin = await getAuthorizedAdmin(request, env);
+        if (!admin) return json({ error: 'Administrator access required.' }, 403);
+
+        const body = await parseRequestBody(request);
+        const categoryId = String(body.categoryId || '').trim();
+        if (!categoryId) return json({ error: 'A Telegram category is required.' }, 400);
+
+        const channel = await env.DB.prepare(`
+          SELECT id, title, telegram_chat_id
+          FROM managed_categories
+          WHERE id = ? AND active = 1
+          LIMIT 1
+        `).bind(categoryId).first();
+
+        if (!channel?.telegram_chat_id) {
+          return json({ error: 'The selected category has no active Telegram channel mapping.' }, 404);
+        }
+
+        try {
+          const telegramResult = await sendTelegramConnectionTest(
+            env,
+            String(channel.telegram_chat_id),
+            String(channel.title || categoryId)
+          );
+          return json({
+            success: true,
+            result: {
+              category: categoryId,
+              title: channel.title || categoryId,
+              status: 'sent',
+              testType: 'telegram',
+              storyCount: 0,
+              messageIds: telegramResult.messageIds,
+              details: 'Telegram connection confirmed. Google News and Gemini were not used.'
+            }
+          });
+        } catch (error) {
+          const message = String(error?.message || error || 'Telegram connection test failed.')
+            .replace(env.TELEGRAM_BOT_TOKEN || '__NO_TELEGRAM_TOKEN__', '[REDACTED]')
+            .replace(/\s+/g, ' ')
+            .slice(0, 250);
+          return json({
+            success: false,
+            result: {
+              category: categoryId,
+              title: channel.title || categoryId,
+              status: 'failed',
+              testType: 'telegram',
+              error: message
+            }
+          }, 502);
+        }
+      }
+
       // ADMIN: PROCESS ONE NEWS-CHANNEL TEST PER REQUEST. This avoids relying on a long
       // waitUntil task that may be terminated before all 15 channels finish.
       if (url.pathname === '/api/admin/news/test/channel' && method === 'POST') {

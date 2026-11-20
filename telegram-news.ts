@@ -521,7 +521,11 @@ async function fetchGoogleNewsArticles(env: NewsEnv, googleNewsUrl: string): Pro
         console.error("Could not save Google News 5xx cooldown in D1:", error);
       }
       await response.body?.cancel().catch(() => undefined);
-      throw new GoogleNewsRateLimitError(cooldownSeconds);
+      const retryAfterHeader = response.headers.get("Retry-After");
+      const upstreamDetail = "Google News RSS returned HTTP " + response.status +
+        (response.statusText ? " (" + response.statusText + ")" : "") + "." +
+        (retryAfterHeader ? " Retry-After header: " + retryAfterHeader.slice(0, 120) + "." : "");
+      throw new GoogleNewsRateLimitError(cooldownSeconds, upstreamDetail);
     }
 
     throw new Error("Google News RSS request failed with HTTP " + response.status + ".");
