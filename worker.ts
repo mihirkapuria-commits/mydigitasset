@@ -1,6 +1,6 @@
 // @ts-nocheck
 
-import { runAllCategoryNewsDeliveries, sendIndiaStartupsNewsTest, retryBankingFintechNewsDelivery, sendTelegramConnectionTest, sendAllCategoryNewsTests, sendCategoryNewsTest } from "./telegram-news";
+import { runAllCategoryNewsDeliveries, sendIndiaStartupsNewsTest, retryBankingFintechNewsDelivery, sendTelegramConnectionTest, sendAllCategoryNewsTests, sendCategoryNewsTest, diagnoseStartupGoogleNews, diagnoseStartupGemini } from "./telegram-news";
 
 const CATEGORIES = [
   { id: 'banking-fintech', title: 'Banking and Fintech', telegramChatId: '-1004377330142' },
@@ -2477,6 +2477,29 @@ var worker_default = {
             error: error?.message || 'Could not retry Banking and Fintech news delivery.'
           }, 500);
         }
+      }
+
+
+      // ADMIN: INDEPENDENT STARTUP GOOGLE RSS AND GEMINI DIAGNOSTICS.
+      // RSS makes one direct request; Gemini uses synthetic samples and never sends Telegram messages.
+      if (url.pathname === '/api/admin/news/startup/diagnostics' && method === 'POST') {
+        const admin = await getAuthorizedAdmin(request, env);
+        if (!admin) return json({ error: 'Administrator access required.' }, 403);
+
+        const [googleNews, gemini] = await Promise.all([
+          diagnoseStartupGoogleNews(env).catch(error => ({
+            success: false,
+            error: String(error?.message || error || 'Google News diagnostic failed.').slice(0, 700)
+          })),
+          diagnoseStartupGemini(env)
+        ]);
+        return json({
+          success: Boolean(googleNews.success && gemini.success),
+          category: 'startup',
+          googleNews,
+          gemini,
+          telegramUsed: false
+        });
       }
 
       // ADMIN: TEST ONE TELEGRAM CHANNEL WITHOUT DEPENDING ON GOOGLE NEWS OR GEMINI.
