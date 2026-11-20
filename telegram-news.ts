@@ -2,6 +2,8 @@ interface NewsEnv {
   DB: any;
   TELEGRAM_BOT_TOKEN?: string;
   GEMINI_API_KEY?: string;
+  GOOGLE_NEWS_RSS_RELAY_URL?: string;
+  GOOGLE_NEWS_RSS_RELAY_TOKEN?: string;
 }
 
 interface NewsArticle {
@@ -69,60 +71,89 @@ const INDIA_STARTUPS_SOURCE = CATEGORY_NEWS_SOURCES.find(source => source.catego
 
 export async function diagnoseStartupGoogleNews(env: NewsEnv): Promise<Record<string, unknown>> {
   const startedAt = Date.now();
-  const response = await fetch(INDIA_STARTUPS_SOURCE.googleNewsUrl, {
-    headers: {
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-      "Accept": "application/rss+xml,application/xml,text/xml;q=0.9,*/*;q=0.8",
-      "Accept-Language": "en-IN,en;q=0.9"
-    },
-    signal: AbortSignal.timeout(20_000),
-    cf: { cacheTtl: 0, cacheEverything: false }
-  });
-  const body = await response.text();
-  const headers: Record<string, string> = {};
-  for (const name of ["content-type", "server", "date", "retry-after", "via", "x-cache", "cf-ray"]) {
-    const value = response.headers.get(name);
-    if (value) headers[name] = value.slice(0, 200);
+  try {
+    const response = await fetchGoogleNewsSource(env, INDIA_STARTUPS_SOURCE.googleNewsUrl);
+    const body = await response.text();
+    const headers: Record<string, string> = {};
+    for (const name of ["content-type", "server", "date", "retry-after", "via", "x-cache", "cf-ray", "x-mda-rss-source"]) {
+      const value = response.headers.get(name);
+      if (value) headers[name] = value.slice(0, 200);
+    }
+    const itemCount = (body.match(/<item\\b/gi) || []).length;
+    return {
+      success: response.ok && itemCount > 0,
+      source: response.headers.get("x-mda-rss-source") || "direct-cloudflare",
+      relayConfigured: Boolean(env.GOOGLE_NEWS_RSS_RELAY_URL && env.GOOGLE_NEWS_RSS_RELAY_TOKEN),
+      status: response.status,
+      statusText: response.statusText,
+      durationMs: Date.now() - startedAt,
+      itemCount,
+      headers,
+      bodyPreview: body.replace(/[\\r\\n\\t]+/g, " ").replace(/[\\u0000-\\u001f\\u007f]/g, "").slice(0, 800)
+    };
+  } catch (error) {
+    return {
+      success: false,
+      source: env.GOOGLE_NEWS_RSS_RELAY_URL ? "google-apps-script-relay" : "direct-cloudflare",
+      relayConfigured: Boolean(env.GOOGLE_NEWS_RSS_RELAY_URL && env.GOOGLE_NEWS_RSS_RELAY_TOKEN),
+      durationMs: Date.now() - startedAt,
+      error: String(error instanceof Error ? error.message : error).slice(0, 700)
+    };
   }
-  const itemCount = (body.match(/<item\b/gi) || []).length;
-  return {
-    success: response.ok && itemCount > 0,
-    status: response.status,
-    statusText: response.statusText,
-    durationMs: Date.now() - startedAt,
-    itemCount,
-    headers,
-    bodyPreview: body.replace(/[\r\n\t]+/g, " ").replace(/[\u0000-\u001f\u007f]/g, "").slice(0, 800)
-  };
 }
 
 export async function diagnoseStartupGemini(env: NewsEnv): Promise<Record<string, unknown>> {
   if (!env.GEMINI_API_KEY) {
     return { success: false, model: GEMINI_MODEL, error: "GEMINI_API_KEY is not configured." };
   }
-  const now = new Date();
-  const samples: NewsArticle[] = Array.from({ length: 10 }, (_, index) => ({
-    title: "India startup diagnostic sample " + (index + 1) + ": company announces a new product or funding update",
-    url: "https://example.com/startup-diagnostic-" + (index + 1),
-    description: "Synthetic diagnostic article " + (index + 1) + " used only to verify Gemini connectivity and the required STORY output format. This is not real news.",
-    source: "MyDigitAsset diagnostic sample",
-    publishedAt: now
-  }));
   const startedAt = Date.now();
   try {
-    const stories = await summarizeArticles(env.GEMINI_API_KEY, INDIA_STARTUPS_SOURCE.topic, samples);
+    const prompt = [
+      "This is a connectivity test for MyDigitAsset, not a real news request.",
+      "Return exactly this text and nothing else: MYDIGITASSET_GEMINI_OK"
+    ].join("\\n");
+    const response = await fetch(
+      "https://generativelanguage.googleapis.com/v1beta/models/" + GEMINI_MODEL +
+        ":generateContent?key=" + encodeURIComponent(env.GEMINI_API_KEY),
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ role: "user", parts: [{ text: prompt }] }],
+          generationConfig: { maxOutputTokens: 40, temperature: 0 }
+        }),
+        signal: AbortSignal.timeout(20_000)
+      }
+    );
+    const responseText = await response.text();
+    if (!response.ok) {
+      let providerMessage = "";
+      try {
+        const parsed = JSON.parse(responseText);
+        providerMessage = String(parsed?.error?.message || parsed?.error?.status || "").slice(0, 500);
+      } catch {
+        providerMessage = responseText.slice(0, 300);
+      }
+      return {
+        success: false,
+        model: GEMINI_MODEL,
+        status: response.status,
+        statusText: response.statusText,
+        durationMs: Date.now() - startedAt,
+        error: providerMessage || "Gemini returned an unsuccessful HTTP response."
+      };
+    }
+    const result = JSON.parse(responseText);
+    const generatedText = (result?.candidates?.[0]?.content?.parts || [])
+      .map((part: any) => part.text || "").join("\\n").trim();
     return {
-      success: true,
+      success: generatedText.includes("MYDIGITASSET_GEMINI_OK"),
       model: GEMINI_MODEL,
+      status: response.status,
       durationMs: Date.now() - startedAt,
-      inputArticleCount: samples.length,
-      returnedStoryCount: stories.length,
-      outputPreview: stories.slice(0, 3).map(story => ({
-        articleNumber: story.articleNumber,
-        headline: story.headline,
-        explanation: story.explanation
-      })),
-      note: "Synthetic samples only. No real news was generated or sent to Telegram."
+      responsePreview: generatedText.slice(0, 160),
+      finishReason: result?.candidates?.[0]?.finishReason || "not supplied",
+      note: "One small synthetic connectivity request only. No news was generated and no Telegram message was sent."
     };
   } catch (error) {
     return {
@@ -445,6 +476,66 @@ function parseRetryAfter(value: string | null): number | null {
   return Math.max(1, Math.ceil((date - Date.now()) / 1000));
 }
 
+async function fetchGoogleNewsSource(env: NewsEnv, googleNewsUrl: string): Promise<Response> {
+  const relayUrl = String(env.GOOGLE_NEWS_RSS_RELAY_URL || "").trim();
+  const relayToken = String(env.GOOGLE_NEWS_RSS_RELAY_TOKEN || "");
+  if (relayUrl || relayToken) {
+    if (!relayUrl || !relayToken) {
+      throw new Error("Google News RSS relay is only partially configured. Set both GOOGLE_NEWS_RSS_RELAY_URL and GOOGLE_NEWS_RSS_RELAY_TOKEN.");
+    }
+    const parsedRelayUrl = new URL(relayUrl);
+    if (parsedRelayUrl.protocol !== "https:" || !["script.google.com", "script.googleusercontent.com"].includes(parsedRelayUrl.hostname)) {
+      throw new Error("Google News RSS relay URL must be an HTTPS Google Apps Script web-app URL.");
+    }
+    const relayResponse = await fetch(relayUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: relayToken, feedUrl: googleNewsUrl }),
+      signal: AbortSignal.timeout(25_000),
+      redirect: "follow"
+    });
+    const relayText = await relayResponse.text();
+    let relayResult: any = {};
+    try {
+      relayResult = JSON.parse(relayText);
+    } catch {
+      return new Response("Google News RSS relay returned an unreadable response: " + relayText.slice(0, 500), {
+        status: relayResponse.ok ? 502 : relayResponse.status,
+        headers: { "Content-Type": "text/plain; charset=utf-8", "X-MDA-RSS-Source": "google-apps-script-relay" }
+      });
+    }
+    if (relayResult?.success === true && typeof relayResult.body === "string") {
+      return new Response(relayResult.body, {
+        status: 200,
+        headers: {
+          "Content-Type": relayResult.contentType || "application/xml; charset=utf-8",
+          "X-MDA-RSS-Source": "google-apps-script-relay",
+          "X-MDA-RSS-Relay-Status": String(relayResult.status || 200)
+        }
+      });
+    }
+    const upstreamStatus = Number(relayResult?.status || relayResponse.status || 502);
+    const safeStatus = upstreamStatus >= 400 && upstreamStatus <= 599 ? upstreamStatus : 502;
+    return new Response(String(relayResult?.error || "Google News RSS relay could not retrieve the feed.").slice(0, 800), {
+      status: safeStatus,
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        "X-MDA-RSS-Source": "google-apps-script-relay"
+      }
+    });
+  }
+
+  return fetch(googleNewsUrl, {
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+      "Accept-Language": "en-IN,en;q=0.9"
+    },
+    signal: AbortSignal.timeout(20_000),
+    cf: { cacheTtl: 0, cacheEverything: false }
+  });
+}
+
 async function fetchGoogleNewsArticles(env: NewsEnv, googleNewsUrl: string): Promise<NewsArticle[]> {
   // Respect a shared D1 cooldown so tests and scheduled category deliveries do not
   // repeatedly contact Google while its upstream rate limit is active.
@@ -467,10 +558,7 @@ async function fetchGoogleNewsArticles(env: NewsEnv, googleNewsUrl: string): Pro
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      const attemptResponse = await fetch(googleNewsUrl, {
-        headers: requestHeaders,
-        signal: AbortSignal.timeout(20_000)
-      });
+      const attemptResponse = await fetchGoogleNewsSource(env, googleNewsUrl);
 
       // A 429 is handled by the existing shared D1 cooldown below, without retrying here.
       if (attemptResponse.status === 429) {
