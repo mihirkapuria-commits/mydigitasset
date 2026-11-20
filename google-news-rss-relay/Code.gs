@@ -90,7 +90,8 @@ function parseRequest_(e) {
 
 function validateFeedUrl_(value) {
   if (!value || value.length > MAX_FEED_URL_LENGTH) return "";
-  try {
+  // Strict allow-list: no alternate host, port, credentials, or non-RSS path.
+  const allowedPattern = /^https:\/\/news\.google\.com\/rss\/[A-Za-z0-9._~!  try {
     const parsed = new URL(value);
     if (
       parsed.protocol !== "https:" ||
@@ -102,7 +103,8 @@ function validateFeedUrl_(value) {
     return parsed.toString();
   } catch (_) {
     return "";
-  }
+  }'()*+,;=:@%/?-]*$/;
+  return allowedPattern.test(value) ? value : "";
 }
 
 function fetchFeedWithRetry_(feedUrl) {
