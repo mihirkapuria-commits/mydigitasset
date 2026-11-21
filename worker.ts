@@ -1,6 +1,6 @@
 // @ts-nocheck
 
-import { runAllCategoryNewsDeliveries, sendIndiaStartupsNewsTest, retryBankingFintechNewsDelivery, sendTelegramConnectionTest, sendAllCategoryNewsTests, sendCategoryNewsTest, diagnoseStartupGoogleNews, diagnoseStartupGemini } from "./telegram-news";
+import { runAllCategoryNewsDeliveries, runCategoryNewsDeliveryBatch, sendIndiaStartupsNewsTest, retryBankingFintechNewsDelivery, sendTelegramConnectionTest, sendAllCategoryNewsTests, sendCategoryNewsTest, diagnoseStartupGoogleNews, diagnoseStartupGemini } from "./telegram-news";
 
 const CATEGORIES = [
   { id: 'banking-fintech', title: 'Banking and Fintech', telegramChatId: '-1004377330142' },
@@ -827,6 +827,7 @@ async function runDuePromotionCampaignsForChannel(env, channel) {
 var worker_default = {
   async scheduled(controller, env, ctx) {
     const cron = String(controller.cron || "");
+
     // The 07:15 IST cron sends private customer account reminders.
     if (cron === "45 1 * * *") {
       ctx.waitUntil(sendScheduledCustomerReminders(env));
@@ -841,32 +842,59 @@ var worker_default = {
     `).all();
     const channels = channelsResult.results || [];
 
-    const runNewsAndMatchingChannelAds = () => runAllCategoryNewsDeliveries(
-      env,
-      channels,
-      async (channel, newsStatus) => {
-        const parts = getIndiaDateTimeParts();
-        if ((parts.day === "14" || parts.day === "28") && newsStatus === "sent") {
-          // Deliver the ad immediately after this same channel's news message.
-          await runDuePromotionCampaignsForChannel(env, channel);
+    const runNewsBatchAndMatchingChannelAds = (categoryIds) =>
+      runCategoryNewsDeliveryBatch(
+        env,
+        channels,
+        categoryIds,
+        async (channel, newsStatus) => {
+          const parts = getIndiaDateTimeParts();
+          if ((parts.day === "14" || parts.day === "28") && newsStatus === "sent") {
+            // Keep each approved channel advertisement immediately after its news.
+            await runDuePromotionCampaignsForChannel(env, channel);
+          }
         }
-      }
-    );
+      );
 
+    // 06:15 IST — batch 1 of 3 (five categories).
     if (cron === "45 0 * * *") {
-      // 06:15 IST: news is delivered channel by channel; on the 14th/28th,
-      // that channel's separate advertisement follows its successful news message.
-      ctx.waitUntil(runNewsAndMatchingChannelAds());
+      ctx.waitUntil(runNewsBatchAndMatchingChannelAds([
+        "banking-fintech", "consumer-fmcg", "economy-business",
+        "energy-renewal", "hr-employment"
+      ]));
       return;
     }
 
+    // 06:30 IST — batch 2 of 3 (five categories).
+    if (cron === "0 1 * * *") {
+      ctx.waitUntil(runNewsBatchAndMatchingChannelAds([
+        "it-ai-cybersecurity", "manufacturing-auto", "marketing-advertising",
+        "real-estate", "bollywood"
+      ]));
+      return;
+    }
+
+    // 06:45 IST — batch 3 of 3 (the remaining five categories).
     if (cron === "15 1 * * *") {
-      // 06:45 IST: retry failed news. If a retry succeeds on an ad date,
-      // send that channel's advertisement immediately after the successful news.
-      ctx.waitUntil(runNewsAndMatchingChannelAds());
+      ctx.waitUntil(runNewsBatchAndMatchingChannelAds([
+        "kids", "women", "politics", "stock-market", "startup"
+      ]));
       return;
     }
 
+    // 07:00 IST — one recovery pass for failed or not-yet-delivered categories.
+    // Sent categories and categories already being processed are safely skipped.
+    if (cron === "30 1 * * *") {
+      ctx.waitUntil(runNewsBatchAndMatchingChannelAds([
+        "banking-fintech", "consumer-fmcg", "economy-business",
+        "energy-renewal", "hr-employment", "it-ai-cybersecurity",
+        "manufacturing-auto", "marketing-advertising", "real-estate",
+        "bollywood", "kids", "women", "politics", "stock-market", "startup"
+      ]));
+      return;
+    }
+
+    // Retain the existing fallback behavior for any other scheduled invocation.
     ctx.waitUntil(runAllCategoryNewsDeliveries(env, channels));
   },
 
