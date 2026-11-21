@@ -212,6 +212,51 @@ export async function runAllCategoryNewsDeliveries(
   }
 }
 
+export async function runCategoryNewsDeliveryBatch(
+  env: NewsEnv,
+  channels: Array<{ id: string; title: string; telegram_chat_id: string }>,
+  categoryIds: string[],
+  afterChannelDelivery?: (
+    channel: { id: string; title: string; telegram_chat_id: string },
+    status: string
+  ) => Promise<void>
+): Promise<void> {
+  const selectedCategoryIds = new Set(categoryIds.map(id => String(id)));
+  const channelByCategory = new Map(channels.map(channel => [String(channel.id), channel]));
+
+  for (const source of CATEGORY_NEWS_SOURCES) {
+    if (!selectedCategoryIds.has(source.categoryId)) continue;
+
+    const channel = channelByCategory.get(source.categoryId);
+    if (!channel || !channel.telegram_chat_id) {
+      console.error(source.topic + " delivery skipped: active Telegram channel mapping is missing.");
+      continue;
+    }
+
+    // Scheduled batches may start after the original 06:15 setting. The batch
+    // schedule itself is the authorization to run; daily D1 status prevents duplicates.
+    const status = await runCategoryNewsDelivery(
+      env,
+      source,
+      String(channel.telegram_chat_id),
+      false,
+      true
+    );
+
+    if (afterChannelDelivery) {
+      try {
+        await afterChannelDelivery(channel, status);
+      } catch (error) {
+        // An advertisement failure must never interrupt the remaining category news deliveries.
+        console.error("Post-news channel action failed for " + channel.title + ":", String(error));
+      }
+    }
+
+    // Space out RSS requests to reduce the chance of triggering Google's shared rate limit.
+    await new Promise(resolve => setTimeout(resolve, 1200));
+  }
+}
+
 export async function sendCategoryNewsTest(
   env: NewsEnv,
   categoryId: string,
@@ -351,7 +396,7 @@ export async function fetchIndiaStartupsNewsPreview(env: NewsEnv): Promise<Array
   }));
 }
 
-async function runCategoryNewsDelivery(env: NewsEnv, source: CategoryNewsSource, telegramChannelId: string, manualRetry = false): Promise<string> {
+async function runCategoryNewsDelivery(env: NewsEnv, source: CategoryNewsSource, telegramChannelId: string, manualRetry = false, scheduledRun = false): Promise<string> {
   if (!env.TELEGRAM_BOT_TOKEN) {
     console.error(source.topic + " delivery skipped: TELEGRAM_BOT_TOKEN is not configured.");
     return "skipped";
@@ -381,8 +426,8 @@ async function runCategoryNewsDelivery(env: NewsEnv, source: CategoryNewsSource,
   if (manualRetry && !priorStatus.startsWith("failed:")) return "not_failed";
   if (priorStatus.startsWith("failed:")) {
     const failedAt = Number(priorStatus.split(":")[1] || 0);
-    if (!manualRetry && failedAt && Date.now() - failedAt < 15 * 60 * 1000) return "cooldown";
-  } else if (time !== await getConfiguredDeliveryTime(env)) {
+    if (!manualRetry && !scheduledRun && failedAt && Date.now() - failedAt < 15 * 60 * 1000) return "cooldown";
+  } else if (!scheduledRun && time !== await getConfiguredDeliveryTime(env)) {
     return "not_due";
   }
 
