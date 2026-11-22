@@ -260,6 +260,14 @@ export async function runCategoryNewsDeliveryBatch(
       }
     }
 
+    // Stop this batch immediately after a shared Google News rate limit.
+    // The next scheduled recovery slot will check the saved D1 cooldown before retrying.
+    const cooldownRemaining = await getGoogleNewsCooldownRemaining(env);
+    if (cooldownRemaining > 0) {
+      console.warn("Stopping the remaining category batch; Google News cooldown has " + cooldownRemaining + " seconds left.");
+      break;
+    }
+
     // Space out RSS requests to reduce the chance of triggering Google's shared rate limit.
     await new Promise(resolve => setTimeout(resolve, 1200));
   }
