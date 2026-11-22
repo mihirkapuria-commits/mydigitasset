@@ -53,21 +53,21 @@ interface CategoryNewsSource {
 }
 
 const CATEGORY_NEWS_SOURCES: CategoryNewsSource[] = [
-  { categoryId: "banking-fintech", topic: "India Banking and FinTech", googleNewsUrl: makeGoogleNewsUrl("India banking fintech digital payments RBI banks") },
-  { categoryId: "consumer-fmcg", topic: "India Consumer and FMCG", googleNewsUrl: makeGoogleNewsUrl("India consumer goods FMCG retail brands") },
-  { categoryId: "economy-business", topic: "India Economy and Business", googleNewsUrl: makeGoogleNewsUrl("India economy business industry trade") },
-  { categoryId: "energy-renewal", topic: "India Energy and Renewables", googleNewsUrl: makeGoogleNewsUrl("India energy oil natural gas renewable power") },
-  { categoryId: "hr-employment", topic: "India HR and Employment", googleNewsUrl: makeGoogleNewsUrl("India employment jobs human resources workplace") },
-  { categoryId: "it-ai-cybersecurity", topic: "India IT, AI and Cybersecurity", googleNewsUrl: makeGoogleNewsUrl('India IT services OR artificial intelligence OR cybersecurity OR software OR cloud computing OR data centres OR semiconductors OR telecom technology') },
-  { categoryId: "manufacturing-auto", topic: "India Manufacturing and Auto", googleNewsUrl: makeGoogleNewsUrl("India manufacturing automobile auto industry") },
-  { categoryId: "marketing-advertising", topic: "India Marketing and Advertising", googleNewsUrl: makeGoogleNewsUrl('India advertising OR India adtech OR India "media buying" OR India "media planning" OR India "brand campaign" OR India "digital marketing" OR India "influencer marketing" OR India MarTech OR India "advertising agency" OR India ASCI OR India "media spend"') },
+  { categoryId: "banking-fintech", topic: "India Banking & FinTech", googleNewsUrl: makeGoogleNewsUrl("India banking fintech digital payments RBI banks") },
+  { categoryId: "consumer-fmcg", topic: "India Consumer & FMCG", googleNewsUrl: makeGoogleNewsUrl("India consumer goods FMCG retail brands") },
+  { categoryId: "economy-business", topic: "India Economy & Business", googleNewsUrl: makeGoogleNewsUrl("India economy business industry trade") },
+  { categoryId: "energy-renewal", topic: "India Energy & Renewables", googleNewsUrl: makeGoogleNewsUrl("India energy oil natural gas renewable power") },
+  { categoryId: "hr-employment", topic: "India HR & Employment", googleNewsUrl: makeGoogleNewsUrl("India employment jobs human resources workplace") },
+  { categoryId: "it-ai-cybersecurity", topic: "India IT, AI & Cybersecurity", googleNewsUrl: makeGoogleNewsUrl('India IT services OR artificial intelligence OR cybersecurity OR software OR cloud computing OR data centres OR semiconductors OR telecom technology') },
+  { categoryId: "manufacturing-auto", topic: "India Manufacturing & Auto", googleNewsUrl: makeGoogleNewsUrl("India manufacturing automobile auto industry") },
+  { categoryId: "marketing-advertising", topic: "India Marketing & Advertising", googleNewsUrl: makeGoogleNewsUrl('India advertising OR India adtech OR India "media buying" OR India "media planning" OR India "brand campaign" OR India "digital marketing" OR India "influencer marketing" OR India MarTech OR India "advertising agency" OR India ASCI OR India "media spend"') },
   { categoryId: "real-estate", topic: "India Real Estate", googleNewsUrl: makeGoogleNewsUrl('India real estate OR housing OR commercial property OR property developers OR infrastructure projects OR urban development OR construction') },
-  { categoryId: "bollywood", topic: "Bollywood and Indian Entertainment", googleNewsUrl: makeGoogleNewsUrl("Bollywood Hindi cinema Indian films entertainment OTT streaming box office") },
-  { categoryId: "kids", topic: "India Kids and Education", googleNewsUrl: makeGoogleNewsUrl('India children education OR schools OR school students OR National Education Policy OR curriculum OR examinations OR EdTech OR student skills') },
-  { categoryId: "women", topic: "Indian Women and Leadership", googleNewsUrl: makeGoogleNewsUrl("India women leadership women entrepreneurs women executives board appointments women founders") },
-  { categoryId: "politics", topic: "India Politics and Policy", googleNewsUrl: makeGoogleNewsUrl("India politics government policy governance parliament legislation regulation") },
+  { categoryId: "bollywood", topic: "Bollywood & Indian Entertainment", googleNewsUrl: makeGoogleNewsUrl("Bollywood Hindi cinema Indian films entertainment OTT streaming box office") },
+  { categoryId: "kids", topic: "India Kids & Education", googleNewsUrl: makeGoogleNewsUrl('India children education OR schools OR school students OR National Education Policy OR curriculum OR examinations OR EdTech OR student skills') },
+  { categoryId: "women", topic: "Indian Women & Leadership", googleNewsUrl: makeGoogleNewsUrl("India women leadership women entrepreneurs women executives board appointments women founders") },
+  { categoryId: "politics", topic: "India Politics & Policy", googleNewsUrl: makeGoogleNewsUrl("India politics government policy governance parliament legislation regulation") },
   { categoryId: "stock-market", topic: "India Stock Market", googleNewsUrl: makeGoogleNewsUrl("India stock market NSE BSE shares markets") },
-  { categoryId: "startup", topic: "India Startups and Funding", googleNewsUrl: makeGoogleNewsUrl('India startups OR startup launches OR startup funding OR venture capital OR angel investors OR accelerators OR incubators OR startup acquisitions India') }
+  { categoryId: "startup", topic: "India Startups & Funding", googleNewsUrl: makeGoogleNewsUrl('India startups OR startup launches OR startup funding OR venture capital OR angel investors OR accelerators OR incubators OR startup acquisitions India') }
 ];
 
 function makeGoogleNewsUrl(query: string): string {
