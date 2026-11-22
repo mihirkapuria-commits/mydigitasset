@@ -988,14 +988,24 @@ async function summarizeStartupDigest(env: NewsEnv): Promise<{ articles: NewsArt
 
   // India remains the first priority. Only expand internationally when the
   // Indian feed does not contain 10 distinct, useful startup stories.
-  const indiaArticles = await fetchGoogleNewsArticles(env, INDIA_STARTUPS_SOURCE.googleNewsUrl);
-  const indiaStories = await summarizeArticles(
-    env.GEMINI_API_KEY,
-    "India Startups",
-    indiaArticles,
-    10,
-    true
-  );
+  let indiaArticles: NewsArticle[] = [];
+  let indiaStories: NewsStory[] = [];
+
+  try {
+    indiaArticles = await fetchGoogleNewsArticles(env, INDIA_STARTUPS_SOURCE.googleNewsUrl);
+    indiaStories = await summarizeArticles(
+      env.GEMINI_API_KEY,
+      "India Startups",
+      indiaArticles,
+      10,
+      true
+    );
+  } catch (error) {
+    // A shared Google rate limit/cooldown must stop all further RSS requests.
+    // A non-rate-limit empty/unusable India feed may still use the global fallback.
+    if (error instanceof GoogleNewsRateLimitError) throw error;
+    console.warn("India Startups: local RSS feed was unusable; trying global fallback:", String(error));
+  }
 
   if (indiaStories.length === 10) {
     return { articles: indiaArticles, stories: indiaStories };
@@ -1056,14 +1066,24 @@ async function summarizeCategoryDigest(
   // India/category-specific reporting always has first priority.
   // The existing source query is fetched once; global news is requested only
   // when Gemini finds fewer than 10 genuinely relevant local stories.
-  const localArticles = await fetchGoogleNewsArticles(env, source.googleNewsUrl);
-  const localStories = await summarizeArticles(
-    env.GEMINI_API_KEY,
-    source.topic,
-    localArticles,
-    10,
-    true
-  );
+  let localArticles: NewsArticle[] = [];
+  let localStories: NewsStory[] = [];
+
+  try {
+    localArticles = await fetchGoogleNewsArticles(env, source.googleNewsUrl);
+    localStories = await summarizeArticles(
+      env.GEMINI_API_KEY,
+      source.topic,
+      localArticles,
+      10,
+      true
+    );
+  } catch (error) {
+    // Do not issue another Google request while its shared cooldown is active.
+    // For an empty/unusable category feed, continue to the one global fallback.
+    if (error instanceof GoogleNewsRateLimitError) throw error;
+    console.warn(source.topic + ": local RSS feed was unusable; trying global fallback:", String(error));
+  }
 
   if (localStories.length === 10) {
     return { articles: localArticles, stories: localStories };
