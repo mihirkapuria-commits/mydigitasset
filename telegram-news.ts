@@ -1326,11 +1326,16 @@ async function summarizeArticles(
       "Do not treat an article as relevant merely because it mentions a brand, promotion, sales, customers or social media. If the article does not materially concern the marketing or advertising industry in the stated market, do not select it.",
     ] : []),
     "Put constructive or positive developments first. If there is a genuine significant risk or setback, place it last.",
-    "Use very simple English and short explanations. Do not use the words you or your.",
+    "Use very simple English. Each story must have a brief, useful understanding of about 15–25 words. Do not use the words you or your.",
+    "CRITICAL: The explanation is NOT a second headline. Never repeat, restate, paraphrase, or merely rearrange the headline in the explanation.",
+    "The explanation must add NEW information from the supplied article: explain what happened in practical terms, give relevant context, or state why the development matters and who or what it affects.",
+    "Do not begin the explanation by repeating the headline or its opening phrase. Avoid copying headline wording except for essential names, organisations, places, or technical terms.",
+    "If the article description does not provide enough information for a meaningful explanation, say only what can be supported; never guess or add outside facts.",
+    "Example: Headline: RBI keeps the repo rate unchanged. Explanation: Borrowing costs are likely to remain steady for now, giving banks and borrowers no immediate rate change.",
     "Do not invent facts, figures, quotes, dates, or details. Do not repeat a story.",
     "Return only one line per selected story in this exact format:",
-    "STORY|ARTICLE_NUMBER|HEADLINE|ONE SHORT EXPLANATION",
-    "ARTICLE_NUMBER must be the number of the supplied article. Do not include source links; they will be added separately.",
+    "STORY|ARTICLE_NUMBER|HEADLINE|ONE SHORT UNDERSTANDING (ADDS CONTEXT; NOT A HEADLINE REWRITE)",
+    "ARTICLE_NUMBER must be the number of the supplied article. Do not include source links; they will be added separately."
     "",
     articleInput
   ].join("\n");
