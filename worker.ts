@@ -828,8 +828,10 @@ var worker_default = {
   async scheduled(controller, env, ctx) {
     const cron = String(controller.cron || "");
 
-    // The 07:15 IST cron sends private customer account reminders.
-    if (cron === "45 1 * * *") {
+    // The combined 07:00/07:15 trigger uses UTC minute 45 for the existing
+    // private customer reminders. Minute 30 is reserved for news recovery.
+    const scheduledMinute = new Date(controller.scheduledTime || Date.now()).getUTCMinutes();
+    if (cron === "30,45 1 * * *" && scheduledMinute === 45) {
       ctx.waitUntil(sendScheduledCustomerReminders(env));
       return;
     }
@@ -856,21 +858,23 @@ var worker_default = {
     const runNewsRecoveryBatchAndMatchingChannelAds = () =>
       runCategoryNewsRecoveryBatch(env, channels, 3, afterNewsChannelDelivery);
 
-    // One cron expression covers all three normal batches without consuming
-    // three separate account cron slots. scheduledTime is UTC; these minutes
-    // correspond to 06:15, 06:30 and 06:45 India time.
-    if (cron === "15,30,45 0 * * *") {
-      const scheduledMinute = new Date(controller.scheduledTime || Date.now()).getUTCMinutes();
+    // 06:15 IST — normal batch 1 (five categories).
+    if (cron === "45 0 * * *") {
+      ctx.waitUntil(runNewsBatchAndMatchingChannelAds([
+        "banking-fintech", "consumer-fmcg", "economy-business",
+        "energy-renewal", "hr-employment"
+      ]));
+      return;
+    }
+
+    // 06:30 and 06:45 IST share one cron trigger; scheduledTime is UTC.
+    if (cron === "0,15 1 * * *") {
       const normalBatches = {
-        15: [
-          "banking-fintech", "consumer-fmcg", "economy-business",
-          "energy-renewal", "hr-employment"
-        ],
-        30: [
+        0: [
           "it-ai-cybersecurity", "manufacturing-auto", "marketing-advertising",
           "real-estate", "bollywood"
         ],
-        45: [
+        15: [
           "kids", "women", "politics", "stock-market", "startup"
         ]
       };
@@ -882,7 +886,7 @@ var worker_default = {
     }
 
     // 07:00 IST — retry no more than three outstanding categories.
-    if (cron === "30 1 * * *") {
+    if (cron === "30,45 1 * * *" && scheduledMinute === 30) {
       ctx.waitUntil(runNewsRecoveryBatchAndMatchingChannelAds());
       return;
     }
