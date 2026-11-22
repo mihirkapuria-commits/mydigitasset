@@ -645,7 +645,7 @@ async function repeatLastSuccessfulCategoryDigest(
   }
 
   const previousStatus = String(previous.value);
-  const messageMatch = previousStatus.match(/^(?:sent|repeated):(\\d+)/);
+  const messageMatch = previousStatus.match(/^(?:sent|repeated):(\d+)/);
   const previousMessageId = messageMatch ? Number(messageMatch[1]) : NaN;
   if (!Number.isSafeInteger(previousMessageId) || previousMessageId <= 0) {
     console.warn(source.topic + ": the previous delivery record has no valid Telegram message ID.");
@@ -673,7 +673,7 @@ async function repeatLastSuccessfulCategoryDigest(
       String(result?.description || response.status));
   }
 
-  const previousDateMatch = String(previous.key).match(/:(\\d{4}-\\d{2}-\\d{2})$/);
+  const previousDateMatch = String(previous.key).match(/:(\d{4}-\d{2}-\d{2})$/);
   const previousDate = previousDateMatch ? previousDateMatch[1] : "unknown";
   await env.DB.prepare("UPDATE settings SET value = ? WHERE key = ?")
     .bind(
