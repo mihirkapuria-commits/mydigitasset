@@ -1,6 +1,6 @@
 // @ts-nocheck
 
-import { runAllCategoryNewsDeliveries, runCategoryNewsDeliveryBatch, runCategoryNewsRecoveryBatch, sendIndiaStartupsNewsTest, retryBankingFintechNewsDelivery, sendTelegramConnectionTest, sendAllCategoryNewsTests, sendCategoryNewsTest, diagnoseStartupGoogleNews, diagnoseStartupGemini } from "./telegram-news";
+import { runCategoryNewsDeliveryBatch, runCategoryNewsRecoveryBatch, sendIndiaStartupsNewsTest, retryBankingFintechNewsDelivery, sendTelegramConnectionTest, sendCategoryNewsTest, diagnoseStartupGoogleNews, diagnoseStartupGemini } from "./telegram-news";
 
 const CATEGORIES = [
   { id: 'banking-fintech', title: 'Banking and Fintech', telegramChatId: '-1004377330142' },
@@ -894,7 +894,7 @@ async function runNextScheduledNewsTestBatch(env) {
     // If Google starts rate-limiting or returns a temporary outage, stop this batch
     // immediately. The remaining categories wait for the next 15-minute slot.
     const errorText = String(result.error || "");
-    if (result.status === "failed" && /(429|503|rate.?limit|too many requests|cooldown|temporarily unavailable)/i.test(errorText)) {
+    if (result.status === "failed" && /(429|503|rate.?limit|too many requests|cooldown|temporarily (unavailable|paused)|upstream unavailable)/i.test(errorText)) {
       current.rateLimitPause = true;
       break;
     }
@@ -904,10 +904,11 @@ async function runNextScheduledNewsTestBatch(env) {
   }
 
   const completed = Number(current.nextIndex || 0) >= Number(current.total || 15);
+  const batchStartedAt = Date.parse(processing.processingAt || new Date().toISOString());
   current = {
     ...current,
     status: completed ? "completed" : "queued",
-    nextRunAt: completed ? null : new Date(Date.now() + NEWS_TEST_BATCH_GAP_MS).toISOString(),
+    nextRunAt: completed ? null : new Date(batchStartedAt + NEWS_TEST_BATCH_GAP_MS).toISOString(),
     completedAt: completed ? new Date().toISOString() : null,
     processingAt: null,
     batchNumber: Number(current.batchNumber || 0) + 1
