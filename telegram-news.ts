@@ -1051,8 +1051,15 @@ async function summarizeStartupDigest(env: NewsEnv): Promise<{ articles: NewsArt
     env.GEMINI_API_KEY,
     "Global Startups",
     globalArticles,
-    remaining
+    remaining,
+    true
   );
+
+  if (globalStories.length !== remaining) {
+    throw new Error("India Startups: found " + indiaStories.length +
+      " relevant Indian stories and " + globalStories.length +
+      " relevant global stories; exactly 10 are required. Nothing was sent.");
+  }
 
   const combinedArticles = indiaArticles.concat(globalArticles);
   const combinedStories = indiaStories.concat(globalStories.map(story => ({
@@ -1370,6 +1377,15 @@ function buildNewsMessage(
     year: "numeric"
   }).format(new Date());
 
+  // Tag every global fallback story and explain why global coverage is included.
+  const globalStoryCount = stories.filter(story => /^\[GLOBAL\]/i.test(story.headline)).length;
+  const globalNotice = globalStoryCount === 10
+    ? "Relevant Indian news was not found for this category today; all 10 stories are from global sources."
+    : globalStoryCount > 0
+      ? "Relevant Indian news was not found for " + globalStoryCount +
+        " story slot(s) today; global news are sent for those slots."
+      : "";
+
   const prepared = stories.map((story, index) => {
     const article = articles[story.articleNumber - 1];
     if (!article) {
@@ -1387,7 +1403,8 @@ function buildNewsMessage(
     let output = "<b>MYDIGITASSET</b>\n<b>" +
       escapeTelegramHtml(branding.heading) + "</b>\n<i>" +
       escapeTelegramHtml(branding.subtitle) + "</i>\n<code>" +
-      escapeTelegramHtml(today) + "</code>\n\n";
+      escapeTelegramHtml(today) + "</code>\n\n" +
+      (globalNotice ? "<i>" + escapeTelegramHtml(globalNotice) + "</i>\n\n" : "");
     for (let index = 0; index < prepared.length; index++) {
       const item = prepared[index];
       output += "<b>" + (index + 1) + ". " + escapeTelegramHtml(item.headline) + "</b>\n" +
