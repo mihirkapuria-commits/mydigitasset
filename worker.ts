@@ -947,7 +947,7 @@ var worker_default = {
 
     const afterNewsChannelDelivery = async (channel, newsStatus) => {
       const parts = getIndiaDateTimeParts();
-      if ((parts.day === "14" || parts.day === "28") && newsStatus === "sent") {
+      if ((parts.day === "14" || parts.day === "28") && (newsStatus === "sent" || newsStatus === "repeated")) {
         await runDuePromotionCampaignsForChannel(env, channel);
       }
     };
