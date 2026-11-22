@@ -197,8 +197,7 @@ export async function runAllCategoryNewsDeliveries(
     channel: { id: string; title: string; telegram_chat_id: string },
     status: string
   ) => Promise<void>
-): Promise<void> {  const channelByCategory = new Map(channels.map(channel => [String(channel.id), channel]));
-  for (const source of CATEGORY_NEWS_SOURCES) {
+): Promise<void> {  const channelByCategory = new Map(channels.map(channel => [String(channel.id), channel]));  for (const source of CATEGORY_NEWS_SOURCES) {
     const channel = channelByCategory.get(source.categoryId);
     if (!channel || !channel.telegram_chat_id) {
       console.error(source.topic + " delivery skipped: active Telegram channel mapping is missing.");
@@ -397,8 +396,7 @@ export async function sendCategoryNewsTest(
     if (source.categoryId === "startup") {
       const startupDigest = await summarizeStartupDigest(env);
       articles = startupDigest.articles;      stories = startupDigest.stories;
-    } else {
-      const categoryDigest = await summarizeCategoryDigest(env, source);
+    } else {      const categoryDigest = await summarizeCategoryDigest(env, source);
       articles = categoryDigest.articles;
       stories = categoryDigest.stories;
     }
@@ -597,8 +595,7 @@ async function runCategoryNewsDelivery(env: NewsEnv, source: CategoryNewsSource,
           telegramChannelId,
           deliveryKey        );
         if (repeated) return "repeated";
-      } catch (repeatError) {
-        console.error(source.topic + " could not repeat its previous digest:", String(repeatError));
+      } catch (repeatError) {        console.error(source.topic + " could not repeat its previous digest:", String(repeatError));
       }
     }
 
@@ -797,8 +794,7 @@ async function fetchGoogleNewsSource(env: NewsEnv, googleNewsUrl: string): Promi
     if (relayResult?.success === true && typeof relayResult.body === "string") {      return new Response(relayResult.body, {
         status: 200,
         headers: {
-          "Content-Type": relayResult.contentType || "application/xml; charset=utf-8",
-          "X-MDA-RSS-Source": "google-apps-script-relay",
+          "Content-Type": relayResult.contentType || "application/xml; charset=utf-8",          "X-MDA-RSS-Source": "google-apps-script-relay",
           "X-MDA-RSS-Relay-Status": String(relayResult.status || 200)
         }
       });
@@ -997,8 +993,7 @@ async function fetchGoogleNewsArticles(env: NewsEnv, googleNewsUrl: string): Pro
   }
 
   if (articles.length === 0) {
-    throw new Error("Google News RSS feed loaded, but no usable headlines could be extracted.");
-  }
+    throw new Error("Google News RSS feed loaded, but no usable headlines could be extracted.");  }
 
   return articles;
 }
@@ -1197,8 +1192,7 @@ async function summarizeCategoryDigest(
     // Do not issue another Google request while its shared cooldown is active.
     // For an empty/unusable category feed, continue to the one global fallback.
     if (error instanceof GoogleNewsRateLimitError) throw error;
-    console.warn(source.topic + ": local RSS feed was unusable; trying global fallback:", String(error));
-  }
+    console.warn(source.topic + ": local RSS feed was unusable; trying global fallback:", String(error));  }
 
   if (localArticles.length > 0) {
     localStories = await summarizeArticles(
@@ -1272,7 +1266,7 @@ async function summarizeCategoryDigest(
 function getCategoryEditorialGuidance(categoryTopic: string): string[] {
   const isGlobal = categoryTopic.startsWith("Global ");
   const market = isGlobal ? "outside India" : "in India";
-  const topic = categoryTopic.replace(/^Global\\s+/i, "").toLowerCase();
+  const topic = categoryTopic.replace(/^Global\s+/i, "").toLowerCase();
   const rules: Record<string, string[]> = {
     "startups": [
       "Select only startup-ecosystem developments: startup companies, founders, venture-capital and angel funding, funding rounds, launches, acquisitions, incubators, accelerators, scale-ups and unicorns.",
@@ -1280,7 +1274,7 @@ function getCategoryEditorialGuidance(categoryTopic: string): string[] {
     ],
     "banking": [
       "Focus on banks, RBI actions, monetary and banking regulation, NBFCs, lending, deposits, credit cards, UPI and digital payments, fintech products, payment networks, insurance distribution and financial inclusion.",
-      "Include global-company stories only when the article describes a clear development, operation or material impact in the Indian banking or fintech market.",
+      "For India editions, include international-company stories only when the article establishes a clear Indian-market impact. For global fallback editions, cover major banking and fintech developments in other markets.",
       "Exclude ordinary stock-price movements, general startup funding, unrelated corporate results and broad economy stories unless banking or fintech is the main subject."
     ],
     "consumer": [
@@ -1288,13 +1282,13 @@ function getCategoryEditorialGuidance(categoryTopic: string): string[] {
       "Include brand or company results only when they reveal a meaningful consumer-market development. Exclude advertising campaigns unless the advertising industry itself is the main subject."
     ],
     "economy": [
-      "Focus on India's overall economy and business environment: GDP, growth, inflation, interest rates, public finances, taxation, trade, exports and imports, industrial activity, investment, major corporate developments and business confidence.",
+      "Focus on the overall economy and business environment in the relevant market: GDP, growth, inflation, interest rates, public finances, taxation, trade, exports and imports, industrial activity, investment, major corporate developments and business confidence.",
       "Select broad economy or cross-industry business developments. Prefer specialist channels for stories whose main subject is banking, stock markets, startups, energy, real estate, advertising or another dedicated category.",
       "Include international developments only when the article explains a direct and material effect on India's economy or businesses."
     ],
     "energy": [
       "Focus on energy supply and demand, electricity, power generation and distribution, solar, wind, hydro, green hydrogen, batteries and storage, grids, oil, gas, coal, fuel prices, energy projects and energy policy.",
-      "Include global developments only when they have a clear Indian project, market, supply, price or policy connection. Exclude general climate stories without a meaningful energy angle."
+      "For India editions, include international developments only when they have a clear Indian project, market, supply, price or policy connection. For global fallback editions, cover major energy developments in other markets. Exclude climate stories without a meaningful energy angle."
     ],
     "hr": [
       "Focus on employment, hiring, layoffs, job creation, wages, workplace conditions, labour laws, industrial relations, workforce skills, HR technology, talent management, employee benefits and leadership appointments with a clear HR or employment angle.",
@@ -1302,12 +1296,12 @@ function getCategoryEditorialGuidance(categoryTopic: string): string[] {
     ],
     "cybersecurity": [
       "Focus on India's IT and technology sector, software and IT services, artificial intelligence, enterprise technology, cloud computing, cybersecurity, data protection, data centres, telecom technology and major technology policy.",
-      "Include global technology developments only when the article identifies a direct Indian business, user, security, investment or regulatory impact.",
+      "For India editions, include global technology developments only when the article identifies a direct Indian business, user, security, investment or regulatory impact. For global fallback editions, select significant technology and cybersecurity developments from other markets.",
       "Exclude routine gadget launches, product reviews, generic technology speculation and AI stories without a substantive Indian technology or cybersecurity angle."
     ],
     "manufacturing": [
       "Focus on manufacturing, industrial production, factories, capital expenditure, supply chains, industrial policy, PLI schemes, industrial automation, engineering, auto manufacturers, vehicle sales and production, EVs, auto components and mobility.",
-      "Include global developments only when they affect Indian manufacturing, auto production, suppliers, investment or policy. Exclude ordinary vehicle reviews and celebrity endorsements."
+      "For India editions, include global developments only when they affect Indian manufacturing, auto production, suppliers, investment or policy. For global fallback editions, cover major manufacturing and automotive developments in other markets. Exclude ordinary vehicle reviews and celebrity endorsements."
     ],
     "marketing": [
       "This category is strictly about the marketing, advertising, media and brand-communications industry " + market + ". Select stories only when marketing or advertising is the main subject, not a passing mention.",
@@ -1317,7 +1311,7 @@ function getCategoryEditorialGuidance(categoryTopic: string): string[] {
     ],
     "real estate": [
       "Focus on residential and commercial property, housing, rentals, land, developers, real-estate transactions, office and retail property, warehousing, REITs, property finance, construction, urban development and major infrastructure projects.",
-      "Include global developments only when they have a clear Indian property, infrastructure, investment or regulatory connection. Exclude generic construction or stock-market stories without a real-estate angle."
+      "For India editions, include global developments only when they have a clear Indian property, infrastructure, investment or regulatory connection. For global fallback editions, cover significant property and infrastructure developments in other markets. Exclude generic construction or stock-market stories without a real-estate angle."
     ],
     "bollywood": [
       "Focus on the Indian entertainment industry, especially Hindi cinema: film production, releases, box office, studios, filmmakers, actors' professional work, streaming and OTT business, music, distribution, exhibition and material industry changes.",
@@ -1332,11 +1326,11 @@ function getCategoryEditorialGuidance(categoryTopic: string): string[] {
       "Prioritise credible achievements, decisions and measurable developments. Exclude generic lifestyle, fashion, celebrity or health stories unless they directly concern leadership, opportunity, safety or women's participation in society and the economy."
     ],
     "politics": [
-      "Focus on Indian politics and public policy: central and state governments, Parliament and state legislatures, elections, political parties, major public decisions, legislation, regulation, governance, public administration and policy implementation.",
+      "Focus on politics and public policy in the relevant market: governments and legislatures, elections, political parties, major public decisions, legislation, regulation, governance, public administration and policy implementation.",
       "Explain the policy or governance consequence where the supplied article supports it. Exclude routine political comments, unverified allegations, partisan opinion and political gossip without a substantive public-interest development."
     ],
     "stock market": [
-      "Focus on Indian financial markets: NSE and BSE, indices, listed companies, share-price movements with a clear catalyst, market trends, corporate earnings, IPOs, public issues, market participants, SEBI decisions and securities-market regulation.",
+      "Focus on financial markets: NSE and BSE for India editions, or major international exchanges for global fallback editions; indices, listed companies, share-price movements with a clear catalyst, market trends, corporate earnings, IPOs, public issues, market participants and securities-market regulation.",
       "Explain the actual market development rather than offering investment advice or predicting returns. Exclude generic personal-finance advice, unlisted startup funding and broad economy stories unless the direct stock-market impact is central."
     ]
   };
@@ -1397,8 +1391,7 @@ async function summarizeArticles(
   const prompt = [
     "Prepare a concise daily " + categoryTopic + " news digest using only the supplied articles.",
     "Select " + targetCount + " useful, recent and genuinely relevant stories. " +
-      (allowFewer
-        ? "If fewer than " + targetCount + " supplied articles are genuinely relevant, return only the relevant stories; do not invent or pad."
+      (allowFewer        ? "If fewer than " + targetCount + " supplied articles are genuinely relevant, return only the relevant stories; do not invent or pad."
         : "Do not invent or pad stories. Return exactly " + targetCount + " distinct stories."),
     ...getCategoryEditorialGuidance(categoryTopic),
     "Put constructive or positive developments first. If there is a genuine significant risk or setback, place it last.",
@@ -1597,8 +1590,7 @@ function buildNewsMessage(
       (globalNotice ? "<i>" + escapeTelegramHtml(globalNotice) + "</i>\n\n" : "");
     for (let index = 0; index < prepared.length; index++) {
       const item = prepared[index];
-      output += "<b>" + (index + 1) + ". " + escapeTelegramHtml(item.headline) + "</b>\n" +
-        escapeTelegramHtml(item.explanation) + "\n" + item.sourceLine + "\n\n";
+      output += "<b>" + (index + 1) + ". " + escapeTelegramHtml(item.headline) + "</b>\n" +        escapeTelegramHtml(item.explanation) + "\n" + item.sourceLine + "\n\n";
     }
     return output.trim();
   };
