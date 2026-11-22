@@ -39,6 +39,13 @@ export class GoogleNewsRateLimitError extends Error {
   }
 }
 
+class InsufficientNewsError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "InsufficientNewsError";
+  }
+}
+
 interface CategoryNewsSource {
   categoryId: string;
   topic: string;
@@ -304,9 +311,9 @@ export async function runCategoryNewsRecoveryBatch(
     const record = await env.DB.prepare("SELECT value FROM settings WHERE key = ?").bind(key).first();
     const status = String(record?.value || "");
 
-    // A successful delivery is final for the day. Never resend it.
+    // A successful or repeated delivery is final for the day. Never resend it.
     // An in-progress delivery is left alone to avoid racing another invocation.
-    if (status.startsWith("sent:") || status === "sending") continue;
+    if (status.startsWith("sent:") || status.startsWith("repeated:") || status === "sending") continue;
 
     const lastAttemptAt = status.startsWith("failed:")
       ? Number(status.split(":")[1] || 0)
@@ -524,7 +531,9 @@ async function runCategoryNewsDelivery(env: NewsEnv, source: CategoryNewsSource,
   }
 
   const priorStatus = String(priorDelivery?.value || "");
-  if (priorStatus.startsWith("sent:") || priorStatus === "sending") return priorStatus.startsWith("sent:") ? "sent" : "sending";
+  if (priorStatus.startsWith("sent:") || priorStatus.startsWith("repeated:") || priorStatus === "sending") {
+    return priorStatus.startsWith("sent:") ? "sent" : priorStatus.startsWith("repeated:") ? "repeated" : "sending";
+  }
   if (manualRetry && !priorStatus.startsWith("failed:")) return "not_failed";
   if (priorStatus.startsWith("failed:")) {
     const failedAt = Number(priorStatus.split(":")[1] || 0);
@@ -582,6 +591,20 @@ async function runCategoryNewsDelivery(env: NewsEnv, source: CategoryNewsSource,
       .replace(env.TELEGRAM_BOT_TOKEN || "__NO_TELEGRAM_TOKEN__", "[REDACTED]")
       .replace(/\s+/g, " ")
       .slice(0, 300);
+    if (error instanceof InsufficientNewsError) {
+      try {
+        const repeated = await repeatLastSuccessfulCategoryDigest(
+          env,
+          source,
+          telegramChannelId,
+          deliveryKey
+        );
+        if (repeated) return "repeated";
+      } catch (repeatError) {
+        console.error(source.topic + " could not repeat its previous digest:", String(repeatError));
+      }
+    }
+
     const failureRecord = "failed:" + Date.now() + ":" + failureStage + ":" + safeMessage;
 
     await env.DB.prepare("UPDATE settings SET value = ? WHERE key = ?")
@@ -590,6 +613,93 @@ async function runCategoryNewsDelivery(env: NewsEnv, source: CategoryNewsSource,
     console.error(source.topic + " daily news delivery failed at " + failureStage + ":", safeMessage);
     return "failed";
   }
+}
+
+async function repeatLastSuccessfulCategoryDigest(
+  env: NewsEnv,
+  source: CategoryNewsSource,
+  telegramChannelId: string,
+  currentDeliveryKey: string
+): Promise<boolean> {
+  if (!env.TELEGRAM_BOT_TOKEN || !telegramChannelId) return false;
+
+  // Look up the most recent digest that was actually delivered to this category.
+  // A repeated digest also counts as the latest sent digest, so it can be repeated
+  // again on a later day if fresh coverage remains insufficient.
+  const previous = await env.DB.prepare(`
+    SELECT key, value
+    FROM settings
+    WHERE key LIKE ?
+      AND key <> ?
+      AND (value LIKE 'sent:%' OR value LIKE 'repeated:%')
+    ORDER BY key DESC
+    LIMIT 1
+  `).bind(
+    "telegram_news_delivery:" + source.categoryId + ":%",
+    currentDeliveryKey
+  ).first();
+
+  if (!previous?.key || !previous?.value) {
+    console.warn(source.topic + ": no previously delivered digest exists to repeat.");
+    return false;
+  }
+
+  const previousStatus = String(previous.value);
+  const messageMatch = previousStatus.match(/^(?:sent|repeated):(\\d+)/);
+  const previousMessageId = messageMatch ? Number(messageMatch[1]) : NaN;
+  if (!Number.isSafeInteger(previousMessageId) || previousMessageId <= 0) {
+    console.warn(source.topic + ": the previous delivery record has no valid Telegram message ID.");
+    return false;
+  }
+
+  // Telegram copies the previously delivered message inside the same category
+  // channel, preserving its original digest and clickable source links.
+  const response = await fetch(
+    "https://api.telegram.org/bot" + env.TELEGRAM_BOT_TOKEN + "/copyMessage",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: telegramChannelId,
+        from_chat_id: telegramChannelId,
+        message_id: previousMessageId
+      })
+    }
+  );
+  const result: any = await response.json().catch(() => ({}));
+  const copiedMessageId = Number(result?.result?.message_id);
+  if (!response.ok || result?.ok !== true || !Number.isSafeInteger(copiedMessageId) || copiedMessageId <= 0) {
+    throw new Error("Telegram could not copy the previous news digest: " +
+      String(result?.description || response.status));
+  }
+
+  const previousDateMatch = String(previous.key).match(/:(\\d{4}-\\d{2}-\\d{2})$/);
+  const previousDate = previousDateMatch ? previousDateMatch[1] : "unknown";
+  await env.DB.prepare("UPDATE settings SET value = ? WHERE key = ?")
+    .bind(
+      "repeated:" + copiedMessageId + ":" + previousDate + ":" + previousMessageId,
+      currentDeliveryKey
+    )
+    .run();
+
+  // Send the explanation after the copied digest, so it truthfully refers to
+  // the repeated message immediately above it.
+  try {
+    await sendTelegramChannelMessage(
+      env.TELEGRAM_BOT_TOKEN,
+      telegramChannelId,
+      "<b>MYDIGITASSET — NEWS AVAILABILITY</b>\n\nWe could not find 10 relevant new stories for <b>" +
+        escapeTelegramHtml(source.topic) +
+        "</b> today, even after checking global news. Therefore, the most recently sent digest above has been repeated."
+    );
+  } catch (noticeError) {
+    // The digest itself has been copied and its delivery status saved. Do not
+    // copy it again merely because the explanatory follow-up could not be sent.
+    console.error(source.topic + ": the repeated digest was sent, but its explanation message failed:", String(noticeError));
+  }
+
+  console.log(source.topic + ": repeated the most recently delivered digest because fewer than 10 relevant new stories were available.");
+  return true;
 }
 
 export async function sendIndiaStartupsNewsTest(
@@ -1043,7 +1153,7 @@ async function summarizeStartupDigest(env: NewsEnv): Promise<{ articles: NewsArt
   });
 
   if (globalArticles.length === 0) {
-    throw new Error("Only " + indiaStories.length +
+    throw new InsufficientNewsError("Only " + indiaStories.length +
       " useful Indian startup stories were found, and no additional distinct global startup stories were available. Nothing was sent.");
   }
 
@@ -1056,7 +1166,7 @@ async function summarizeStartupDigest(env: NewsEnv): Promise<{ articles: NewsArt
   );
 
   if (globalStories.length !== remaining) {
-    throw new Error("India Startups: found " + indiaStories.length +
+    throw new InsufficientNewsError("India Startups: found " + indiaStories.length +
       " relevant Indian stories and " + globalStories.length +
       " relevant global stories; exactly 10 are required. Nothing was sent.");
   }
@@ -1069,7 +1179,7 @@ async function summarizeStartupDigest(env: NewsEnv): Promise<{ articles: NewsArt
   })));
 
   if (combinedStories.length !== 10) {
-    throw new Error("Startup digest could not reach exactly 10 distinct stories after global expansion. Nothing was sent.");
+    throw new InsufficientNewsError("Startup digest could not reach exactly 10 distinct stories after global expansion. Nothing was sent.");
   }
 
   return { articles: combinedArticles, stories: combinedStories };
@@ -1133,7 +1243,7 @@ async function summarizeCategoryDigest(
   });
 
   if (globalArticles.length === 0) {
-    throw new Error(source.topic + ": only " + localStories.length +
+    throw new InsufficientNewsError(source.topic + ": only " + localStories.length +
       " relevant local stories were found and no distinct global fallback articles were available. Nothing was sent.");
   }
 
@@ -1146,7 +1256,7 @@ async function summarizeCategoryDigest(
   );
 
   if (globalStories.length !== remaining) {
-    throw new Error(source.topic + ": found " + localStories.length +
+    throw new InsufficientNewsError(source.topic + ": found " + localStories.length +
       " relevant local stories and " + globalStories.length +
       " relevant global stories; exactly 10 are required. Nothing was sent.");
   }
@@ -1159,7 +1269,7 @@ async function summarizeCategoryDigest(
   })));
 
   if (combinedStories.length !== 10) {
-    throw new Error(source.topic + ": global fallback did not produce exactly 10 distinct stories. Nothing was sent.");
+    throw new InsufficientNewsError(source.topic + ": global fallback did not produce exactly 10 distinct stories. Nothing was sent.");
   }
 
   return { articles: combinedArticles, stories: combinedStories };
