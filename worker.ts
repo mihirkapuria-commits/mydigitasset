@@ -1,6 +1,6 @@
 // @ts-nocheck
 
-import { runAllCategoryNewsDeliveries, runCategoryNewsDeliveryBatch, sendIndiaStartupsNewsTest, retryBankingFintechNewsDelivery, sendTelegramConnectionTest, sendAllCategoryNewsTests, sendCategoryNewsTest, diagnoseStartupGoogleNews, diagnoseStartupGemini } from "./telegram-news";
+import { runAllCategoryNewsDeliveries, runCategoryNewsDeliveryBatch, runCategoryNewsRecoveryBatch, sendIndiaStartupsNewsTest, retryBankingFintechNewsDelivery, sendTelegramConnectionTest, sendAllCategoryNewsTests, sendCategoryNewsTest, diagnoseStartupGoogleNews, diagnoseStartupGemini } from "./telegram-news";
 
 const CATEGORIES = [
   { id: 'banking-fintech', title: 'Banking and Fintech', telegramChatId: '-1004377330142' },
@@ -842,55 +842,60 @@ var worker_default = {
     `).all();
     const channels = channelsResult.results || [];
 
+    const afterNewsChannelDelivery = async (channel, newsStatus) => {
+      const parts = getIndiaDateTimeParts();
+      if ((parts.day === "14" || parts.day === "28") && newsStatus === "sent") {
+        // Keep each approved channel advertisement immediately after its news.
+        await runDuePromotionCampaignsForChannel(env, channel);
+      }
+    };
+
     const runNewsBatchAndMatchingChannelAds = (categoryIds) =>
-      runCategoryNewsDeliveryBatch(
-        env,
-        channels,
-        categoryIds,
-        async (channel, newsStatus) => {
-          const parts = getIndiaDateTimeParts();
-          if ((parts.day === "14" || parts.day === "28") && newsStatus === "sent") {
-            // Keep each approved channel advertisement immediately after its news.
-            await runDuePromotionCampaignsForChannel(env, channel);
-          }
-        }
-      );
+      runCategoryNewsDeliveryBatch(env, channels, categoryIds, afterNewsChannelDelivery);
 
-    // 06:15 IST — batch 1 of 3 (five categories).
-    if (cron === "45 0 * * *") {
-      ctx.waitUntil(runNewsBatchAndMatchingChannelAds([
-        "banking-fintech", "consumer-fmcg", "economy-business",
-        "energy-renewal", "hr-employment"
-      ]));
-      return;
+    const runNewsRecoveryBatchAndMatchingChannelAds = () =>
+      runCategoryNewsRecoveryBatch(env, channels, 3, afterNewsChannelDelivery);
+
+    // One cron expression covers all three normal batches without consuming
+    // three separate account cron slots. scheduledTime is UTC; these minutes
+    // correspond to 06:15, 06:30 and 06:45 India time.
+    if (cron === "15,30,45 0 * * *") {
+      const scheduledMinute = new Date(controller.scheduledTime || Date.now()).getUTCMinutes();
+      const normalBatches = {
+        15: [
+          "banking-fintech", "consumer-fmcg", "economy-business",
+          "energy-renewal", "hr-employment"
+        ],
+        30: [
+          "it-ai-cybersecurity", "manufacturing-auto", "marketing-advertising",
+          "real-estate", "bollywood"
+        ],
+        45: [
+          "kids", "women", "politics", "stock-market", "startup"
+        ]
+      };
+      const categoryIds = normalBatches[scheduledMinute];
+      if (categoryIds) {
+        ctx.waitUntil(runNewsBatchAndMatchingChannelAds(categoryIds));
+        return;
+      }
     }
 
-    // 06:30 IST — batch 2 of 3 (five categories).
-    if (cron === "0 1 * * *") {
-      ctx.waitUntil(runNewsBatchAndMatchingChannelAds([
-        "it-ai-cybersecurity", "manufacturing-auto", "marketing-advertising",
-        "real-estate", "bollywood"
-      ]));
-      return;
-    }
-
-    // 06:45 IST — batch 3 of 3 (the remaining five categories).
-    if (cron === "15 1 * * *") {
-      ctx.waitUntil(runNewsBatchAndMatchingChannelAds([
-        "kids", "women", "politics", "stock-market", "startup"
-      ]));
-      return;
-    }
-
-    // 07:00 IST — one recovery pass for failed or not-yet-delivered categories.
-    // Sent categories and categories already being processed are safely skipped.
+    // 07:00 IST — retry no more than three outstanding categories.
     if (cron === "30 1 * * *") {
-      ctx.waitUntil(runNewsBatchAndMatchingChannelAds([
-        "banking-fintech", "consumer-fmcg", "economy-business",
-        "energy-renewal", "hr-employment", "it-ai-cybersecurity",
-        "manufacturing-auto", "marketing-advertising", "real-estate",
-        "bollywood", "kids", "women", "politics", "stock-market", "startup"
-      ]));
+      ctx.waitUntil(runNewsRecoveryBatchAndMatchingChannelAds());
+      return;
+    }
+
+    // 07:30–08:15 IST — one recovery batch of up to three categories per slot.
+    if (cron === "0,15,30,45 2 * * *") {
+      ctx.waitUntil(runNewsRecoveryBatchAndMatchingChannelAds());
+      return;
+    }
+
+    // 08:30–09:00 IST — continue paced recovery, stopping at 09:00.
+    if (cron === "0,15,30 3 * * *") {
+      ctx.waitUntil(runNewsRecoveryBatchAndMatchingChannelAds());
       return;
     }
 
