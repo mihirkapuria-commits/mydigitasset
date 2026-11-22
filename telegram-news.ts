@@ -62,10 +62,10 @@ const CATEGORY_NEWS_SOURCES: CategoryNewsSource[] = [
   { categoryId: "manufacturing-auto", topic: "India Manufacturing and Auto", googleNewsUrl: makeGoogleNewsUrl("India manufacturing automobile auto industry") },
   { categoryId: "marketing-advertising", topic: "India Marketing and Advertising", googleNewsUrl: makeGoogleNewsUrl('India advertising OR India adtech OR India "media buying" OR India "media planning" OR India "brand campaign" OR India "digital marketing" OR India "influencer marketing" OR India MarTech OR India "advertising agency" OR India ASCI OR India "media spend"') },
   { categoryId: "real-estate", topic: "India Real Estate", googleNewsUrl: makeGoogleNewsUrl("India real estate housing property infrastructure") },
-  { categoryId: "bollywood", topic: "Bollywood", googleNewsUrl: makeGoogleNewsUrl("Bollywood Hindi cinema Indian films entertainment") },
-  { categoryId: "kids", topic: "Kids and Education", googleNewsUrl: makeGoogleNewsUrl("India children education schools learning kids") },
-  { categoryId: "women", topic: "Women in India", googleNewsUrl: makeGoogleNewsUrl("India women business education health achievements") },
-  { categoryId: "politics", topic: "India Politics and Governance", googleNewsUrl: makeGoogleNewsUrl("India politics government policy governance parliament") },
+  { categoryId: "bollywood", topic: "Bollywood and Indian Entertainment", googleNewsUrl: makeGoogleNewsUrl("Bollywood Hindi cinema Indian films entertainment OTT streaming box office") },
+  { categoryId: "kids", topic: "India Kids and Education", googleNewsUrl: makeGoogleNewsUrl("India children education schools students learning child policy education technology") },
+  { categoryId: "women", topic: "India Women and Leadership", googleNewsUrl: makeGoogleNewsUrl("India women leadership women entrepreneurs women executives board appointments women founders") },
+  { categoryId: "politics", topic: "India Politics and Policy", googleNewsUrl: makeGoogleNewsUrl("India politics government policy governance parliament legislation regulation") },
   { categoryId: "stock-market", topic: "India Stock Market", googleNewsUrl: makeGoogleNewsUrl("India stock market NSE BSE shares markets") },
   { categoryId: "startup", topic: "India Startups", googleNewsUrl: makeGoogleNewsUrl("India startups founders venture capital funding") }
 ];
@@ -197,8 +197,7 @@ export async function runAllCategoryNewsDeliveries(
     channel: { id: string; title: string; telegram_chat_id: string },
     status: string
   ) => Promise<void>
-): Promise<void> {
-  const channelByCategory = new Map(channels.map(channel => [String(channel.id), channel]));
+): Promise<void> {  const channelByCategory = new Map(channels.map(channel => [String(channel.id), channel]));
   for (const source of CATEGORY_NEWS_SOURCES) {
     const channel = channelByCategory.get(source.categoryId);
     if (!channel || !channel.telegram_chat_id) {
@@ -397,8 +396,7 @@ export async function sendCategoryNewsTest(
     // then global startup stories only for any missing slots.
     if (source.categoryId === "startup") {
       const startupDigest = await summarizeStartupDigest(env);
-      articles = startupDigest.articles;
-      stories = startupDigest.stories;
+      articles = startupDigest.articles;      stories = startupDigest.stories;
     } else {
       const categoryDigest = await summarizeCategoryDigest(env, source);
       articles = categoryDigest.articles;
@@ -597,8 +595,7 @@ async function runCategoryNewsDelivery(env: NewsEnv, source: CategoryNewsSource,
           env,
           source,
           telegramChannelId,
-          deliveryKey
-        );
+          deliveryKey        );
         if (repeated) return "repeated";
       } catch (repeatError) {
         console.error(source.topic + " could not repeat its previous digest:", String(repeatError));
@@ -797,8 +794,7 @@ async function fetchGoogleNewsSource(env: NewsEnv, googleNewsUrl: string): Promi
         headers: { "Content-Type": "text/plain; charset=utf-8", "X-MDA-RSS-Source": "google-apps-script-relay" }
       });
     }
-    if (relayResult?.success === true && typeof relayResult.body === "string") {
-      return new Response(relayResult.body, {
+    if (relayResult?.success === true && typeof relayResult.body === "string") {      return new Response(relayResult.body, {
         status: 200,
         headers: {
           "Content-Type": relayResult.contentType || "application/xml; charset=utf-8",
@@ -997,8 +993,7 @@ async function fetchGoogleNewsArticles(env: NewsEnv, googleNewsUrl: string): Pro
     const publishedAt = Number.isNaN(parsedDate.getTime()) ? new Date() : parsedDate;
 
     seenUrls.add(url);
-    articles.push({ title, url, description, source: sourceName, publishedAt });
-    if (articles.length >= 40) break;
+    articles.push({ title, url, description, source: sourceName, publishedAt });    if (articles.length >= 40) break;
   }
 
   if (articles.length === 0) {
@@ -1197,8 +1192,7 @@ async function summarizeCategoryDigest(
   let localArticles: NewsArticle[] = [];
   let localStories: NewsStory[] = [];
 
-  try {
-    localArticles = await fetchGoogleNewsArticles(env, source.googleNewsUrl);
+  try {    localArticles = await fetchGoogleNewsArticles(env, source.googleNewsUrl);
   } catch (error) {
     // Do not issue another Google request while its shared cooldown is active.
     // For an empty/unusable category feed, continue to the one global fallback.
@@ -1275,6 +1269,107 @@ async function summarizeCategoryDigest(
   return { articles: combinedArticles, stories: combinedStories };
 }
 
+function getCategoryEditorialGuidance(categoryTopic: string): string[] {
+  const isGlobal = categoryTopic.startsWith("Global ");
+  const market = isGlobal ? "outside India" : "in India";
+  const topic = categoryTopic.replace(/^Global\\s+/i, "").toLowerCase();
+  const rules: Record<string, string[]> = {
+    "startups": [
+      "Select only startup-ecosystem developments: startup companies, founders, venture-capital and angel funding, funding rounds, launches, acquisitions, incubators, accelerators, scale-ups and unicorns.",
+      "Exclude established-company results, general corporate news, stock-market movements, banking and macroeconomic stories unless the central development directly concerns a startup."
+    ],
+    "banking": [
+      "Focus on banks, RBI actions, monetary and banking regulation, NBFCs, lending, deposits, credit cards, UPI and digital payments, fintech products, payment networks, insurance distribution and financial inclusion.",
+      "Include global-company stories only when the article describes a clear development, operation or material impact in the Indian banking or fintech market.",
+      "Exclude ordinary stock-price movements, general startup funding, unrelated corporate results and broad economy stories unless banking or fintech is the main subject."
+    ],
+    "consumer": [
+      "Focus on consumer demand and behaviour, FMCG, packaged foods, beverages, personal care, household products, retail, e-commerce, consumer brands, distribution, pricing, market share, product safety and consumer regulation.",
+      "Include brand or company results only when they reveal a meaningful consumer-market development. Exclude advertising campaigns unless the advertising industry itself is the main subject."
+    ],
+    "economy": [
+      "Focus on India's overall economy and business environment: GDP, growth, inflation, interest rates, public finances, taxation, trade, exports and imports, industrial activity, investment, major corporate developments and business confidence.",
+      "Select broad economy or cross-industry business developments. Prefer specialist channels for stories whose main subject is banking, stock markets, startups, energy, real estate, advertising or another dedicated category.",
+      "Include international developments only when the article explains a direct and material effect on India's economy or businesses."
+    ],
+    "energy": [
+      "Focus on energy supply and demand, electricity, power generation and distribution, solar, wind, hydro, green hydrogen, batteries and storage, grids, oil, gas, coal, fuel prices, energy projects and energy policy.",
+      "Include global developments only when they have a clear Indian project, market, supply, price or policy connection. Exclude general climate stories without a meaningful energy angle."
+    ],
+    "hr": [
+      "Focus on employment, hiring, layoffs, job creation, wages, workplace conditions, labour laws, industrial relations, workforce skills, HR technology, talent management, employee benefits and leadership appointments with a clear HR or employment angle.",
+      "Exclude generic job advertisements, individual career advice and company news that does not materially affect employment or workplace practices."
+    ],
+    "cybersecurity": [
+      "Focus on India's IT and technology sector, software and IT services, artificial intelligence, enterprise technology, cloud computing, cybersecurity, data protection, data centres, telecom technology and major technology policy.",
+      "Include global technology developments only when the article identifies a direct Indian business, user, security, investment or regulatory impact.",
+      "Exclude routine gadget launches, product reviews, generic technology speculation and AI stories without a substantive Indian technology or cybersecurity angle."
+    ],
+    "manufacturing": [
+      "Focus on manufacturing, industrial production, factories, capital expenditure, supply chains, industrial policy, PLI schemes, industrial automation, engineering, auto manufacturers, vehicle sales and production, EVs, auto components and mobility.",
+      "Include global developments only when they affect Indian manufacturing, auto production, suppliers, investment or policy. Exclude ordinary vehicle reviews and celebrity endorsements."
+    ],
+    "marketing": [
+      "This category is strictly about the marketing, advertising, media and brand-communications industry " + market + ". Select stories only when marketing or advertising is the main subject, not a passing mention.",
+      "Cover advertising, creative and media agencies, new business wins, account gains, media mandates, agency appointments and leadership changes; campaign launches; digital, social-media and video advertising; media planning and buying; advertising spend; adtech and MarTech; influencer and creator marketing; brand strategy; public relations; sponsorships; marketing research and measurement; media-industry developments; and advertising regulation.",
+      "Exclude general company results, product launches, retail and FMCG news, e-commerce sales, startup funding, celebrity news, job listings and general business stories unless the central development is specifically about advertising, marketing, media, an agency, adtech or MarTech.",
+      "Do not treat an article as relevant merely because it mentions a brand, promotion, sales, customers or social media."
+    ],
+    "real estate": [
+      "Focus on residential and commercial property, housing, rentals, land, developers, real-estate transactions, office and retail property, warehousing, REITs, property finance, construction, urban development and major infrastructure projects.",
+      "Include global developments only when they have a clear Indian property, infrastructure, investment or regulatory connection. Exclude generic construction or stock-market stories without a real-estate angle."
+    ],
+    "bollywood": [
+      "Focus on the Indian entertainment industry, especially Hindi cinema: film production, releases, box office, studios, filmmakers, actors' professional work, streaming and OTT business, music, distribution, exhibition and material industry changes.",
+      "Exclude rumours, unverified gossip, private-life coverage, routine celebrity sightings and promotional stories with no meaningful entertainment-industry development. Include other Indian-language entertainment only when it is a significant Indian industry story."
+    ],
+    "kids": [
+      "Focus on children and education in India: schools, school education, curriculum, examinations, learning outcomes, teachers, child-focused learning, early childhood, education policy, scholarships, school safety and education technology used by children.",
+      "Include higher-education stories only when they have a clear wider education-policy or student-learning significance. Exclude generic adult career advice and unrelated health or parenting lifestyle content."
+    ],
+    "women": [
+      "Focus on women in leadership and public life in India: women founders and entrepreneurs, business leaders, senior appointments, board representation, leadership achievements, workplace inclusion, women-led organisations and policies that materially affect women's participation and advancement.",
+      "Prioritise credible achievements, decisions and measurable developments. Exclude generic lifestyle, fashion, celebrity or health stories unless they directly concern leadership, opportunity, safety or women's participation in society and the economy."
+    ],
+    "politics": [
+      "Focus on Indian politics and public policy: central and state governments, Parliament and state legislatures, elections, political parties, major public decisions, legislation, regulation, governance, public administration and policy implementation.",
+      "Explain the policy or governance consequence where the supplied article supports it. Exclude routine political comments, unverified allegations, partisan opinion and political gossip without a substantive public-interest development."
+    ],
+    "stock market": [
+      "Focus on Indian financial markets: NSE and BSE, indices, listed companies, share-price movements with a clear catalyst, market trends, corporate earnings, IPOs, public issues, market participants, SEBI decisions and securities-market regulation.",
+      "Explain the actual market development rather than offering investment advice or predicting returns. Exclude generic personal-finance advice, unlisted startup funding and broad economy stories unless the direct stock-market impact is central."
+    ]
+  };
+
+  let selected: string[] | undefined;
+  if (topic.includes("startup")) selected = rules["startups"];
+  else if (topic.includes("banking") || topic.includes("fintech")) selected = rules["banking"];
+  else if (topic.includes("consumer") || topic.includes("fmcg")) selected = rules["consumer"];
+  else if (topic.includes("economy") || topic.includes("business")) selected = rules["economy"];
+  else if (topic.includes("energy") || topic.includes("renewable")) selected = rules["energy"];
+  else if (topic.includes("hr") || topic.includes("employment")) selected = rules["hr"];
+  else if (topic.includes("cybersecurity") || topic.includes("technology") || topic.includes(" it ") || topic.startsWith("it ")) selected = rules["cybersecurity"];
+  else if (topic.includes("manufacturing") || topic.includes("auto")) selected = rules["manufacturing"];
+  else if (topic.includes("marketing") || topic.includes("advertising")) selected = rules["marketing"];
+  else if (topic.includes("real estate")) selected = rules["real estate"];
+  else if (topic.includes("bollywood") || topic.includes("entertainment")) selected = rules["bollywood"];
+  else if (topic.includes("kids") || topic.includes("education")) selected = rules["kids"];
+  else if (topic.includes("women")) selected = rules["women"];
+  else if (topic.includes("politics") || topic.includes("governance") || topic.includes("policy")) selected = rules["politics"];
+  else if (topic.includes("stock market")) selected = rules["stock market"];
+
+  const scope = isGlobal
+    ? "These are global fallback stories from outside India. Keep the selected stories genuinely relevant to the named category and do not present them as Indian developments."
+    : "These are India-first stories. Prefer developments in India and include an international company only when the supplied article establishes a direct and meaningful Indian connection.";
+  return [
+    scope,
+    ...(selected || [
+      "Select only stories whose main subject directly matches this category. Reject passing mentions and unrelated general news."
+    ]),
+    "Apply the same category boundary to every story; do not fill the digest with adjacent topics merely to reach the requested count."
+  ];
+}
+
 async function summarizeArticles(
   apiKey: string,
   categoryTopic: string,
@@ -1305,26 +1400,7 @@ async function summarizeArticles(
       (allowFewer
         ? "If fewer than " + targetCount + " supplied articles are genuinely relevant, return only the relevant stories; do not invent or pad."
         : "Do not invent or pad stories. Return exactly " + targetCount + " distinct stories."),
-    ...(categoryTopic === "India Startups" ? [
-      "Include only Indian startup ecosystem stories: startup companies, founders, venture capital, angel investment, funding rounds, startup launches, acquisitions, incubators, accelerators, or unicorns.",
-      "Exclude general business, established-company, stock-market, banking, and economy stories unless they directly concern an Indian startup.",
-    ] : []),
-    ...(categoryTopic === "Global Startups" ? [
-      "Include only startup ecosystem stories from outside India. Focus on startup companies, founders, venture capital, funding rounds, launches, acquisitions, incubators, accelerators, and unicorns.",
-      "Exclude general business and established-company news unless it directly concerns a startup.",
-    ] : []),
-    ...(categoryTopic.includes("Marketing and Advertising") ? [
-      "This category is strictly about the marketing, advertising, media and brand-communications industry in " +
-        (categoryTopic.startsWith("Global ") ? "global markets" : "India") +
-        ". Select stories only when marketing or advertising is the main subject, not a passing mention.",
-      "Cover " + (categoryTopic.startsWith("Global ") ? "global" : "Indian") +
-        " advertising, creative and media agencies, including new business wins, account gains, media mandates, agency appointments and leadership changes; campaign launches and major brand campaigns; digital, social-media and video advertising; media planning and media buying; advertising and media spend; adtech and MarTech; influencer and creator marketing; brand strategy; public relations; sponsorships; marketing research and measurement; media-industry developments; and material advertising-industry regulation.",
-      ...(categoryTopic.startsWith("Global ") ? [] : [
-        "Include global-company stories only when the article clearly describes a direct development or impact in the Indian advertising or marketing market."
-      ]),
-      "Exclude general company results, product launches, retail and FMCG news, e-commerce sales, startup funding, celebrity news, job listings, and general business stories unless the central development is specifically about advertising, marketing, media, an agency, adtech or MarTech.",
-      "Do not treat an article as relevant merely because it mentions a brand, promotion, sales, customers or social media. If the article does not materially concern the marketing or advertising industry in the stated market, do not select it.",
-    ] : []),
+    ...getCategoryEditorialGuidance(categoryTopic),
     "Put constructive or positive developments first. If there is a genuine significant risk or setback, place it last.",
     "Use very simple English. Each story must have a brief, useful understanding of about 15–25 words. Do not use the words you or your.",
     "CRITICAL: The explanation is NOT a second headline. Never repeat, restate, paraphrase, or merely rearrange the headline in the explanation.",
@@ -1397,8 +1473,7 @@ async function summarizeArticles(
       const errorBody: any = await response.json();
       apiError = String(errorBody?.error?.message || errorBody?.error?.status || "").slice(0, 500);
     } catch {
-      apiError = "";
-    }
+      apiError = "";    }
     throw new Error(
       "Gemini request failed with HTTP " + response.status +
       (response.statusText ? " (" + response.statusText + ")" : "") +
@@ -1597,8 +1672,7 @@ export async function sendTelegramConnectionTest(
     "This is a one-time delivery test. No action is required.";
 
   try {
-    const messageIds = await sendNewsMessage(env.TELEGRAM_BOT_TOKEN, channelId, testMessage);
-    return { storyCount: 0, messageIds };
+    const messageIds = await sendNewsMessage(env.TELEGRAM_BOT_TOKEN, channelId, testMessage);    return { storyCount: 0, messageIds };
   } catch (error: any) {
     const safeMessage = String(error?.message || error)
       .replace(env.TELEGRAM_BOT_TOKEN, "[REDACTED]")
