@@ -1335,7 +1335,7 @@ async function summarizeArticles(
     "Do not invent facts, figures, quotes, dates, or details. Do not repeat a story.",
     "Return only one line per selected story in this exact format:",
     "STORY|ARTICLE_NUMBER|HEADLINE|ONE SHORT UNDERSTANDING (ADDS CONTEXT; NOT A HEADLINE REWRITE)",
-    "ARTICLE_NUMBER must be the number of the supplied article. Do not include source links; they will be added separately."
+    "ARTICLE_NUMBER must be the number of the supplied article. Do not include source links; they will be added separately.",
     "",
     articleInput
   ].join("\n");
