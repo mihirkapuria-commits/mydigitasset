@@ -207,6 +207,14 @@ export async function runAllCategoryNewsDeliveries(
         console.error("Post-news channel action failed for " + channel.title + ":", String(error));
       }
     }
+    // Stop this batch immediately after a shared Google News rate limit.
+    // The next scheduled recovery slot will check the saved D1 cooldown before retrying.
+    const cooldownRemaining = await getGoogleNewsCooldownRemaining(env);
+    if (cooldownRemaining > 0) {
+      console.warn("Stopping the remaining category batch; Google News cooldown has " + cooldownRemaining + " seconds left.");
+      break;
+    }
+
     // Space out RSS requests to reduce the chance of triggering Google's shared rate limit.
     await new Promise(resolve => setTimeout(resolve, 1200));
   }
@@ -257,6 +265,93 @@ export async function runCategoryNewsDeliveryBatch(
   }
 }
 
+export async function runCategoryNewsRecoveryBatch(
+  env: NewsEnv,
+  channels: Array<{ id: string; title: string; telegram_chat_id: string }>,
+  maxCategories = 3,
+  afterChannelDelivery?: (
+    channel: { id: string; title: string; telegram_chat_id: string },
+    status: string
+  ) => Promise<void>
+): Promise<void> {
+  const initialCooldown = await getGoogleNewsCooldownRemaining(env);
+  if (initialCooldown > 0) {
+    console.log("News recovery batch skipped; Google News cooldown has " + initialCooldown + " seconds left.");
+    return;
+  }
+
+  const channelByCategory = new Map(channels.map(channel => [String(channel.id), channel]));
+  const { date } = getIndiaDateAndTime(new Date());
+  const pending: Array<{
+    source: CategoryNewsSource;
+    channel: { id: string; title: string; telegram_chat_id: string };
+    lastAttemptAt: number;
+  }> = [];
+
+  for (const source of CATEGORY_NEWS_SOURCES) {
+    const channel = channelByCategory.get(source.categoryId);
+    if (!channel || !channel.telegram_chat_id) continue;
+
+    const key = "telegram_news_delivery:" + source.categoryId + ":" + date;
+    const record = await env.DB.prepare("SELECT value FROM settings WHERE key = ?").bind(key).first();
+    const status = String(record?.value || "");
+
+    // A successful delivery is final for the day. Never resend it.
+    // An in-progress delivery is left alone to avoid racing another invocation.
+    if (status.startsWith("sent:") || status === "sending") continue;
+
+    const lastAttemptAt = status.startsWith("failed:")
+      ? Number(status.split(":")[1] || 0)
+      : 0;
+    pending.push({ source, channel, lastAttemptAt: Number.isFinite(lastAttemptAt) ? lastAttemptAt : 0 });
+  }
+
+  // Rotate through failures fairly: after a failed retry its timestamp moves
+  // forward, allowing other outstanding categories to be attempted next.
+  pending.sort((a, b) => a.lastAttemptAt - b.lastAttemptAt);
+  const batchSize = Math.max(1, Math.min(3, Math.floor(maxCategories) || 3));
+  const selected = pending.slice(0, batchSize);
+
+  if (selected.length === 0) {
+    console.log("News recovery batch: all configured categories are already sent or in progress.");
+    return;
+  }
+
+  console.log("News recovery batch: attempting " + selected.map(item => item.source.categoryId).join(", "));
+
+  for (const item of selected) {
+    const cooldown = await getGoogleNewsCooldownRemaining(env);
+    if (cooldown > 0) {
+      console.log("Pausing recovery batch; Google News cooldown has " + cooldown + " seconds left.");
+      break;
+    }
+
+    const status = await runCategoryNewsDelivery(
+      env,
+      item.source,
+      String(item.channel.telegram_chat_id),
+      false,
+      true
+    );
+
+    if (afterChannelDelivery) {
+      try {
+        await afterChannelDelivery(item.channel, status);
+      } catch (error) {
+        console.error("Post-news channel action failed for " + item.channel.title + ":", String(error));
+      }
+    }
+
+    const remainingCooldown = await getGoogleNewsCooldownRemaining(env);
+    if (remainingCooldown > 0) {
+      console.log("Pausing remaining recovery categories; Google News cooldown has " + remainingCooldown + " seconds left.");
+      break;
+    }
+
+    await new Promise(resolve => setTimeout(resolve, 1200));
+  }
+}
+
 export async function sendCategoryNewsTest(
   env: NewsEnv,
   categoryId: string,
@@ -290,10 +385,9 @@ export async function sendCategoryNewsTest(
       articles = startupDigest.articles;
       stories = startupDigest.stories;
     } else {
-      articles = source.categoryId === "marketing-advertising"
-        ? await fetchMarketingAdvertisingArticles(env)
-        : await fetchGoogleNewsArticles(env, source.googleNewsUrl);
-      stories = await summarizeArticles(env.GEMINI_API_KEY, source.topic, articles);
+      const categoryDigest = await summarizeCategoryDigest(env, source);
+      articles = categoryDigest.articles;
+      stories = categoryDigest.stories;
     }
 
     const message = buildNewsMessage(source.topic + " — TEST DELIVERY", stories, articles, source.categoryId);
@@ -459,10 +553,9 @@ async function runCategoryNewsDelivery(env: NewsEnv, source: CategoryNewsSource,
       articles = startupDigest.articles;
       stories = startupDigest.stories;
     } else {
-      articles = source.categoryId === "marketing-advertising"
-        ? await fetchMarketingAdvertisingArticles(env)
-        : await fetchGoogleNewsArticles(env, source.googleNewsUrl);
-      stories = await summarizeArticles(env.GEMINI_API_KEY!, source.topic, articles);
+      const categoryDigest = await summarizeCategoryDigest(env, source);
+      articles = categoryDigest.articles;
+      stories = categoryDigest.stories;
     }
 
     failureStage = "message_formatting";
@@ -954,6 +1047,83 @@ async function summarizeStartupDigest(env: NewsEnv): Promise<{ articles: NewsArt
   return { articles: combinedArticles, stories: combinedStories };
 }
 
+async function summarizeCategoryDigest(
+  env: NewsEnv,
+  source: CategoryNewsSource
+): Promise<{ articles: NewsArticle[]; stories: NewsStory[] }> {
+  if (!env.GEMINI_API_KEY) throw new Error("GEMINI_API_KEY is not configured.");
+
+  // India/category-specific reporting always has first priority.
+  // The existing source query is fetched once; global news is requested only
+  // when Gemini finds fewer than 10 genuinely relevant local stories.
+  const localArticles = await fetchGoogleNewsArticles(env, source.googleNewsUrl);
+  const localStories = await summarizeArticles(
+    env.GEMINI_API_KEY,
+    source.topic,
+    localArticles,
+    10,
+    true
+  );
+
+  if (localStories.length === 10) {
+    return { articles: localArticles, stories: localStories };
+  }
+
+  const remaining = 10 - localStories.length;
+  const globalTopic = "Global " + source.topic.replace(/^India\\s+/i, "").trim();
+  const globalQuery = "global " + source.topic.replace(/^India\\s+/i, "").trim() + " latest news";
+  const globalUrl = "https://news.google.com/rss/search?q=" +
+    encodeURIComponent(globalQuery) + "&hl=en-US&gl=US&ceid=US:en";
+
+  console.log(source.topic + ": found " + localStories.length +
+    " relevant India/category stories; searching globally for " + remaining + " more.");
+
+  const fetchedGlobalArticles = await fetchGoogleNewsArticles(env, globalUrl);
+  const seenUrls = new Set(localArticles.map(article => article.url));
+  const seenTitles = new Set(localArticles.map(article =>
+    article.title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()
+  ));
+  const globalArticles = fetchedGlobalArticles.filter(article => {
+    const normalizedTitle = article.title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    if (seenUrls.has(article.url) || seenTitles.has(normalizedTitle)) return false;
+    seenUrls.add(article.url);
+    seenTitles.add(normalizedTitle);
+    return true;
+  });
+
+  if (globalArticles.length === 0) {
+    throw new Error(source.topic + ": only " + localStories.length +
+      " relevant local stories were found and no distinct global fallback articles were available. Nothing was sent.");
+  }
+
+  const globalStories = await summarizeArticles(
+    env.GEMINI_API_KEY,
+    globalTopic,
+    globalArticles,
+    remaining,
+    true
+  );
+
+  if (globalStories.length !== remaining) {
+    throw new Error(source.topic + ": found " + localStories.length +
+      " relevant local stories and " + globalStories.length +
+      " relevant global stories; exactly 10 are required. Nothing was sent.");
+  }
+
+  const combinedArticles = localArticles.concat(globalArticles);
+  const combinedStories = localStories.concat(globalStories.map(story => ({
+    ...story,
+    headline: "[GLOBAL] " + story.headline,
+    articleNumber: story.articleNumber + localArticles.length
+  })));
+
+  if (combinedStories.length !== 10) {
+    throw new Error(source.topic + ": global fallback did not produce exactly 10 distinct stories. Nothing was sent.");
+  }
+
+  return { articles: combinedArticles, stories: combinedStories };
+}
+
 async function summarizeArticles(
   apiKey: string,
   categoryTopic: string,
@@ -992,12 +1162,17 @@ async function summarizeArticles(
       "Include only startup ecosystem stories from outside India. Focus on startup companies, founders, venture capital, funding rounds, launches, acquisitions, incubators, accelerators, and unicorns.",
       "Exclude general business and established-company news unless it directly concerns a startup.",
     ] : []),
-    ...(categoryTopic === "India Marketing and Advertising" ? [
-      "This category is strictly about the marketing, advertising, media and brand-communications industry in India. Select stories only when marketing or advertising is the main subject, not a passing mention.",
-      "Cover Indian advertising, creative and media agencies, including new business wins, account gains, media mandates, agency appointments and leadership changes; campaign launches and major brand campaigns; digital, social-media and video advertising; media planning and media buying; advertising and media spend; adtech and MarTech; influencer and creator marketing; brand strategy; public relations; sponsorships; marketing research and measurement; media-industry developments; and material advertising-industry regulation or decisions by bodies such as ASCI.",
-      "Include global-company stories only when the article clearly describes a direct development or impact in the Indian advertising or marketing market.",
+    ...(categoryTopic.includes("Marketing and Advertising") ? [
+      "This category is strictly about the marketing, advertising, media and brand-communications industry in " +
+        (categoryTopic.startsWith("Global ") ? "global markets" : "India") +
+        ". Select stories only when marketing or advertising is the main subject, not a passing mention.",
+      "Cover " + (categoryTopic.startsWith("Global ") ? "global" : "Indian") +
+        " advertising, creative and media agencies, including new business wins, account gains, media mandates, agency appointments and leadership changes; campaign launches and major brand campaigns; digital, social-media and video advertising; media planning and media buying; advertising and media spend; adtech and MarTech; influencer and creator marketing; brand strategy; public relations; sponsorships; marketing research and measurement; media-industry developments; and material advertising-industry regulation.",
+      ...(categoryTopic.startsWith("Global ") ? [] : [
+        "Include global-company stories only when the article clearly describes a direct development or impact in the Indian advertising or marketing market."
+      ]),
       "Exclude general company results, product launches, retail and FMCG news, e-commerce sales, startup funding, celebrity news, job listings, and general business stories unless the central development is specifically about advertising, marketing, media, an agency, adtech or MarTech.",
-      "Do not treat an article as relevant merely because it mentions a brand, promotion, sales, customers or social media. If the article does not materially concern the Indian marketing or advertising industry, do not select it.",
+      "Do not treat an article as relevant merely because it mentions a brand, promotion, sales, customers or social media. If the article does not materially concern the marketing or advertising industry in the stated market, do not select it.",
     ] : []),
     "Put constructive or positive developments first. If there is a genuine significant risk or setback, place it last.",
     "Use very simple English and short explanations. Do not use the words you or your.",
