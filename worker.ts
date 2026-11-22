@@ -824,14 +824,114 @@ async function runDuePromotionCampaignsForChannel(env, channel) {
     await deliverPromotionCampaign(env, campaign, [channel], selectedChannels.length);
   }
 }
+
+const NEWS_TEST_ACTIVE_KEY = "news_all_channel_test_active";
+const NEWS_TEST_BATCH_SIZE = 5;
+const NEWS_TEST_BATCH_GAP_MS = 15 * 60 * 1000;
+
+async function runNextScheduledNewsTestBatch(env) {
+  const activeRecord = await env.DB.prepare("SELECT value FROM settings WHERE key = ?")
+    .bind(NEWS_TEST_ACTIVE_KEY).first();
+  const runId = String(activeRecord?.value || "");
+  if (!runId) return;
+
+  const settingKey = "news_all_channel_test:" + runId;
+  const record = await env.DB.prepare("SELECT value FROM settings WHERE key = ?")
+    .bind(settingKey).first();
+  if (!record?.value) {
+    await env.DB.prepare("DELETE FROM settings WHERE key = ?").bind(NEWS_TEST_ACTIVE_KEY).run();
+    return;
+  }
+
+  let state;
+  try { state = JSON.parse(String(record.value)); }
+  catch {
+    await env.DB.prepare("DELETE FROM settings WHERE key = ?").bind(NEWS_TEST_ACTIVE_KEY).run();
+    return;
+  }
+
+  if (state.status === "completed" || state.status === "failed") {
+    await env.DB.prepare("DELETE FROM settings WHERE key = ? AND value = ?")
+      .bind(NEWS_TEST_ACTIVE_KEY, runId).run();
+    return;
+  }
+
+  if (state.status === "processing") {
+    const processingAge = Date.now() - Date.parse(state.processingAt || state.startedAt || "");
+    if (Number.isFinite(processingAge) && processingAge < 30 * 60 * 1000) return;
+    state.status = "queued";
+    state.nextRunAt = new Date(Date.now() + NEWS_TEST_BATCH_GAP_MS).toISOString();
+    state.recoveryNote = "A previous test batch did not finish; safely rescheduled.";
+    await env.DB.prepare("UPDATE settings SET value = ? WHERE key = ?")
+      .bind(JSON.stringify(state), settingKey).run();
+    return;
+  }
+
+  if (state.status !== "queued" || Date.parse(state.nextRunAt || "") > Date.now()) return;
+
+  const originalValue = String(record.value);
+  const processing = { ...state, status: "processing", processingAt: new Date().toISOString() };
+  const claim = await env.DB.prepare("UPDATE settings SET value = ? WHERE key = ? AND value = ?")
+    .bind(JSON.stringify(processing), settingKey, originalValue).run();
+  if (Number(claim?.meta?.changes || 0) !== 1) return;
+
+  let current = processing;
+  const batch = (current.channels || []).slice(current.nextIndex || 0, (current.nextIndex || 0) + NEWS_TEST_BATCH_SIZE);
+  for (let index = 0; index < batch.length; index++) {
+    const channel = batch[index];
+    const result = await sendCategoryNewsTest(env, String(channel.id), channel);
+    current = {
+      ...current,
+      results: [...(current.results || []), result],
+      nextIndex: Number(current.nextIndex || 0) + 1,
+      sent: Number(current.sent || 0) + (result.status === "sent" ? 1 : 0),
+      failed: Number(current.failed || 0) + (result.status === "failed" ? 1 : 0),
+      lastUpdatedAt: new Date().toISOString()
+    };
+    await env.DB.prepare("UPDATE settings SET value = ? WHERE key = ?")
+      .bind(JSON.stringify(current), settingKey).run();
+
+    // If Google starts rate-limiting or returns a temporary outage, stop this batch
+    // immediately. The remaining categories wait for the next 15-minute slot.
+    const errorText = String(result.error || "");
+    if (result.status === "failed" && /(429|503|rate.?limit|too many requests|cooldown|temporarily unavailable)/i.test(errorText)) {
+      current.rateLimitPause = true;
+      break;
+    }
+    if (index < batch.length - 1) {
+      await new Promise(resolve => setTimeout(resolve, 1200));
+    }
+  }
+
+  const completed = Number(current.nextIndex || 0) >= Number(current.total || 15);
+  current = {
+    ...current,
+    status: completed ? "completed" : "queued",
+    nextRunAt: completed ? null : new Date(Date.now() + NEWS_TEST_BATCH_GAP_MS).toISOString(),
+    completedAt: completed ? new Date().toISOString() : null,
+    processingAt: null,
+    batchNumber: Number(current.batchNumber || 0) + 1
+  };
+  await env.DB.prepare("UPDATE settings SET value = ? WHERE key = ?")
+    .bind(JSON.stringify(current), settingKey).run();
+
+  if (completed) {
+    await env.DB.prepare("DELETE FROM settings WHERE key = ? AND value = ?")
+      .bind(NEWS_TEST_ACTIVE_KEY, runId).run();
+  }
+}
+
 var worker_default = {
   async scheduled(controller, env, ctx) {
-    const cron = String(controller.cron || "");
+    // One quarter-hour cron preserves the original India news/reminder schedule
+    // and also provides durable 15-minute slots for paced administrator tests.
+    const scheduledAt = new Date(controller.scheduledTime || Date.now());
+    const utcHour = scheduledAt.getUTCHours();
+    const utcMinute = scheduledAt.getUTCMinutes();
+    const scheduledKey = String(utcHour).padStart(2, "0") + ":" + String(utcMinute).padStart(2, "0");
 
-    // The combined 07:00/07:15 trigger uses UTC minute 45 for the existing
-    // private customer reminders. Minute 30 is reserved for news recovery.
-    const scheduledMinute = new Date(controller.scheduledTime || Date.now()).getUTCMinutes();
-    if (cron === "30,45 1 * * *" && scheduledMinute === 45) {
+    // 07:15 IST — private customer reminders.
+    if (scheduledKey === "01:45") {
       ctx.waitUntil(sendScheduledCustomerReminders(env));
       return;
     }
@@ -847,19 +947,17 @@ var worker_default = {
     const afterNewsChannelDelivery = async (channel, newsStatus) => {
       const parts = getIndiaDateTimeParts();
       if ((parts.day === "14" || parts.day === "28") && newsStatus === "sent") {
-        // Keep each approved channel advertisement immediately after its news.
         await runDuePromotionCampaignsForChannel(env, channel);
       }
     };
 
     const runNewsBatchAndMatchingChannelAds = (categoryIds) =>
       runCategoryNewsDeliveryBatch(env, channels, categoryIds, afterNewsChannelDelivery);
-
     const runNewsRecoveryBatchAndMatchingChannelAds = () =>
       runCategoryNewsRecoveryBatch(env, channels, 3, afterNewsChannelDelivery);
 
     // 06:15 IST — normal batch 1 (five categories).
-    if (cron === "45 0 * * *") {
+    if (scheduledKey === "00:45") {
       ctx.waitUntil(runNewsBatchAndMatchingChannelAds([
         "banking-fintech", "consumer-fmcg", "economy-business",
         "energy-renewal", "hr-employment"
@@ -867,44 +965,30 @@ var worker_default = {
       return;
     }
 
-    // 06:30 and 06:45 IST share one cron trigger; scheduledTime is UTC.
-    if (cron === "0,15 1 * * *") {
-      const normalBatches = {
-        0: [
-          "it-ai-cybersecurity", "manufacturing-auto", "marketing-advertising",
-          "real-estate", "bollywood"
-        ],
-        15: [
-          "kids", "women", "politics", "stock-market", "startup"
-        ]
-      };
-      const categoryIds = normalBatches[scheduledMinute];
-      if (categoryIds) {
-        ctx.waitUntil(runNewsBatchAndMatchingChannelAds(categoryIds));
-        return;
-      }
+    // 06:30 and 06:45 IST — normal batches 2 and 3.
+    if (scheduledKey === "01:00" || scheduledKey === "01:15") {
+      const categoryIds = scheduledKey === "01:00"
+        ? ["it-ai-cybersecurity", "manufacturing-auto", "marketing-advertising", "real-estate", "bollywood"]
+        : ["kids", "women", "politics", "stock-market", "startup"];
+      ctx.waitUntil(runNewsBatchAndMatchingChannelAds(categoryIds));
+      return;
     }
 
-    // 07:00 IST — retry no more than three outstanding categories.
-    if (cron === "30,45 1 * * *" && scheduledMinute === 30) {
+    // 07:00–09:00 IST — paced recovery, maximum three categories per slot.
+    if (
+      scheduledKey === "01:30" ||
+      scheduledKey === "02:00" || scheduledKey === "02:15" ||
+      scheduledKey === "02:30" || scheduledKey === "02:45" ||
+      scheduledKey === "03:00" || scheduledKey === "03:15" ||
+      scheduledKey === "03:30"
+    ) {
       ctx.waitUntil(runNewsRecoveryBatchAndMatchingChannelAds());
       return;
     }
 
-    // 07:30–08:15 IST — one recovery batch of up to three categories per slot.
-    if (cron === "0,15,30,45 2 * * *") {
-      ctx.waitUntil(runNewsRecoveryBatchAndMatchingChannelAds());
-      return;
-    }
-
-    // 08:30–09:00 IST — continue paced recovery, stopping at 09:00.
-    if (cron === "0,15,30 3 * * *") {
-      ctx.waitUntil(runNewsRecoveryBatchAndMatchingChannelAds());
-      return;
-    }
-
-    // Retain the existing fallback behavior for any other scheduled invocation.
-    ctx.waitUntil(runAllCategoryNewsDeliveries(env, channels));
+    // Outside the daily delivery window, process at most five queued test channels.
+    // The queue itself enforces a minimum 15-minute gap between batches.
+    ctx.waitUntil(runNextScheduledNewsTestBatch(env));
   },
 
   async fetch(request, env, ctx) {
@@ -2616,11 +2700,29 @@ var worker_default = {
         return json({ success: result.status === 'sent', result }, result.status === 'sent' ? 200 : 502);
       }
 
-      // ADMIN: START A SEPARATE, LABELLED 10-STORY TEST FOR ALL 15 NEWS CHANNELS.
-      // This does not write the daily delivery keys and therefore cannot mark the scheduled digest as sent.
+      // ADMIN: QUEUE A LABELLED 15-CHANNEL NEWS TEST IN THREE PACED BATCHES.
+      // Five channels are tested per scheduled run, with at least 15 minutes between batches.
       if (url.pathname === '/api/admin/news/all/test' && method === 'POST') {
         const admin = await getAuthorizedAdmin(request, env);
         if (!admin) return json({ error: 'Administrator access required.' }, 403);
+
+        const activeRecord = await env.DB.prepare("SELECT value FROM settings WHERE key = ?")
+          .bind(NEWS_TEST_ACTIVE_KEY).first();
+        if (activeRecord?.value) {
+          const activeRunId = String(activeRecord.value);
+          const activeStateRecord = await env.DB.prepare("SELECT value FROM settings WHERE key = ?")
+            .bind("news_all_channel_test:" + activeRunId).first();
+          let activeState = null;
+          try { activeState = JSON.parse(String(activeStateRecord?.value || "")); } catch {}
+          if (activeState && ["queued", "processing"].includes(activeState.status)) {
+            return json({
+              error: "A 15-channel news test is already queued or running.",
+              runId: activeRunId,
+              status: activeState.status
+            }, 409);
+          }
+          await env.DB.prepare("DELETE FROM settings WHERE key = ?").bind(NEWS_TEST_ACTIVE_KEY).run();
+        }
 
         const channelsResult = await env.DB.prepare(`
           SELECT id, title, telegram_chat_id
@@ -2629,61 +2731,44 @@ var worker_default = {
           ORDER BY display_order, title
         `).all();
         const channels = channelsResult.results || [];
+        if (channels.length !== 15) {
+          return json({
+            error: "The test requires exactly 15 active news channels with Telegram mappings. Found " + channels.length + "."
+          }, 409);
+        }
+
         const runId = randomId("news_test");
         const settingKey = "news_all_channel_test:" + runId;
         const initial = {
-          status: "running",
+          status: "queued",
           total: 15,
           sent: 0,
           failed: 0,
+          nextIndex: 0,
+          batchNumber: 0,
+          channels: channels.map(channel => ({
+            id: String(channel.id),
+            title: String(channel.title || channel.id),
+            telegram_chat_id: String(channel.telegram_chat_id)
+          })),
           results: [],
-          startedAt: new Date().toISOString()
+          startedAt: new Date().toISOString(),
+          nextRunAt: new Date(Date.now() + NEWS_TEST_BATCH_GAP_MS).toISOString()
         };
         await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)")
           .bind(settingKey, JSON.stringify(initial)).run();
-
-        ctx.waitUntil((async () => {
-          try {
-            const results = await sendAllCategoryNewsTests(env, channels, async (item) => {
-              const current = await env.DB.prepare("SELECT value FROM settings WHERE key = ?")
-                .bind(settingKey).first();
-              let progress = initial;
-              try { progress = JSON.parse(String(current?.value || "")) || initial; } catch {}
-              progress.results = [...(progress.results || []).filter(row => row.category !== item.category), item];
-              progress.sent = progress.results.filter(row => row.status === "sent").length;
-              progress.failed = progress.results.filter(row => row.status === "failed").length;
-              await env.DB.prepare("UPDATE settings SET value = ? WHERE key = ?")
-                .bind(JSON.stringify(progress), settingKey).run();
-            });
-            const completed = {
-              status: "completed",
-              total: 15,
-              sent: results.filter(item => item.status === "sent").length,
-              failed: results.filter(item => item.status === "failed").length,
-              results,
-              startedAt: initial.startedAt,
-              completedAt: new Date().toISOString()
-            };
-            await env.DB.prepare("UPDATE settings SET value = ? WHERE key = ?")
-              .bind(JSON.stringify(completed), settingKey).run();
-          } catch (error) {
-            const failed = {
-              ...initial,
-              status: "failed",
-              error: String(error?.message || error).slice(0, 250),
-              completedAt: new Date().toISOString()
-            };
-            await env.DB.prepare("UPDATE settings SET value = ? WHERE key = ?")
-              .bind(JSON.stringify(failed), settingKey).run();
-          }
-        })());
+        await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)")
+          .bind(NEWS_TEST_ACTIVE_KEY, runId).run();
 
         return json({
           success: true,
           runId,
-          status: "running",
+          status: "queued",
           total: 15,
-          message: "The all-channel news test has started. Each channel will receive a separate TEST DELIVERY message if its 10-story digest succeeds."
+          batchSize: NEWS_TEST_BATCH_SIZE,
+          gapMinutes: 15,
+          nextRunAt: initial.nextRunAt,
+          message: "The 15-channel test is queued. Five channels will be tested per batch, with at least 15 minutes between batches."
         }, 202);
       }
 

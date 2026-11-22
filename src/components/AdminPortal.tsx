@@ -26,24 +26,6 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   token,
   onLogout
 }) => {
-  const newsTestCategories = [
-    { id: 'banking-fintech', title: 'Banking and Fintech' },
-    { id: 'consumer-fmcg', title: 'Consumer and FMCG' },
-    { id: 'economy-business', title: 'Economy and Business' },
-    { id: 'energy-renewal', title: 'Energy and Renewables' },
-    { id: 'hr-employment', title: 'HR and Employment' },
-    { id: 'it-ai-cybersecurity', title: 'IT, AI and Cybersecurity' },
-    { id: 'manufacturing-auto', title: 'Manufacturing and Auto' },
-    { id: 'marketing-advertising', title: 'Marketing and Advertising' },
-    { id: 'real-estate', title: 'Real Estate' },
-    { id: 'bollywood', title: 'Bollywood' },
-    { id: 'kids', title: 'Kids and Education' },
-    { id: 'women', title: 'Women in India' },
-    { id: 'politics', title: 'Politics and Governance' },
-    { id: 'stock-market', title: 'Stock Market' },
-    { id: 'startup', title: 'Startups' }
-  ];
-  const [selectedNewsTestCategory, setSelectedNewsTestCategory] = useState('banking-fintech');
   const [activeTab, setActiveTab] = useState<
     'users' | 'customers' | 'payments' | 'audit' | 'pricing' | 'marketing' | 'website'
   >('users');
@@ -56,9 +38,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [error, setError] = useState('');
 
   const [allNewsTesting, setAllNewsTesting] = useState(false);
-  const [telegramConnectionTesting, setTelegramConnectionTesting] = useState(false);
-  const [startupDiagnosticsRunning, setStartupDiagnosticsRunning] = useState(false);
-  const [startupDiagnosticsOutput, setStartupDiagnosticsOutput] = useState('');
+  const [newsTestRunId, setNewsTestRunId] = useState('');
   const [allNewsTestResults, setAllNewsTestResults] = useState<Array<{
     category: string;
     title: string;
@@ -209,117 +189,66 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   };
 
 
-  const handleStartupDiagnostics = async () => {
-    if (!confirm('Run independent Startup Google News and Gemini diagnostics? Google News will receive one test request. Gemini will receive synthetic sample articles. Nothing will be sent to Telegram.')) return;
-    setStartupDiagnosticsRunning(true);
-    setStartupDiagnosticsOutput('Running Startup Google News and Gemini diagnostics…');
+  const handleTestAllNewsChannels = async () => {
+    if (!confirm('Queue a test of all 15 news channels? It will test only 5 channels per batch, with at least 15 minutes between batches. Each successful channel receives a clearly labelled TEST DELIVERY message. Normal scheduled deliveries will not be marked as sent.')) return;
+
+    setAllNewsTesting(true);
+    setAllNewsTestResults([]);
+    setAllNewsTestSummary('Submitting the paced 15-channel test…');
     try {
-      const response = await fetch('/api/admin/news/startup/diagnostics', {
+      const response = await fetch('/api/admin/news/all/test', {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` }
       });
       const data = await response.json();
-      setStartupDiagnosticsOutput(JSON.stringify(data, null, 2));
+      if (!response.ok) throw new Error(data.error || 'The 15-channel test could not be queued.');
+      setNewsTestRunId(data.runId);
+      setAllNewsTestSummary('Test queued. Five channels will be tested per batch, with at least 15 minutes between batches. First batch is scheduled no earlier than ' + new Date(data.nextRunAt).toLocaleString() + '.');
     } catch (err: any) {
-      setStartupDiagnosticsOutput('Diagnostic request failed: ' + (err.message || 'Unknown error'));
-    } finally {
-      setStartupDiagnosticsRunning(false);
-    }
-  };
-
-  const handleTestSelectedNewsChannel = async () => {
-    const selectedCategory = newsTestCategories.find(item => item.id === selectedNewsTestCategory);
-    if (!selectedCategory) return;
-    if (!confirm('Send one TEST DELIVERY containing 10 real news stories to the ' + selectedCategory.title + ' Telegram channel? This test will not mark today’s scheduled news as delivered.')) return;
-
-    setAllNewsTesting(true);
-    setAllNewsTestResults([]);
-    setAllNewsTestSummary('Testing ' + selectedCategory.title + '…');
-
-    try {
-      const response = await fetch('/api/admin/news/test/channel', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify({ categoryId: selectedCategory.id })
-      });
-      const data = await response.json();
-      const result = data.result || {
-        category: selectedCategory.id,
-        title: selectedCategory.title,
-        status: 'failed' as const,
-        error: data.error || 'The channel test request failed.'
-      };
-
-      setAllNewsTestResults([result]);
-      setAllNewsTestSummary(
-        result.status === 'sent'
-          ? 'Completed: ' + (result.title || selectedCategory.title) + ' received ' + (result.storyCount || 0) + ' stories.'
-          : 'Failed: ' + (result.error || data.error || 'No error details returned.')
-      );
-    } catch (err: any) {
-      const errorMessage = err.message || 'The channel test request could not be completed.';
-      setAllNewsTestResults([{
-        category: selectedCategory.id,
-        title: selectedCategory.title,
-        status: 'failed',
-        error: errorMessage
-      }]);
-      setAllNewsTestSummary('Failed: ' + errorMessage);
-    } finally {
       setAllNewsTesting(false);
+      setAllNewsTestSummary('Could not start test: ' + (err.message || 'Unknown error'));
     }
   };
 
-  const handleTestSelectedTelegramConnection = async () => {
-    const selectedCategory = newsTestCategories.find(item => item.id === selectedNewsTestCategory);
-    if (!selectedCategory) return;
-    if (!confirm('Send a short Telegram-only connection test to the ' + selectedCategory.title + ' channel? This will not contact Google News or Gemini.')) return;
-
-    setTelegramConnectionTesting(true);
-    setAllNewsTestResults([]);
-    setAllNewsTestSummary('Checking the Telegram connection for ' + selectedCategory.title + '…');
-
-    try {
-      const response = await fetch('/api/admin/telegram/test/channel', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify({ categoryId: selectedCategory.id })
-      });
-      const data = await response.json();
-      const result = data.result || {
-        category: selectedCategory.id,
-        title: selectedCategory.title,
-        status: 'failed' as const,
-        testType: 'telegram' as const,
-        error: data.error || 'The Telegram connection test request failed.'
-      };
-
-      setAllNewsTestResults([result]);
-      setAllNewsTestSummary(
-        result.status === 'sent'
-          ? 'Telegram connection successful: ' + (result.title || selectedCategory.title) + ' received the test message.'
-          : 'Telegram connection failed: ' + (result.error || data.error || 'No error details returned.')
-      );
-    } catch (err: any) {
-      const errorMessage = err.message || 'The Telegram connection test could not be completed.';
-      setAllNewsTestResults([{
-        category: selectedCategory.id,
-        title: selectedCategory.title,
-        status: 'failed',
-        testType: 'telegram',
-        error: errorMessage
-      }]);
-      setAllNewsTestSummary('Telegram connection failed: ' + errorMessage);
-    } finally {
-      setTelegramConnectionTesting(false);
-    }
-  };
+  useEffect(() => {
+    if (!newsTestRunId) return;
+    let stopped = false;
+    let interval: ReturnType<typeof setInterval> | undefined;
+    const poll = async () => {
+      try {
+        const response = await fetch('/api/admin/news/all/test/status?runId=' + encodeURIComponent(newsTestRunId), {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Could not read test progress.');
+        if (stopped) return;
+        setAllNewsTestResults(data.results || []);
+        if (data.status === 'completed') {
+          setAllNewsTesting(false);
+          setAllNewsTestSummary('Test completed: ' + data.sent + ' channels sent successfully; ' + data.failed + ' failed, out of ' + data.total + '.');
+          if (interval) clearInterval(interval);
+        } else if (data.status === 'queued') {
+          setAllNewsTesting(true);
+          setAllNewsTestSummary('Test in progress: ' + (data.nextIndex || 0) + ' of ' + data.total + ' channels attempted. ' + data.sent + ' sent, ' + data.failed + ' failed. Next batch: ' + (data.nextRunAt ? new Date(data.nextRunAt).toLocaleString() : 'being scheduled') + '.');
+        } else if (data.status === 'processing') {
+          setAllNewsTesting(true);
+          setAllNewsTestSummary('Test batch running: ' + (data.nextIndex || 0) + ' of ' + data.total + ' channels attempted. ' + data.sent + ' sent, ' + data.failed + ' failed.');
+        } else if (data.status === 'failed') {
+          setAllNewsTesting(false);
+          setAllNewsTestSummary('Test stopped: ' + (data.error || 'Unknown error'));
+          if (interval) clearInterval(interval);
+        }
+      } catch (err: any) {
+        if (!stopped) setAllNewsTestSummary('Unable to refresh test progress: ' + (err.message || 'Unknown error'));
+      }
+    };
+    poll();
+    interval = setInterval(poll, 15000);
+    return () => {
+      stopped = true;
+      if (interval) clearInterval(interval);
+    };
+  }, [newsTestRunId, token]);
 
   const handleVerifyPayment = async (
     paymentId: string,
@@ -540,44 +469,15 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
           </div>
 
           <div className="flex items-center gap-3 flex-wrap">
-            <select
-              value={selectedNewsTestCategory}
-              onChange={event => setSelectedNewsTestCategory(event.target.value)}
+            <div className="text-xs text-slate-400">
+              News test safety: 5 channels per batch · minimum 15-minute gap · all 15 categories
+            </div>
+            <button
+              onClick={handleTestAllNewsChannels}
               disabled={allNewsTesting}
-              aria-label="Choose one news channel to test"
-              className="px-3 py-2 text-xs font-semibold rounded-lg bg-slate-800 border border-slate-600 text-white disabled:opacity-50"
-            >
-              {newsTestCategories.map(category => (
-                <option key={category.id} value={category.id}>{category.title}</option>
-              ))}
-            </select>
-
-            <button
-              onClick={handleStartupDiagnostics}
-              disabled={startupDiagnosticsRunning || allNewsTesting || telegramConnectionTesting}
-              className="px-4 py-2 text-xs font-semibold rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white"
-            >
-              {startupDiagnosticsRunning ? 'Running Startup diagnostics…' : 'Diagnose Startup RSS + Gemini'}
-            </button>
-            <button
-              onClick={handleTestSelectedNewsChannel}
-              disabled={allNewsTesting || telegramConnectionTesting}
               className="px-4 py-2 text-xs font-semibold rounded-lg bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white"
             >
-              {allNewsTesting ? 'Testing selected channel…' : 'Test Selected Channel'}
-            </button>
-
-            {startupDiagnosticsOutput && (
-              <pre className="w-full max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-slate-700 bg-slate-950 p-3 text-xs text-slate-200">
-                {startupDiagnosticsOutput}
-              </pre>
-            )}
-            <button
-              onClick={handleTestSelectedTelegramConnection}
-              disabled={allNewsTesting || telegramConnectionTesting}
-              className="px-4 py-2 text-xs font-semibold rounded-lg bg-sky-700 hover:bg-sky-600 disabled:opacity-50 text-white"
-            >
-              {telegramConnectionTesting ? 'Testing Telegram…' : 'Test Telegram Connection'}
+              {allNewsTesting ? '15-Channel Test Queued / Running…' : 'Test All 15 Categories'}
             </button>
 
             <div className="flex items-center gap-2 bg-slate-800 p-1 rounded-xl border border-slate-700 flex-wrap">
