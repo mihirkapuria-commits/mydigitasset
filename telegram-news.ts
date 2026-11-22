@@ -53,21 +53,21 @@ interface CategoryNewsSource {
 }
 
 const CATEGORY_NEWS_SOURCES: CategoryNewsSource[] = [
-  { categoryId: "banking-fintech", topic: "India Banking and Fintech", googleNewsUrl: makeGoogleNewsUrl("India banking fintech digital payments RBI banks") },
+  { categoryId: "banking-fintech", topic: "India Banking and FinTech", googleNewsUrl: makeGoogleNewsUrl("India banking fintech digital payments RBI banks") },
   { categoryId: "consumer-fmcg", topic: "India Consumer and FMCG", googleNewsUrl: makeGoogleNewsUrl("India consumer goods FMCG retail brands") },
   { categoryId: "economy-business", topic: "India Economy and Business", googleNewsUrl: makeGoogleNewsUrl("India economy business industry trade") },
   { categoryId: "energy-renewal", topic: "India Energy and Renewables", googleNewsUrl: makeGoogleNewsUrl("India energy oil natural gas renewable power") },
   { categoryId: "hr-employment", topic: "India HR and Employment", googleNewsUrl: makeGoogleNewsUrl("India employment jobs human resources workplace") },
-  { categoryId: "it-ai-cybersecurity", topic: "India IT AI and Cybersecurity", googleNewsUrl: makeGoogleNewsUrl("India information technology artificial intelligence cybersecurity") },
+  { categoryId: "it-ai-cybersecurity", topic: "India IT, AI and Cybersecurity", googleNewsUrl: makeGoogleNewsUrl('India IT services OR artificial intelligence OR cybersecurity OR software OR cloud computing OR data centres OR semiconductors OR telecom technology') },
   { categoryId: "manufacturing-auto", topic: "India Manufacturing and Auto", googleNewsUrl: makeGoogleNewsUrl("India manufacturing automobile auto industry") },
   { categoryId: "marketing-advertising", topic: "India Marketing and Advertising", googleNewsUrl: makeGoogleNewsUrl('India advertising OR India adtech OR India "media buying" OR India "media planning" OR India "brand campaign" OR India "digital marketing" OR India "influencer marketing" OR India MarTech OR India "advertising agency" OR India ASCI OR India "media spend"') },
-  { categoryId: "real-estate", topic: "India Real Estate", googleNewsUrl: makeGoogleNewsUrl("India real estate housing property infrastructure") },
+  { categoryId: "real-estate", topic: "India Real Estate", googleNewsUrl: makeGoogleNewsUrl('India real estate OR housing OR commercial property OR property developers OR infrastructure projects OR urban development OR construction') },
   { categoryId: "bollywood", topic: "Bollywood and Indian Entertainment", googleNewsUrl: makeGoogleNewsUrl("Bollywood Hindi cinema Indian films entertainment OTT streaming box office") },
-  { categoryId: "kids", topic: "India Kids and Education", googleNewsUrl: makeGoogleNewsUrl("India children education schools students learning child policy education technology") },
-  { categoryId: "women", topic: "India Women and Leadership", googleNewsUrl: makeGoogleNewsUrl("India women leadership women entrepreneurs women executives board appointments women founders") },
+  { categoryId: "kids", topic: "India Kids and Education", googleNewsUrl: makeGoogleNewsUrl('India children education OR schools OR school students OR National Education Policy OR curriculum OR examinations OR EdTech OR student skills') },
+  { categoryId: "women", topic: "Indian Women and Leadership", googleNewsUrl: makeGoogleNewsUrl("India women leadership women entrepreneurs women executives board appointments women founders") },
   { categoryId: "politics", topic: "India Politics and Policy", googleNewsUrl: makeGoogleNewsUrl("India politics government policy governance parliament legislation regulation") },
   { categoryId: "stock-market", topic: "India Stock Market", googleNewsUrl: makeGoogleNewsUrl("India stock market NSE BSE shares markets") },
-  { categoryId: "startup", topic: "India Startups", googleNewsUrl: makeGoogleNewsUrl("India startups founders venture capital funding") }
+  { categoryId: "startup", topic: "India Startups and Funding", googleNewsUrl: makeGoogleNewsUrl('India startups OR startup launches OR startup funding OR venture capital OR angel investors OR accelerators OR incubators OR startup acquisitions India') }
 ];
 
 function makeGoogleNewsUrl(query: string): string {
@@ -1258,74 +1258,85 @@ async function summarizeCategoryDigest(
 }
 
 function getCategoryEditorialGuidance(categoryTopic: string): string[] {
-  const isGlobal = categoryTopic.startsWith("Global ");
-  const market = isGlobal ? "outside India" : "in India";
-  const topic = categoryTopic.replace(/^Global\s+/i, "").toLowerCase();
+  const isGlobal = /^Global\\s+/i.test(categoryTopic);
+  const topic = categoryTopic.replace(/^Global\\s+/i, "").toLowerCase();
+  const market = isGlobal ? "in major international markets" : "in India";
+
   const rules: Record<string, string[]> = {
     "startups": [
-      "Select only startup-ecosystem developments: startup companies, founders, venture-capital and angel funding, funding rounds, launches, acquisitions, incubators, accelerators, scale-ups and unicorns.",
-      "Exclude established-company results, general corporate news, stock-market movements, banking and macroeconomic stories unless the central development directly concerns a startup."
+      "Cover the full startup ecosystem in India: startup discovery and launches, emerging companies, founders and co-founders, seed to late-stage funding, angel investors, venture capital, private equity investment in startups, fundraising rounds, valuations when reported, acquisitions, mergers, exits, unicorns, incubators, accelerators, startup hubs, entrepreneurship programmes and material startup-policy developments.",
+      "Include lesser-known but credible emerging startups, not only famous unicorns. Explain what the startup does, the funding or business development reported, and the sector it operates in when the supplied article provides those facts.",
+      "Exclude routine news about established corporations, listed-company share movements, ordinary bank products and general business announcements unless a startup is the main subject."
     ],
     "banking": [
-      "Focus on banks, RBI actions, monetary and banking regulation, NBFCs, lending, deposits, credit cards, UPI and digital payments, fintech products, payment networks, insurance distribution and financial inclusion.",
-      "For India editions, include international-company stories only when the article establishes a clear Indian-market impact. For global fallback editions, cover major banking and fintech developments in other markets.",
-      "Exclude ordinary stock-price movements, general startup funding, unrelated corporate results and broad economy stories unless banking or fintech is the main subject."
+      "Cover banks and the wider financial-services ecosystem: RBI decisions and circulars, public- and private-sector banks, small finance banks, payments banks, NBFCs, lending, deposits, credit, personal and business loans, UPI, cards, digital payments, payment gateways, fintech platforms, financial technology, insurance distribution, digital banking, financial inclusion, fraud prevention and banking regulation.",
+      "Include important banking results, mergers, leadership changes, branch or digital-service developments and changes affecting customers, businesses or the financial system. Explain the practical effect when supported by the article.",
+      "Exclude ordinary stock-market commentary, unrelated startup funding and general corporate results unless banking or fintech is central."
     ],
     "consumer": [
-      "Focus on consumer demand and behaviour, FMCG, packaged foods, beverages, personal care, household products, retail, e-commerce, consumer brands, distribution, pricing, market share, product safety and consumer regulation.",
-      "Include brand or company results only when they reveal a meaningful consumer-market development. Exclude advertising campaigns unless the advertising industry itself is the main subject."
-    ],
-    "economy": [
-      "Focus on the overall economy and business environment in the relevant market: GDP, growth, inflation, interest rates, public finances, taxation, trade, exports and imports, industrial activity, investment, major corporate developments and business confidence.",
-      "Select broad economy or cross-industry business developments. Prefer specialist channels for stories whose main subject is banking, stock markets, startups, energy, real estate, advertising or another dedicated category.",
-      "Include international developments only when the article explains a direct and material effect on India's economy or businesses."
+      "Cover India's consumer economy: FMCG, packaged food and beverages, personal care, beauty and hygiene products, household goods, consumer durables, retail chains, e-commerce and quick commerce, D2C brands, consumer brands, product launches with material market significance, pricing, demand, distribution, market share, consumer behaviour, product safety and consumer-protection regulation.",
+      "Include company performance when it reveals a meaningful change in consumer demand, sales, pricing, distribution or competition. Distinguish genuine consumer-industry developments from routine promotion.",
+      "Exclude advertising-agency news, generic startup funding and broad corporate stories unless the consumer or FMCG market is the main subject."
     ],
     "energy": [
-      "Focus on energy supply and demand, electricity, power generation and distribution, solar, wind, hydro, green hydrogen, batteries and storage, grids, oil, gas, coal, fuel prices, energy projects and energy policy.",
-      "For India editions, include international developments only when they have a clear Indian project, market, supply, price or policy connection. For global fallback editions, cover major energy developments in other markets. Exclude climate stories without a meaningful energy angle."
+      "Cover India's energy system and energy businesses: electricity generation, transmission and distribution, power utilities, solar, wind, hydro, biomass, green hydrogen, batteries and energy storage, grid infrastructure, renewable-energy projects, clean-energy manufacturing, oil, natural gas, LNG, coal, fuel supply and prices, energy security, power tariffs, energy investment and energy policy.",
+      "Include major project awards, capacity additions, plant commissioning, investments, supply agreements, technology changes and regulatory decisions. Include international developments only when they materially affect India's energy supply, prices, investment or policy.",
+      "Exclude general climate stories without a clear energy connection."
+    ],
+    "economy": [
+      "Cover India's macroeconomy and broad business environment: GDP and growth, inflation, employment at the national level, fiscal policy, government budgets, taxation, public spending, trade, exports and imports, manufacturing and services activity, investment, business confidence, major corporate strategy, cross-industry mergers and acquisitions, and significant changes in the business environment.",
+      "Prioritise developments with broad economic or multi-industry significance. Use specialist categories for stories whose main subject is banking, stock markets, startups, energy, real estate, advertising or another dedicated sector.",
+      "Include global economic developments only when the supplied article explains a direct and material impact on India."
     ],
     "hr": [
-      "Focus on employment, hiring, layoffs, job creation, wages, workplace conditions, labour laws, industrial relations, workforce skills, HR technology, talent management, employee benefits and leadership appointments with a clear HR or employment angle.",
-      "Exclude generic job advertisements, individual career advice and company news that does not materially affect employment or workplace practices."
+      "Cover India's employment and workplace landscape: hiring, recruitment, layoffs, job creation, workforce demand, salaries and wages, compensation, employee benefits, labour laws, industrial relations, workplace policies, HR leadership, talent management, staffing firms, skills and reskilling, apprenticeships, gig and platform work, HR technology and changes in workplace practices.",
+      "Include employer announcements and workforce data when they provide a meaningful employment insight. Explain which workers, industries or employers are affected when the article supports it.",
+      "Exclude routine job advertisements, individual career advice and general company news without a material employment or workplace angle."
     ],
-    "cybersecurity": [
-      "Focus on India's IT and technology sector, software and IT services, artificial intelligence, enterprise technology, cloud computing, cybersecurity, data protection, data centres, telecom technology and major technology policy.",
-      "For India editions, include global technology developments only when the article identifies a direct Indian business, user, security, investment or regulatory impact. For global fallback editions, select significant technology and cybersecurity developments from other markets.",
-      "Exclude routine gadget launches, product reviews, generic technology speculation and AI stories without a substantive Indian technology or cybersecurity angle."
+    "technology": [
+      "Cover India's broad technology ecosystem: IT services and outsourcing, software and SaaS, artificial intelligence and generative AI, cybersecurity, data privacy and protection, cloud computing, data centres, semiconductors and electronics technology, telecom and 5G/6G, enterprise technology, digital infrastructure, technology startups when the technology itself is central, major product or platform developments, and technology regulation.",
+      "Include technology adoption by Indian businesses and public institutions, major contracts, investments, research breakthroughs with practical relevance, cyber incidents and security responses. Explain the business, user, security or policy significance using only supplied facts.",
+      "Exclude routine gadget reviews, celebrity technology endorsements and speculative AI commentary without a substantive development."
     ],
     "manufacturing": [
-      "Focus on manufacturing, industrial production, factories, capital expenditure, supply chains, industrial policy, PLI schemes, industrial automation, engineering, auto manufacturers, vehicle sales and production, EVs, auto components and mobility.",
-      "For India editions, include global developments only when they affect Indian manufacturing, auto production, suppliers, investment or policy. For global fallback editions, cover major manufacturing and automotive developments in other markets. Exclude ordinary vehicle reviews and celebrity endorsements."
+      "Cover India's manufacturing and automotive industries: factories and industrial production, capital expenditure, new plants, capacity expansion, industrial automation, engineering, electronics and component manufacturing, industrial machinery, supply chains, production-linked incentive schemes, auto and commercial-vehicle makers, two-wheelers, passenger vehicles, EVs, batteries, auto components, vehicle sales and production, exports, mobility and manufacturing policy.",
+      "Include supplier contracts, localisation, production shifts, investment, plant closures or openings, technology upgrades and material supply-chain developments. Explain implications for production, jobs, suppliers or consumers when supported.",
+      "Exclude routine vehicle reviews, celebrity endorsements and general stock-price movements."
     ],
     "marketing": [
-      "This category is strictly about the marketing, advertising, media and brand-communications industry " + market + ". Select stories only when marketing or advertising is the main subject, not a passing mention.",
-      "Cover advertising, creative and media agencies, new business wins, account gains, media mandates, agency appointments and leadership changes; campaign launches; digital, social-media and video advertising; media planning and buying; advertising spend; adtech and MarTech; influencer and creator marketing; brand strategy; public relations; sponsorships; marketing research and measurement; media-industry developments; and advertising regulation.",
-      "Exclude general company results, product launches, retail and FMCG news, e-commerce sales, startup funding, celebrity news, job listings and general business stories unless the central development is specifically about advertising, marketing, media, an agency, adtech or MarTech.",
-      "Do not treat an article as relevant merely because it mentions a brand, promotion, sales, customers or social media."
+      "Cover the marketing, advertising, media and brand-communications industry in India: creative and media agencies, agency launches and closures, account wins and losses, media mandates, agency appointments, leadership changes, advertising campaigns, brand strategy, digital and social advertising, video and connected-TV advertising, media planning and buying, advertising spend, adtech, MarTech, influencer and creator marketing, public relations, sponsorships, market research, audience measurement, media businesses and advertising standards or regulation.",
+      "Treat marketing or advertising as the main subject, not a passing mention. Include meaningful campaign results, major brand repositioning and changes in how advertising is planned, bought, measured or delivered.",
+      "Exclude ordinary product launches, retail sales, company results, celebrity news and generic business stories unless the central development concerns marketing, advertising, media or an agency."
     ],
     "real estate": [
-      "Focus on residential and commercial property, housing, rentals, land, developers, real-estate transactions, office and retail property, warehousing, REITs, property finance, construction, urban development and major infrastructure projects.",
-      "For India editions, include global developments only when they have a clear Indian property, infrastructure, investment or regulatory connection. For global fallback editions, cover significant property and infrastructure developments in other markets. Exclude generic construction or stock-market stories without a real-estate angle."
+      "Cover India's property and built-environment sectors: residential housing, luxury and affordable homes, commercial offices, retail property, industrial and logistics parks, warehousing, land transactions, property developers, launches and sales, rentals, leasing, REITs, real-estate investment, property finance, construction, redevelopment, urban development and major infrastructure connected to cities, property markets or economic corridors.",
+      "Include infrastructure projects such as roads, rail, metro, airports, ports, logistics corridors and urban utilities when the development has a meaningful property, construction, investment, connectivity or regional-development angle. Cover approvals, project awards, delays, completion, investment and regulatory changes.",
+      "Exclude generic political announcements or construction stories without a clear real-estate, property, infrastructure or urban-development consequence."
     ],
     "bollywood": [
-      "Focus on " + (isGlobal ? "major global film and entertainment industries, including internationally relevant developments in Indian cinema" : "the Indian entertainment industry, especially Hindi cinema") + ": film production, releases, box office, studios, filmmakers, actors' professional work, streaming and OTT business, music, distribution, exhibition and material industry changes.",
-      "Exclude rumours, unverified gossip, private-life coverage, routine celebrity sightings and promotional stories with no meaningful entertainment-industry development. Include other Indian-language entertainment only when it is a significant Indian industry story."
-    ],
-    "kids": [
-      "Focus on children and education " + (isGlobal ? "in major global markets" : "in India") + ": schools, school education, curriculum, examinations, learning outcomes, teachers, child-focused learning, early childhood, education policy, scholarships, school safety and education technology used by children.",
-      "Include higher-education stories only when they have a clear wider education-policy or student-learning significance. Exclude generic adult career advice and unrelated health or parenting lifestyle content."
+      "Cover the Indian film and entertainment business: Bollywood and Hindi cinema, regional-language film industries, film production and releases, box office, studios, production houses, filmmakers, actors' professional work, OTT and streaming platforms, television and digital entertainment, music, distribution, exhibition, film financing, industry mergers and material changes in entertainment businesses.",
+      "Include significant developments from Indian-language cinema and entertainment, not only Hindi films. Explain commercial, audience, production or platform significance where the article supports it.",
+      "Exclude rumours, unverified gossip, private-life coverage, routine celebrity sightings and promotional material without a meaningful entertainment-industry development."
     ],
     "women": [
-      "Focus on women in leadership and public life " + (isGlobal ? "across major global markets" : "in India") + ": women founders and entrepreneurs, business leaders, senior appointments, board representation, leadership achievements, workplace inclusion, women-led organisations and policies that materially affect women's participation and advancement.",
-      "Prioritise credible achievements, decisions and measurable developments. Exclude generic lifestyle, fashion, celebrity or health stories unless they directly concern leadership, opportunity, safety or women's participation in society and the economy."
+      "Cover Indian women in business, leadership and public life: women-founded and women-led startups and enterprises, women entrepreneurs, senior executive appointments, board appointments, leadership milestones, women in government and public institutions, professional achievements, workplace inclusion, representation, access to capital, women-led organisations and policy or legal developments that materially affect women's participation and advancement.",
+      "Include credible individual achievements when they have wider leadership or industry significance, as well as data and initiatives that show measurable progress or barriers. Do not limit coverage to startup founders alone.",
+      "Exclude generic lifestyle, fashion, celebrity and health stories unless they directly concern leadership, economic opportunity, workplace participation, safety or women's rights."
     ],
     "politics": [
-      "Focus on politics and public policy in the relevant market: governments and legislatures, elections, political parties, major public decisions, legislation, regulation, governance, public administration and policy implementation.",
-      "Explain the policy or governance consequence where the supplied article supports it. Exclude routine political comments, unverified allegations, partisan opinion and political gossip without a substantive public-interest development."
+      "Cover Indian politics, government and public policy: central and state governments, Parliament and state legislatures, cabinet decisions, elections and major political developments, bills and laws, budgets and policy announcements, ministries, regulators, public administration, government schemes, implementation, federal relations, public-sector decisions and material changes in governance.",
+      "Explain what a decision changes, who may be affected and its likely implementation significance when the supplied article supports that explanation. Include political developments only when they have substantive public or policy significance.",
+      "Exclude partisan opinion, unverified allegations, political gossip and routine statements without a meaningful public-interest development."
     ],
     "stock market": [
-      "Focus on financial markets: NSE and BSE for India editions, or major international exchanges for global fallback editions; indices, listed companies, share-price movements with a clear catalyst, market trends, corporate earnings, IPOs, public issues, market participants and securities-market regulation.",
-      "Explain the actual market development rather than offering investment advice or predicting returns. Exclude generic personal-finance advice, unlisted startup funding and broad economy stories unless the direct stock-market impact is central."
+      "Cover India's listed equity and securities markets: NSE and BSE, Nifty and Sensex, sectoral indices, listed-company developments that move or may materially affect shares, market movements and their reported catalysts, corporate earnings, IPOs and listings, follow-on offers, block and bulk deals, institutional investment flows, foreign and domestic investor activity, market regulation, SEBI decisions, derivatives and other important exchange developments.",
+      "Explain the reported market development and relevant company or sector context. Clearly distinguish reported facts from market opinion; do not provide personal investment recommendations, guaranteed predictions or unsupported price targets.",
+      "Exclude unlisted startup funding and broad economic news unless the direct listed-market impact is central."
+    ],
+    "kids": [
+      "Cover children and education in India: early childhood and school education, schools and school systems, students and teachers, curriculum, textbooks, examinations, learning outcomes, school infrastructure and safety, National Education Policy, education boards, scholarships, student assessment, child-focused learning, EdTech used by children and schools, digital learning, vocational and skill development for students, and major higher-education developments when they affect the wider education system.",
+      "Include government education decisions, school and university policy, education technology, access, affordability and quality of learning. Explain the practical effect on students, parents, teachers or institutions when supported by the article.",
+      "Exclude generic adult career advice, unrelated parenting lifestyle content and child-health stories without a clear education or child-welfare significance."
     ]
   };
 
@@ -1336,25 +1347,25 @@ function getCategoryEditorialGuidance(categoryTopic: string): string[] {
   else if (topic.includes("economy") || topic.includes("business")) selected = rules["economy"];
   else if (topic.includes("energy") || topic.includes("renewable")) selected = rules["energy"];
   else if (topic.includes("hr") || topic.includes("employment")) selected = rules["hr"];
-  else if (topic.includes("cybersecurity") || topic.includes("technology") || topic.includes(" it ") || topic.startsWith("it ")) selected = rules["cybersecurity"];
+  else if (topic.includes("cybersecurity") || topic.includes("technology") || topic.includes(" it ") || topic.startsWith("it ")) selected = rules["technology"];
   else if (topic.includes("manufacturing") || topic.includes("auto")) selected = rules["manufacturing"];
   else if (topic.includes("marketing") || topic.includes("advertising")) selected = rules["marketing"];
   else if (topic.includes("real estate")) selected = rules["real estate"];
   else if (topic.includes("bollywood") || topic.includes("entertainment")) selected = rules["bollywood"];
-  else if (topic.includes("kids") || topic.includes("education")) selected = rules["kids"];
   else if (topic.includes("women")) selected = rules["women"];
   else if (topic.includes("politics") || topic.includes("governance") || topic.includes("policy")) selected = rules["politics"];
   else if (topic.includes("stock market")) selected = rules["stock market"];
+  else if (topic.includes("kids") || topic.includes("education")) selected = rules["kids"];
 
   const scope = isGlobal
-    ? "These are global fallback stories from outside India. Keep the selected stories genuinely relevant to the named category and do not present them as Indian developments."
-    : "These are India-first stories. Prefer developments in India and include an international company only when the supplied article establishes a direct and meaningful Indian connection.";
+    ? "These are global fallback stories from outside India. Select major developments in the same named category from international markets; do not describe them as Indian developments or imply an India connection that the article does not establish."
+    : "These are India-first stories. Prefer developments in India. Include an international company or event only when the supplied article establishes a direct and meaningful connection to India.";
   return [
     scope,
     ...(selected || [
       "Select only stories whose main subject directly matches this category. Reject passing mentions and unrelated general news."
     ]),
-    "Apply the same category boundary to every story; do not fill the digest with adjacent topics merely to reach the requested count."
+    "Apply the same category boundary to every story. Do not use adjacent-category stories merely to reach the requested count."
   ];
 }
 
