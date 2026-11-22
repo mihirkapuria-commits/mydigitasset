@@ -1070,8 +1070,8 @@ async function summarizeCategoryDigest(
   }
 
   const remaining = 10 - localStories.length;
-  const globalTopic = "Global " + source.topic.replace(/^India\\s+/i, "").trim();
-  const globalQuery = "global " + source.topic.replace(/^India\\s+/i, "").trim() + " latest news";
+  const globalTopic = "Global " + source.topic.replace(/^India\s+/i, "").trim();
+  const globalQuery = "global " + source.topic.replace(/^India\s+/i, "").trim() + " latest news";
   const globalUrl = "https://news.google.com/rss/search?q=" +
     encodeURIComponent(globalQuery) + "&hl=en-US&gl=US&ceid=US:en";
 
