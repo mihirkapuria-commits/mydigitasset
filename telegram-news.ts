@@ -197,8 +197,7 @@ export async function runAllCategoryNewsDeliveries(
     channel: { id: string; title: string; telegram_chat_id: string },
     status: string
   ) => Promise<void>
-): Promise<void> {  const channelByCategory = new Map(channels.map(channel => [String(channel.id), channel]));  for (const source of CATEGORY_NEWS_SOURCES) {
-    const channel = channelByCategory.get(source.categoryId);
+): Promise<void> {  const channelByCategory = new Map(channels.map(channel => [String(channel.id), channel]));  for (const source of CATEGORY_NEWS_SOURCES) {    const channel = channelByCategory.get(source.categoryId);
     if (!channel || !channel.telegram_chat_id) {
       console.error(source.topic + " delivery skipped: active Telegram channel mapping is missing.");
       continue;
@@ -397,8 +396,7 @@ export async function sendCategoryNewsTest(
       const startupDigest = await summarizeStartupDigest(env);
       articles = startupDigest.articles;      stories = startupDigest.stories;
     } else {      const categoryDigest = await summarizeCategoryDigest(env, source);
-      articles = categoryDigest.articles;
-      stories = categoryDigest.stories;
+      articles = categoryDigest.articles;      stories = categoryDigest.stories;
     }
 
     const message = buildNewsMessage(source.topic + " — TEST DELIVERY", stories, articles, source.categoryId);
@@ -598,7 +596,6 @@ async function runCategoryNewsDelivery(env: NewsEnv, source: CategoryNewsSource,
       } catch (repeatError) {        console.error(source.topic + " could not repeat its previous digest:", String(repeatError));
       }
     }
-
     const failureRecord = "failed:" + Date.now() + ":" + failureStage + ":" + safeMessage;
 
     await env.DB.prepare("UPDATE settings SET value = ? WHERE key = ?")
@@ -797,8 +794,7 @@ async function fetchGoogleNewsSource(env: NewsEnv, googleNewsUrl: string): Promi
           "Content-Type": relayResult.contentType || "application/xml; charset=utf-8",          "X-MDA-RSS-Source": "google-apps-script-relay",
           "X-MDA-RSS-Relay-Status": String(relayResult.status || 200)
         }
-      });
-    }
+      });    }
     const upstreamStatus = Number(relayResult?.status || relayResponse.status || 502);
     const safeStatus = upstreamStatus >= 400 && upstreamStatus <= 599 ? upstreamStatus : 502;
     return new Response(String(relayResult?.error || "Google News RSS relay could not retrieve the feed.").slice(0, 800), {
@@ -997,7 +993,6 @@ async function fetchGoogleNewsArticles(env: NewsEnv, googleNewsUrl: string): Pro
 
   return articles;
 }
-
 async function fetchMarketingAdvertisingArticles(env: NewsEnv): Promise<NewsArticle[]> {
   // Marketing news is spread across several specialist search terms. A single
   // broad RSS query was not supplying enough distinct, relevant candidates.
@@ -1197,8 +1192,7 @@ async function summarizeCategoryDigest(
   if (localArticles.length > 0) {
     localStories = await summarizeArticles(
       env.GEMINI_API_KEY,
-      source.topic,
-      localArticles,
+      source.topic,      localArticles,
       10,
       true
     );
@@ -1314,15 +1308,15 @@ function getCategoryEditorialGuidance(categoryTopic: string): string[] {
       "For India editions, include global developments only when they have a clear Indian property, infrastructure, investment or regulatory connection. For global fallback editions, cover significant property and infrastructure developments in other markets. Exclude generic construction or stock-market stories without a real-estate angle."
     ],
     "bollywood": [
-      "Focus on the Indian entertainment industry, especially Hindi cinema: film production, releases, box office, studios, filmmakers, actors' professional work, streaming and OTT business, music, distribution, exhibition and material industry changes.",
+      "Focus on " + (isGlobal ? "major global film and entertainment industries, including internationally relevant developments in Indian cinema" : "the Indian entertainment industry, especially Hindi cinema") + ": film production, releases, box office, studios, filmmakers, actors' professional work, streaming and OTT business, music, distribution, exhibition and material industry changes.",
       "Exclude rumours, unverified gossip, private-life coverage, routine celebrity sightings and promotional stories with no meaningful entertainment-industry development. Include other Indian-language entertainment only when it is a significant Indian industry story."
     ],
     "kids": [
-      "Focus on children and education in India: schools, school education, curriculum, examinations, learning outcomes, teachers, child-focused learning, early childhood, education policy, scholarships, school safety and education technology used by children.",
+      "Focus on children and education " + (isGlobal ? "in major global markets" : "in India") + ": schools, school education, curriculum, examinations, learning outcomes, teachers, child-focused learning, early childhood, education policy, scholarships, school safety and education technology used by children.",
       "Include higher-education stories only when they have a clear wider education-policy or student-learning significance. Exclude generic adult career advice and unrelated health or parenting lifestyle content."
     ],
     "women": [
-      "Focus on women in leadership and public life in India: women founders and entrepreneurs, business leaders, senior appointments, board representation, leadership achievements, workplace inclusion, women-led organisations and policies that materially affect women's participation and advancement.",
+      "Focus on women in leadership and public life " + (isGlobal ? "across major global markets" : "in India") + ": women founders and entrepreneurs, business leaders, senior appointments, board representation, leadership achievements, workplace inclusion, women-led organisations and policies that materially affect women's participation and advancement.",
       "Prioritise credible achievements, decisions and measurable developments. Exclude generic lifestyle, fashion, celebrity or health stories unless they directly concern leadership, opportunity, safety or women's participation in society and the economy."
     ],
     "politics": [
@@ -1397,8 +1391,7 @@ async function summarizeArticles(
     "Put constructive or positive developments first. If there is a genuine significant risk or setback, place it last.",
     "Use very simple English. Each story must have a brief, useful understanding of about 15–25 words. Do not use the words you or your.",
     "CRITICAL: The explanation is NOT a second headline. Never repeat, restate, paraphrase, or merely rearrange the headline in the explanation.",
-    "The explanation must add NEW information from the supplied article: explain what happened in practical terms, give relevant context, or state why the development matters and who or what it affects.",
-    "Do not begin the explanation by repeating the headline or its opening phrase. Avoid copying headline wording except for essential names, organisations, places, or technical terms.",
+    "The explanation must add NEW information from the supplied article: explain what happened in practical terms, give relevant context, or state why the development matters and who or what it affects.",    "Do not begin the explanation by repeating the headline or its opening phrase. Avoid copying headline wording except for essential names, organisations, places, or technical terms.",
     "If the article description does not provide enough information for a meaningful explanation, say only what can be supported; never guess or add outside facts.",
     "Example: Headline: RBI keeps the repo rate unchanged. Explanation: Borrowing costs are likely to remain steady for now, giving banks and borrowers no immediate rate change.",
     "Do not invent facts, figures, quotes, dates, or details. Do not repeat a story.",
@@ -1597,8 +1590,7 @@ function buildNewsMessage(
 
   let message = render();
 
-  // Telegram allows up to 4,096 characters after entity parsing. If needed,
-  // progressively shorten explanations first, then headlines, while retaining
+  // Telegram allows up to 4,096 characters after entity parsing. If needed,  // progressively shorten explanations first, then headlines, while retaining
   // all 10 stories and every original clickable source name.
   let explanationIndex = 0;
   while (telegramVisibleTextLength(message) > 4096 && explanationIndex < prepared.length * 40) {
