@@ -94,6 +94,46 @@ const DEFAULT_CATEGORIES = [
     basePrice: 252.00,
     gstRate: 18.00,
     active: true
+  },
+  {
+    id: 'stock_market',
+    title: 'India Stock Market',
+    description: 'Equities, Nifty, Sensex, stock exchange listings, institutional trading, and market trends.',
+    basePrice: 252.00,
+    gstRate: 18.00,
+    active: true
+  },
+  {
+    id: 'politics_policy',
+    title: 'India Politics & Policy',
+    description: 'Government policy, legislative bills, cabinet decisions, regulatory changes, and public affairs.',
+    basePrice: 252.00,
+    gstRate: 18.00,
+    active: true
+  },
+  {
+    id: 'entertainment',
+    title: 'Bollywood & Indian Entertainment',
+    description: 'Film industry, OTT platforms, box office, regional cinema, and media entertainment.',
+    basePrice: 252.00,
+    gstRate: 18.00,
+    active: true
+  },
+  {
+    id: 'women_leadership',
+    title: 'Indian Women & Leadership',
+    description: 'Women-led enterprises, entrepreneurship, leadership milestones, and diversity initiatives.',
+    basePrice: 252.00,
+    gstRate: 18.00,
+    active: true
+  },
+  {
+    id: 'kids_education',
+    title: 'India Kids & Education',
+    description: 'National Education Policy (NEP), schools, higher education, EdTech, and skill development.',
+    basePrice: 252.00,
+    gstRate: 18.00,
+    active: true
   }
 ];
 
@@ -440,7 +480,7 @@ async function startServer() {
 
   app.post('/api/telegram/connect', authenticateUser, (req: any, res) => {
     if (!process.env.TELEGRAM_BOT_TOKEN) {
-      return res.status(400).json({ error: 'Telegram Bot integration is not configured by the administrator.' });
+      return res.status(400).json({ error: 'Telegram integration is not configured by the administrator.' });
     }
 
     const { telegramChatId, telegramUsername } = req.body;

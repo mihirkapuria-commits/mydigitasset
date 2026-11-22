@@ -160,9 +160,9 @@ export const TelegramConnectModal: React.FC<TelegramConnectModalProps> = ({
           <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-bold">
             <Send className="w-5 h-5" />
           </div>
-          <h3 className="text-2xl font-extrabold text-slate-900">Connect Telegram Bot</h3>
+          <h3 className="text-2xl font-extrabold text-slate-900">Connect Telegram</h3>
           <p className="text-sm text-slate-600">
-            Receive your curated India business news updates securely via Telegram bot verification.
+            Receive your curated India business news updates securely via Telegram verification.
           </p>
         </div>
 
@@ -183,8 +183,8 @@ export const TelegramConnectModal: React.FC<TelegramConnectModalProps> = ({
         <div className="bg-slate-50 rounded-2xl p-5 border border-slate-200/80 mb-6 space-y-4">
           <p className="font-semibold text-xs uppercase tracking-wider text-slate-700">Genuine Verification Steps:</p>
           <ol className="text-xs text-slate-600 space-y-2 list-decimal list-inside">
-            <li>Open Telegram and search for <strong className="text-indigo-600">@MyDigitAssetBot</strong>.</li>
-            <li>Send the following single-use verification command to the bot:</li>
+            <li>Open Telegram and search for <strong className="text-indigo-600">@MyDigitAsset</strong>.</li>
+            <li>Send the following single-use verification command to the channel:</li>
           </ol>
 
           {loadingToken ? (
@@ -222,7 +222,7 @@ export const TelegramConnectModal: React.FC<TelegramConnectModalProps> = ({
           {!expired && !success && (
             <div className="pt-2 flex items-center gap-3 text-xs text-slate-500 border-t border-slate-200/60">
               <div className="w-3 h-3 rounded-full bg-amber-400 animate-pulse shrink-0" />
-              <span>Waiting for bot response via webhook...</span>
+              <span>Waiting for response via webhook...</span>
             </div>
           )}
         </div>

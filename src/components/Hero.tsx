@@ -86,7 +86,7 @@ export const Hero: React.FC<HeroProps> = ({ onStartTrial }) => {
                     TG
                   </div>
                   <div>
-                    <h3 className="text-sm font-bold">MyDigitAsset Bot</h3>
+                    <h3 className="text-sm font-bold">MyDigitAsset</h3>
                     <p className="text-xs text-slate-400">Secure News Delivery Channel</p>
                   </div>
                 </div>
@@ -96,26 +96,42 @@ export const Hero: React.FC<HeroProps> = ({ onStartTrial }) => {
                 </span>
               </div>
 
-              <div className="py-6 space-y-4">
-                <div className="bg-slate-800/80 rounded-xl p-4 border border-slate-700/60 text-xs space-y-2">
-                  <div className="flex items-center justify-between text-slate-400">
-                    <span className="font-semibold text-slate-300">India Startups & Funding Update</span>
-                    <span>10:00 AM IST</span>
-                  </div>
-                  <p className="text-slate-300 leading-relaxed">
-                    "Bengaluru-based SaaS enterprise secures $15M Series B funding led by Tier-1 venture firms..."
-                  </p>
+              <div className="relative py-6">
+                <div className="max-h-[250px] overflow-y-auto pr-1 space-y-3 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:bg-white [&::-webkit-scrollbar-track]:bg-slate-800/40 [&::-webkit-scrollbar-thumb]:rounded-full">
+                  {[
+                    { title: "India Startups & Funding Update", time: "10:00 AM IST", snippet: "\"Bengaluru-based SaaS enterprise secures $15M Series B funding led by Tier-1 venture firms...\"" },
+                    { title: "India Banking & FinTech", time: "10:01 AM IST", snippet: "\"RBI issues updated guidelines on digital lending verification standards for non-banking entities...\"" },
+                    { title: "India Consumer & FMCG", time: "10:02 AM IST", snippet: "\"Rural demand recovery drives double-digit volume growth for leading packaged food brands...\"" },
+                    { title: "India Economy & Business", time: "10:03 AM IST", snippet: "\"Manufacturing PMI hits multi-month high as domestic supply chains and export orders expand...\"" },
+                    { title: "India Energy & Renewables", time: "10:04 AM IST", snippet: "\"Solar module manufacturers announce 4 GW capacity expansion across Gujarat and Rajasthan...\"" },
+                    { title: "India HR & Employment", time: "10:05 AM IST", snippet: "\"Global Capability Centers projected to add 1.2 lakh specialized tech roles across Tier-1 cities...\"" },
+                    { title: "India IT, AI & Cybersecurity", time: "10:06 AM IST", snippet: "\"CERT-In releases new enterprise compliance framework for AI model deployment and data privacy...\"" },
+                    { title: "India Manufacturing & Auto", time: "10:07 AM IST", snippet: "\"EV component exports surge 28% YoY as domestic OEMs localize battery supply chains...\"" },
+                    { title: "India Marketing & Advertising", time: "10:08 AM IST", snippet: "\"Connected TV ad spends outpace traditional broadcast growth during festive quarter campaigns...\"" },
+                    { title: "India Real Estate", time: "10:09 AM IST", snippet: "\"Grade-A commercial office leasing crosses 18 million sq ft led by BFSI and flex-space operators...\"" },
+                    { title: "India Stock Market", time: "10:10 AM IST", snippet: "\"Nifty and Sensex edge higher in early trade led by banking, auto, and capital goods stocks...\"" },
+                    { title: "India Politics & Policy", time: "10:11 AM IST", snippet: "\"Cabinet approves new PLI outlay to boost domestic electronics and semiconductor packaging...\"" },
+                    { title: "Bollywood & Indian Entertainment", time: "10:12 AM IST", snippet: "\"Regional cinema box-office collections cross ₹1,200 crore milestone in Q3 theatrical releases...\"" },
+                    { title: "Indian Women & Leadership", time: "10:13 AM IST", snippet: "\"Women-led MSMEs see 35% rise in formal credit adoption under new collateral-free schemes...\"" },
+                    { title: "India Kids & Education", time: "10:14 AM IST", snippet: "\"NEP skill-based coding and robotics labs rolled out across 5,000 secondary schools nationwide...\"" }
+                  ].map((cat, index) => (
+                    <div
+                      key={index}
+                      onClick={onStartTrial}
+                      className="bg-slate-800/80 rounded-xl p-4 border border-slate-700/60 text-xs space-y-2 cursor-pointer hover:bg-slate-800 hover:border-indigo-500/50 transition-all duration-200 group"
+                    >
+                      <div className="flex items-center justify-between text-slate-400">
+                        <span className="font-semibold text-slate-300 group-hover:text-indigo-300 transition-colors">{cat.title}</span>
+                        <span className="text-[10px] text-slate-400">{cat.time}</span>
+                      </div>
+                      <p className="text-slate-300 leading-relaxed">
+                        {cat.snippet}
+                      </p>
+                    </div>
+                  ))}
                 </div>
-
-                <div className="bg-slate-800/80 rounded-xl p-4 border border-slate-700/60 text-xs space-y-2">
-                  <div className="flex items-center justify-between text-slate-400">
-                    <span className="font-semibold text-slate-300">India Banking & FinTech</span>
-                    <span>10:01 AM IST</span>
-                  </div>
-                  <p className="text-slate-300 leading-relaxed">
-                    "RBI issues updated guidelines on digital lending verification standards for non-banking entities..."
-                  </p>
-                </div>
+                {/* Subtle bottom fade mask */}
+                <div className="pointer-events-none absolute bottom-6 left-0 right-0 h-10 bg-gradient-to-t from-slate-900 to-transparent"></div>
               </div>
 
               <div className="pt-4 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
