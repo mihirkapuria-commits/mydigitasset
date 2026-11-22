@@ -993,6 +993,14 @@ async function summarizeStartupDigest(env: NewsEnv): Promise<{ articles: NewsArt
 
   try {
     indiaArticles = await fetchGoogleNewsArticles(env, INDIA_STARTUPS_SOURCE.googleNewsUrl);
+  } catch (error) {
+    // A shared Google rate limit/cooldown must stop all further RSS requests.
+    // A non-rate-limit empty/unusable India feed may still use the global fallback.
+    if (error instanceof GoogleNewsRateLimitError) throw error;
+    console.warn("India Startups: local RSS feed was unusable; trying global fallback:", String(error));
+  }
+
+  if (indiaArticles.length > 0) {
     indiaStories = await summarizeArticles(
       env.GEMINI_API_KEY,
       "India Startups",
@@ -1000,11 +1008,6 @@ async function summarizeStartupDigest(env: NewsEnv): Promise<{ articles: NewsArt
       10,
       true
     );
-  } catch (error) {
-    // A shared Google rate limit/cooldown must stop all further RSS requests.
-    // A non-rate-limit empty/unusable India feed may still use the global fallback.
-    if (error instanceof GoogleNewsRateLimitError) throw error;
-    console.warn("India Startups: local RSS feed was unusable; trying global fallback:", String(error));
   }
 
   if (indiaStories.length === 10) {
@@ -1071,6 +1074,14 @@ async function summarizeCategoryDigest(
 
   try {
     localArticles = await fetchGoogleNewsArticles(env, source.googleNewsUrl);
+  } catch (error) {
+    // Do not issue another Google request while its shared cooldown is active.
+    // For an empty/unusable category feed, continue to the one global fallback.
+    if (error instanceof GoogleNewsRateLimitError) throw error;
+    console.warn(source.topic + ": local RSS feed was unusable; trying global fallback:", String(error));
+  }
+
+  if (localArticles.length > 0) {
     localStories = await summarizeArticles(
       env.GEMINI_API_KEY,
       source.topic,
@@ -1078,11 +1089,6 @@ async function summarizeCategoryDigest(
       10,
       true
     );
-  } catch (error) {
-    // Do not issue another Google request while its shared cooldown is active.
-    // For an empty/unusable category feed, continue to the one global fallback.
-    if (error instanceof GoogleNewsRateLimitError) throw error;
-    console.warn(source.topic + ": local RSS feed was unusable; trying global fallback:", String(error));
   }
 
   if (localStories.length === 10) {
