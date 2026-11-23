@@ -36,3 +36,11 @@ jobs:
 
       - name: Build website and Cloudflare Worker
         run: npm run build
+
+      - name: Upload complete Cloudflare deployment bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: mydigitasset-cloudflare-build
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
