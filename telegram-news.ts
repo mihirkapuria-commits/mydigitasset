@@ -656,6 +656,14 @@ async function repeatLastSuccessfulCategoryDigest(
 
   const previousDateMatch = String(previous.key).match(/:(\d{4}-\d{2}-\d{2})$/);
   const previousDate = previousDateMatch ? previousDateMatch[1] : "unknown";
+  const previousDateDisplay = previousDate === "unknown"
+    ? "the original date"
+    : new Intl.DateTimeFormat("en-IN", {
+        timeZone: "Asia/Kolkata",
+        day: "2-digit",
+        month: "short",
+        year: "numeric"
+      }).format(new Date(previousDate + "T12:00:00+05:30"));
   const { date: today } = getIndiaDateAndTime(new Date());
   const todayDisplay = new Intl.DateTimeFormat("en-IN", {
     timeZone: "Asia/Kolkata",
@@ -701,7 +709,7 @@ async function repeatLastSuccessfulCategoryDigest(
     escapeTelegramHtml(source.topic) +
     "</b> today, even after checking global news. We are therefore repeating the most recently delivered digest below. " +
     (legacyDigest
-      ? "This earlier digest was sent before the date-update improvement, so its original date will remain unchanged."
+      ? "The earlier digest dated " + escapeTelegramHtml(previousDateDisplay) + " was sent before the date-update improvement, so its original date will remain unchanged."
       : "The repeated digest will carry today's date; its 10 stories and original source links are unchanged.");
 
   await sendTelegramChannelMessage(env.TELEGRAM_BOT_TOKEN, telegramChannelId, notice);
