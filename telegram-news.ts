@@ -577,6 +577,17 @@ async function runCategoryNewsDelivery(env: NewsEnv, source: CategoryNewsSource,
 
     await env.DB.prepare("UPDATE settings SET value = ? WHERE key = ?")
       .bind("sent:" + sentIds.join(","), deliveryKey).run();
+
+    // Keep the exact digest text so a future insufficient-news fallback can
+    // resend it with the current delivery date while preserving every story and link.
+    try {
+      const digestKey = "telegram_news_digest:" + source.categoryId + ":" + date;
+      await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)")
+        .bind(digestKey, JSON.stringify({ message, messageId: sentIds[0] })).run();
+    } catch (storageError) {
+      console.error(source.topic + ": digest text could not be saved for future date-updated repeats:", String(storageError));
+    }
+
     console.log(source.topic + " daily news digest sent. Story count:", stories.length, "Message IDs:", sentIds.join(","));
     return "sent";
   } catch (error: any) {
@@ -614,9 +625,9 @@ async function repeatLastSuccessfulCategoryDigest(
 ): Promise<boolean> {
   if (!env.TELEGRAM_BOT_TOKEN || !telegramChannelId) return false;
 
-  // Look up the most recent digest that was actually delivered to this category.
-  // A repeated digest also counts as the latest sent digest, so it can be repeated
-  // again on a later day if fresh coverage remains insufficient.
+  // Find the latest digest that was actually delivered to this category.
+  // Repeated digests are eligible too, so a previous digest can be reused
+  // until enough fresh stories become available.
   const previous = await env.DB.prepare(`
     SELECT key, value
     FROM settings
@@ -636,60 +647,117 @@ async function repeatLastSuccessfulCategoryDigest(
   }
 
   const previousStatus = String(previous.value);
-  const messageMatch = previousStatus.match(/^(?:sent|repeated):(\d+)/);
+  const messageMatch = previousStatus.match(/^(?:sent|repeated):(\\d+)/);
   const previousMessageId = messageMatch ? Number(messageMatch[1]) : NaN;
   if (!Number.isSafeInteger(previousMessageId) || previousMessageId <= 0) {
     console.warn(source.topic + ": the previous delivery record has no valid Telegram message ID.");
     return false;
   }
 
-  // Telegram copies the previously delivered message inside the same category
-  // channel, preserving its original digest and clickable source links.
-  const response = await fetch(
-    "https://api.telegram.org/bot" + env.TELEGRAM_BOT_TOKEN + "/copyMessage",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: telegramChannelId,
-        from_chat_id: telegramChannelId,
-        message_id: previousMessageId
-      })
+  const previousDateMatch = String(previous.key).match(/:(\\d{4}-\\d{2}-\\d{2})$/);
+  const previousDate = previousDateMatch ? previousDateMatch[1] : "unknown";
+  const { date: today } = getIndiaDateAndTime(new Date());
+  const todayDisplay = new Intl.DateTimeFormat("en-IN", {
+    timeZone: "Asia/Kolkata",
+    day: "2-digit",
+    month: "short",
+    year: "numeric"
+  }).format(new Date());
+
+  // The notice must arrive first, so subscribers understand why the following
+  // digest is being repeated rather than newly reported.
+  const digestKey = "telegram_news_digest:" + source.categoryId + ":" + previousDate;
+  const savedDigest = await env.DB.prepare("SELECT value FROM settings WHERE key = ?")
+    .bind(digestKey).first();
+
+  let repeatedMessage = "";
+  let legacyDigest = false;
+  try {
+    const saved = JSON.parse(String(savedDigest?.value || "{}"));
+    if (typeof saved.message === "string" && saved.message.trim()) {
+      repeatedMessage = saved.message.replace(
+        /<code>[^<]*<\\/code>/i,
+        "<code>" + escapeTelegramHtml(todayDisplay) + "</code>"
+      );
+      if (repeatedMessage === saved.message) {
+        throw new Error("The saved digest date could not be safely updated.");
+      }
     }
-  );
-  const result: any = await response.json().catch(() => ({}));
-  const copiedMessageId = Number(result?.result?.message_id);
-  if (!response.ok || result?.ok !== true || !Number.isSafeInteger(copiedMessageId) || copiedMessageId <= 0) {
-    throw new Error("Telegram could not copy the previous news digest: " +
-      String(result?.description || response.status));
+  } catch {
+    repeatedMessage = "";
   }
 
-  const previousDateMatch = String(previous.key).match(/:(\d{4}-\d{2}-\d{2})$/);
-  const previousDate = previousDateMatch ? previousDateMatch[1] : "unknown";
+  if (!repeatedMessage) {
+    // Older digests created before this improvement stored only Telegram IDs.
+    // Telegram cannot retrieve an already-sent message's text, so copy it as-is
+    // and explicitly disclose that this one legacy digest retains its old date.
+    legacyDigest = true;
+  }
+
+  const notice =
+    "<b>MYDIGITASSET — NEWS AVAILABILITY</b>\n" +
+    "<code>" + escapeTelegramHtml(todayDisplay) + "</code>\n\n" +
+    "We could not find 10 relevant new stories for <b>" +
+    escapeTelegramHtml(source.topic) +
+    "</b> today, even after checking global news. We are therefore repeating the most recently delivered digest below. " +
+    (legacyDigest
+      ? "This earlier digest was sent before the date-update improvement, so its original date will remain unchanged."
+      : "The repeated digest will carry today's date; its 10 stories and original source links are unchanged.");
+
+  await sendTelegramChannelMessage(env.TELEGRAM_BOT_TOKEN, telegramChannelId, notice);
+
+  let copiedOrSentMessageId: number;
+  if (legacyDigest) {
+    const response = await fetch(
+      "https://api.telegram.org/bot" + env.TELEGRAM_BOT_TOKEN + "/copyMessage",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: telegramChannelId,
+          from_chat_id: telegramChannelId,
+          message_id: previousMessageId
+        })
+      }
+    );
+    const result: any = await response.json().catch(() => ({}));
+    copiedOrSentMessageId = Number(result?.result?.message_id);
+    if (!response.ok || result?.ok !== true ||
+        !Number.isSafeInteger(copiedOrSentMessageId) || copiedOrSentMessageId <= 0) {
+      throw new Error("Telegram could not copy the previous news digest: " +
+        String(result?.description || response.status));
+    }
+  } else {
+    const sentIds = await sendNewsMessage(
+      env.TELEGRAM_BOT_TOKEN,
+      telegramChannelId,
+      repeatedMessage
+    );
+    copiedOrSentMessageId = sentIds[0];
+  }
+
   await env.DB.prepare("UPDATE settings SET value = ? WHERE key = ?")
     .bind(
-      "repeated:" + copiedMessageId + ":" + previousDate + ":" + previousMessageId,
+      "repeated:" + copiedOrSentMessageId + ":" + previousDate + ":" + previousMessageId,
       currentDeliveryKey
     )
     .run();
 
-  // Send the explanation after the copied digest, so it truthfully refers to
-  // the repeated message immediately above it.
-  try {
-    await sendTelegramChannelMessage(
-      env.TELEGRAM_BOT_TOKEN,
-      telegramChannelId,
-      "<b>MYDIGITASSET — NEWS AVAILABILITY</b>\n\nWe could not find 10 relevant new stories for <b>" +
-        escapeTelegramHtml(source.topic) +
-        "</b> today, even after checking global news. Therefore, the most recently sent digest above has been repeated."
-    );
-  } catch (noticeError) {
-    // The digest itself has been copied and its delivery status saved. Do not
-    // copy it again merely because the explanatory follow-up could not be sent.
-    console.error(source.topic + ": the repeated digest was sent, but its explanation message failed:", String(noticeError));
+  if (!legacyDigest) {
+    try {
+      const currentDigestKey = "telegram_news_digest:" + source.categoryId + ":" + today;
+      await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)")
+        .bind(currentDigestKey, JSON.stringify({
+          message: repeatedMessage,
+          messageId: copiedOrSentMessageId
+        })).run();
+    } catch (storageError) {
+      console.error(source.topic + ": date-updated repeated digest text could not be saved:", String(storageError));
+    }
   }
 
-  console.log(source.topic + ": repeated the most recently delivered digest because fewer than 10 relevant new stories were available.");
+  console.log(source.topic + ": sent the news-availability notice first, then repeated the latest digest" +
+    (legacyDigest ? " with its original legacy date." : " with today's date."));
   return true;
 }
 
