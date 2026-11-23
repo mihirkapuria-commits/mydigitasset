@@ -647,14 +647,14 @@ async function repeatLastSuccessfulCategoryDigest(
   }
 
   const previousStatus = String(previous.value);
-  const messageMatch = previousStatus.match(/^(?:sent|repeated):(\\d+)/);
+  const messageMatch = previousStatus.match(/^(?:sent|repeated):(\d+)/);
   const previousMessageId = messageMatch ? Number(messageMatch[1]) : NaN;
   if (!Number.isSafeInteger(previousMessageId) || previousMessageId <= 0) {
     console.warn(source.topic + ": the previous delivery record has no valid Telegram message ID.");
     return false;
   }
 
-  const previousDateMatch = String(previous.key).match(/:(\\d{4}-\\d{2}-\\d{2})$/);
+  const previousDateMatch = String(previous.key).match(/:(\d{4}-\d{2}-\d{2})$/);
   const previousDate = previousDateMatch ? previousDateMatch[1] : "unknown";
   const { date: today } = getIndiaDateAndTime(new Date());
   const todayDisplay = new Intl.DateTimeFormat("en-IN", {
@@ -676,7 +676,7 @@ async function repeatLastSuccessfulCategoryDigest(
     const saved = JSON.parse(String(savedDigest?.value || "{}"));
     if (typeof saved.message === "string" && saved.message.trim()) {
       repeatedMessage = saved.message.replace(
-        /<code>[^<]*<\\/code>/i,
+        /<code>[^<]*<\/code>/i,
         "<code>" + escapeTelegramHtml(todayDisplay) + "</code>"
       );
       if (repeatedMessage === saved.message) {
