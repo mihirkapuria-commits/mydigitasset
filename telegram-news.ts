@@ -1191,14 +1191,14 @@ async function readRecentStoryHistory(env: NewsEnv, categoryId: string): Promise
         "SELECT key, value FROM settings WHERE key LIKE ? ORDER BY key DESC LIMIT 5"
       ).bind("telegram_news_digest:" + categoryId + ":%").all();
       for (const row of savedDigests.results || []) {
-        const dateMatch = String(row.key || "").match(/:(\\d{4}-\\d{2}-\\d{2})$/);
+        const dateMatch = String(row.key || "").match(/:(\d{4}-\d{2}-\d{2})$/);
         if (!dateMatch) continue;
         const sentAt = new Date(dateMatch[1] + "T08:00:00+05:30");
         if (Number.isNaN(sentAt.getTime()) || sentAt.getTime() < cutoff) continue;
         let saved: any = {};
         try { saved = JSON.parse(String(row.value || "{}")); } catch { continue; }
         if (typeof saved.message !== "string") continue;
-        const linkPattern = /<b>\\s*\\d+\\.\\s*([\\s\\S]*?)<\\/b>[\\s\\S]*?<a href="([^"]+)">/gi;
+        const linkPattern = /<b>\s*\d+\.\s*([\s\S]*?)<\/b>[\s\S]*?<a href="([^"]+)">/gi;
         let match: RegExpExecArray | null;
         while ((match = linkPattern.exec(saved.message)) !== null) {
           const title = htmlToText(match[1]);
