@@ -656,14 +656,7 @@ async function repeatLastSuccessfulCategoryDigest(
 
   const previousDateMatch = String(previous.key).match(/:(\d{4}-\d{2}-\d{2})$/);
   const previousDate = previousDateMatch ? previousDateMatch[1] : "unknown";
-  const previousDateDisplay = previousDate === "unknown"
-    ? "the original date"
-    : new Intl.DateTimeFormat("en-IN", {
-        timeZone: "Asia/Kolkata",
-        day: "2-digit",
-        month: "short",
-        year: "numeric"
-      }).format(new Date(previousDate + "T12:00:00+05:30"));
+  let originalDigestDate = previousDate;
   const { date: today } = getIndiaDateAndTime(new Date());
   const todayDisplay = new Intl.DateTimeFormat("en-IN", {
     timeZone: "Asia/Kolkata",
@@ -682,6 +675,9 @@ async function repeatLastSuccessfulCategoryDigest(
   let legacyDigest = false;
   try {
     const saved = JSON.parse(String(savedDigest?.value || "{}"));
+    if (saved.legacy === true && typeof saved.originalDate === "string") {
+      originalDigestDate = saved.originalDate;
+    }
     if (typeof saved.message === "string" && saved.message.trim()) {
       repeatedMessage = saved.message.replace(
         /<code>[^<]*<\/code>/i,
@@ -694,6 +690,15 @@ async function repeatLastSuccessfulCategoryDigest(
   } catch {
     repeatedMessage = "";
   }
+
+  const previousDateDisplay = originalDigestDate === "unknown"
+    ? "the original date"
+    : new Intl.DateTimeFormat("en-IN", {
+        timeZone: "Asia/Kolkata",
+        day: "2-digit",
+        month: "short",
+        year: "numeric"
+      }).format(new Date(originalDigestDate + "T12:00:00+05:30"));
 
   if (!repeatedMessage) {
     // Older digests created before this improvement stored only Telegram IDs.
@@ -751,17 +756,15 @@ async function repeatLastSuccessfulCategoryDigest(
     )
     .run();
 
-  if (!legacyDigest) {
-    try {
-      const currentDigestKey = "telegram_news_digest:" + source.categoryId + ":" + today;
-      await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)")
-        .bind(currentDigestKey, JSON.stringify({
-          message: repeatedMessage,
-          messageId: copiedOrSentMessageId
-        })).run();
-    } catch (storageError) {
-      console.error(source.topic + ": date-updated repeated digest text could not be saved:", String(storageError));
-    }
+  try {
+    const currentDigestKey = "telegram_news_digest:" + source.categoryId + ":" + today;
+    await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)")
+      .bind(currentDigestKey, JSON.stringify(legacyDigest
+        ? { legacy: true, originalDate: originalDigestDate, messageId: copiedOrSentMessageId }
+        : { message: repeatedMessage, messageId: copiedOrSentMessageId }
+      )).run();
+  } catch (storageError) {
+    console.error(source.topic + ": repeated digest details could not be saved:", String(storageError));
   }
 
   console.log(source.topic + ": sent the news-availability notice first, then repeated the latest digest" +
