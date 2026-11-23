@@ -896,7 +896,7 @@ async function fetchGoogleNewsSource(env: NewsEnv, googleNewsUrl: string): Promi
     },
     signal: AbortSignal.timeout(20_000),
     cf: { cacheTtl: 0, cacheEverything: false }
-  });
+  } as RequestInit & { cf?: any });
 }
 
 async function fetchGoogleNewsArticles(env: NewsEnv, googleNewsUrl: string): Promise<NewsArticle[]> {

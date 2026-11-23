@@ -924,15 +924,14 @@ async function runNextScheduledNewsTestBatch(env) {
 
 var worker_default = {
   async scheduled(controller, env, ctx) {
-    // One quarter-hour cron preserves the original India news/reminder schedule
-    // and also provides durable 15-minute slots for paced administrator tests.
     const scheduledAt = new Date(controller.scheduledTime || Date.now());
-    const utcHour = scheduledAt.getUTCHours();
-    const utcMinute = scheduledAt.getUTCMinutes();
-    const scheduledKey = String(utcHour).padStart(2, "0") + ":" + String(utcMinute).padStart(2, "0");
+    const istParts = getIndiaDateTimeParts(scheduledAt);
+    const istTime = istParts.hour + ":" + istParts.minute;
+    const hour = Number(istParts.hour);
+    const minute = Number(istParts.minute);
 
     // 07:15 IST — private customer reminders.
-    if (scheduledKey === "01:45") {
+    if (istTime === "07:15" || (hour === 7 && minute >= 12 && minute <= 18)) {
       ctx.waitUntil(sendScheduledCustomerReminders(env));
       return;
     }
@@ -946,7 +945,7 @@ var worker_default = {
     const channels = channelsResult.results || [];
 
     const afterNewsChannelDelivery = async (channel, newsStatus) => {
-      const parts = getIndiaDateTimeParts();
+      const parts = getIndiaDateTimeParts(scheduledAt);
       if ((parts.day === "14" || parts.day === "28") && (newsStatus === "sent" || newsStatus === "repeated")) {
         await runDuePromotionCampaignsForChannel(env, channel);
       }
@@ -957,38 +956,57 @@ var worker_default = {
     const runNewsRecoveryBatchAndMatchingChannelAds = () =>
       runCategoryNewsRecoveryBatch(env, channels, 3, afterNewsChannelDelivery);
 
-    // 06:15 IST — normal batch 1 (five categories).
-    if (scheduledKey === "00:45") {
+    // Group 1 (06:15 IST): startup, stock-market, economy-business
+    if (istTime === "06:15" || (hour === 6 && minute >= 10 && minute <= 20)) {
       ctx.waitUntil(runNewsBatchAndMatchingChannelAds([
-        "banking-fintech", "consumer-fmcg", "economy-business",
-        "energy-renewal", "hr-employment"
+        "startup", "stock-market", "economy-business"
       ]));
       return;
     }
 
-    // 06:30 and 06:45 IST — normal batches 2 and 3.
-    if (scheduledKey === "01:00" || scheduledKey === "01:15") {
-      const categoryIds = scheduledKey === "01:00"
-        ? ["it-ai-cybersecurity", "manufacturing-auto", "marketing-advertising", "real-estate", "bollywood"]
-        : ["kids", "women", "politics", "stock-market", "startup"];
-      ctx.waitUntil(runNewsBatchAndMatchingChannelAds(categoryIds));
+    // Group 2 (06:40 IST): banking-fintech, it-ai-cybersecurity, real-estate
+    if (istTime === "06:40" || (hour === 6 && minute >= 35 && minute <= 50)) {
+      ctx.waitUntil(runNewsBatchAndMatchingChannelAds([
+        "banking-fintech", "it-ai-cybersecurity", "real-estate"
+      ]));
       return;
     }
 
-    // 07:00–09:00 IST — paced recovery, maximum three categories per slot.
+    // Group 3 (07:05 IST): consumer-fmcg, manufacturing-auto, energy-renewal
+    if (istTime === "07:05" || (hour === 7 && minute >= 0 && minute <= 10)) {
+      ctx.waitUntil(runNewsBatchAndMatchingChannelAds([
+        "consumer-fmcg", "manufacturing-auto", "energy-renewal"
+      ]));
+      return;
+    }
+
+    // Group 4 (07:30 IST): marketing-advertising, hr-employment, politics
+    if (istTime === "07:30" || (hour === 7 && minute >= 25 && minute <= 35)) {
+      ctx.waitUntil(runNewsBatchAndMatchingChannelAds([
+        "marketing-advertising", "hr-employment", "politics"
+      ]));
+      return;
+    }
+
+    // Group 5 (07:55 IST): bollywood, kids, women
+    if (istTime === "07:55" || (hour === 7 && minute >= 50 && minute <= 60)) {
+      ctx.waitUntil(runNewsBatchAndMatchingChannelAds([
+        "bollywood", "kids", "women"
+      ]));
+      return;
+    }
+
+    // Recovery slots (08:45, 09:10, 09:35 IST): max 3 categories retry
     if (
-      scheduledKey === "01:30" ||
-      scheduledKey === "02:00" || scheduledKey === "02:15" ||
-      scheduledKey === "02:30" || scheduledKey === "02:45" ||
-      scheduledKey === "03:00" || scheduledKey === "03:15" ||
-      scheduledKey === "03:30"
+      istTime === "08:45" || (hour === 8 && minute >= 40 && minute <= 50) ||
+      istTime === "09:10" || (hour === 9 && minute >= 5 && minute <= 15) ||
+      istTime === "09:35" || (hour === 9 && minute >= 30 && minute <= 40)
     ) {
       ctx.waitUntil(runNewsRecoveryBatchAndMatchingChannelAds());
       return;
     }
 
     // Outside the daily delivery window, process at most five queued test channels.
-    // The queue itself enforces a minimum 15-minute gap between batches.
     ctx.waitUntil(runNextScheduledNewsTestBatch(env));
   },
 
