@@ -4,9 +4,10 @@ import { Building2, Landmark, Home, Cpu, ShoppingBag, Factory, Zap, TrendingUp, 
 
 interface CategoriesSectionProps {
   categories: Category[];
+  onSelectCategory?: (categoryId: string) => void;
 }
 
-export const CategoriesSection: React.FC<CategoriesSectionProps> = ({ categories }) => {
+export const CategoriesSection: React.FC<CategoriesSectionProps> = ({ categories, onSelectCategory }) => {
   const getCategoryIcon = (id: string) => {
     switch (id) {
       case 'startups': return <TrendingUp className="w-5 h-5 text-indigo-600" />;
@@ -40,18 +41,19 @@ export const CategoriesSection: React.FC<CategoriesSectionProps> = ({ categories
           {categories.map((cat, index) => (
             <div
               key={cat.id}
-              className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-sm hover:shadow-md transition-shadow flex flex-col justify-between"
+              onClick={() => onSelectCategory && onSelectCategory(cat.id)}
+              className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-sm hover:shadow-lg hover:border-indigo-300 hover:-translate-y-1 transition-all duration-200 flex flex-col justify-between cursor-pointer group"
             >
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-100">
+                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-100 group-hover:bg-indigo-50 group-hover:border-indigo-100 transition-colors">
                     {getCategoryIcon(cat.id)}
                   </div>
                   <span className="text-xs font-mono text-slate-400">
                     {String(index + 1).padStart(2, '0')}
                   </span>
                 </div>
-                <h4 className="text-lg font-bold text-slate-900 tracking-tight">
+                <h4 className="text-lg font-bold text-slate-900 tracking-tight group-hover:text-indigo-600 transition-colors">
                   {cat.title}
                 </h4>
                 <p className="text-sm text-slate-600 leading-relaxed">
@@ -61,7 +63,10 @@ export const CategoriesSection: React.FC<CategoriesSectionProps> = ({ categories
 
               <div className="pt-6 mt-6 border-t border-slate-100 flex items-center justify-between text-xs">
                 <span className="text-slate-500 font-medium">Delivered via Telegram</span>
-                <span className="text-indigo-600 font-semibold">Active Service</span>
+                <span className="text-indigo-600 font-semibold inline-flex items-center gap-1">
+                  <span className="group-hover:hidden">Active Service</span>
+                  <span className="hidden group-hover:inline">Start Free Trial →</span>
+                </span>
               </div>
             </div>
           ))}

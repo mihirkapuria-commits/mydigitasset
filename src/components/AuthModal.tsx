@@ -9,6 +9,7 @@ import { Category, User } from '../types';
 interface AuthModalProps {
   isOpen: boolean;
   initialMode: 'login' | 'register' | 'recover';
+  initialCategory?: string;
   onClose: () => void;
   onSuccess: (token: string, user: User) => void;
   categories: Category[];
@@ -24,6 +25,7 @@ interface RegistrationSuccess {
 export const AuthModal: React.FC<AuthModalProps> = ({
   isOpen,
   initialMode,
+  initialCategory,
   onClose,
   onSuccess,
   categories
@@ -35,7 +37,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [firstName, setFirstName] = useState('');
   const [surname, setSurname] = useState('');
   const [mobileNumber, setMobileNumber] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState('startup');
+  const [selectedCategory, setSelectedCategory] = useState(initialCategory || 'startup');
   const [newPassword, setNewPassword] = useState('');
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -49,6 +51,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       setMode(initialMode);
+      setSelectedCategory(initialCategory || 'startup');
       setError('');
       setSuccessData(null);
       setPassword('');
@@ -59,7 +62,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       setFirstName('');
       setSurname('');
     }
-  }, [isOpen, initialMode]);
+  }, [isOpen, initialMode, initialCategory]);
 
   if (!isOpen) return null;
 

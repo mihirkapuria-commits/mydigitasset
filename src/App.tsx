@@ -25,6 +25,7 @@ export default function App() {
   const [currentView, setCurrentView] = useState<ViewType>('home');
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'register'>('register');
+  const [selectedAuthCategory, setSelectedAuthCategory] = useState<string | undefined>(undefined);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -140,6 +141,7 @@ export default function App() {
       <Navbar
         currentUser={currentUser}
         onOpenAuth={(mode) => {
+          if (mode === 'register') setSelectedAuthCategory(undefined);
           setAuthMode(mode);
           setIsAuthOpen(true);
         }}
@@ -156,19 +158,32 @@ export default function App() {
                 if (currentUser) {
                   setCurrentView('dashboard');
                 } else {
+                  setSelectedAuthCategory(undefined);
                   setAuthMode('register');
                   setIsAuthOpen(true);
                 }
               }}
             />
 
-            <CategoriesSection categories={categories} />
+            <CategoriesSection
+              categories={categories}
+              onSelectCategory={(categoryId) => {
+                if (currentUser) {
+                  setCurrentView('dashboard');
+                } else {
+                  setSelectedAuthCategory(categoryId);
+                  setAuthMode('register');
+                  setIsAuthOpen(true);
+                }
+              }}
+            />
 
             <PricingSection
               onStartTrial={() => {
                 if (currentUser) {
                   setCurrentView('dashboard');
                 } else {
+                  setSelectedAuthCategory(undefined);
                   setAuthMode('register');
                   setIsAuthOpen(true);
                 }
@@ -191,6 +206,7 @@ export default function App() {
               if (currentUser) {
                 setCurrentView('dashboard');
               } else {
+                setSelectedAuthCategory(undefined);
                 setAuthMode('register');
                 setIsAuthOpen(true);
               }
@@ -230,6 +246,7 @@ export default function App() {
       <AuthModal
         isOpen={isAuthOpen}
         initialMode={authMode}
+        initialCategory={selectedAuthCategory}
         onClose={() => setIsAuthOpen(false)}
         onSuccess={handleAuthSuccess}
         categories={categories}
