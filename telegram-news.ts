@@ -575,6 +575,9 @@ async function runCategoryNewsDelivery(env: NewsEnv, source: CategoryNewsSource,
     failureStage = "telegram_send";
     const sentIds = await sendNewsMessage(env.TELEGRAM_BOT_TOKEN!, telegramChannelId, message);
 
+    try { await saveDeliveredStoryHistory(env, source.categoryId, stories, articles); }
+    catch (historyError) { console.error(source.topic + ": could not save the 72-hour story history:", String(historyError)); }
+
     await env.DB.prepare("UPDATE settings SET value = ? WHERE key = ?")
       .bind("sent:" + sentIds.join(","), deliveryKey).run();
 
@@ -1165,6 +1168,50 @@ function safeHttpUrl(value: string): string {
   }
 }
 
+const STORY_HISTORY_WINDOW_MS = 72 * 60 * 60 * 1000;
+const STORY_HISTORY_MAX_ENTRIES = 300;
+interface SentStoryHistoryEntry { url: string; title: string; normalizedTitle: string; sentAt: string; }
+function normalizeStoryTitle(value: string): string {
+  return String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+async function readRecentStoryHistory(env: NewsEnv, categoryId: string): Promise<SentStoryHistoryEntry[]> {
+  const key = "news_story_history:" + categoryId;
+  const row = await env.DB.prepare("SELECT value FROM settings WHERE key = ?").bind(key).first();
+  let entries: SentStoryHistoryEntry[] = [];
+  try { const parsed = JSON.parse(String(row?.value || "[]")); if (Array.isArray(parsed)) entries = parsed; }
+  catch { console.warn(categoryId + ": saved story-history data was unreadable; starting a fresh history window."); }
+  const cutoff = Date.now() - STORY_HISTORY_WINDOW_MS;
+  return entries.filter(entry => entry && typeof entry.url === "string" && typeof entry.title === "string" &&
+    Number.isFinite(Date.parse(entry.sentAt)) && Date.parse(entry.sentAt) >= cutoff);
+}
+async function filterPreviouslySentStories(env: NewsEnv, categoryId: string, articles: NewsArticle[]): Promise<NewsArticle[]> {
+  const history = await readRecentStoryHistory(env, categoryId);
+  if (history.length === 0) return articles;
+  const recentUrls = new Set(history.map(entry => entry.url));
+  const recentTitles = new Set(history.map(entry => entry.normalizedTitle || normalizeStoryTitle(entry.title)));
+  const filtered = articles.filter(article => !recentUrls.has(article.url) && !recentTitles.has(normalizeStoryTitle(article.title)));
+  const removed = articles.length - filtered.length;
+  if (removed > 0) console.log(categoryId + ": excluded " + removed + " stories delivered in the previous 72 hours; " + filtered.length + " fresh candidates remain.");
+  return filtered;
+}
+async function saveDeliveredStoryHistory(env: NewsEnv, categoryId: string, stories: NewsStory[], articles: NewsArticle[]): Promise<void> {
+  const key = "news_story_history:" + categoryId;
+  const now = new Date();
+  const cutoff = now.getTime() - STORY_HISTORY_WINDOW_MS;
+  const history = await readRecentStoryHistory(env, categoryId);
+  const added: SentStoryHistoryEntry[] = [];
+  for (const story of stories) {
+    const article = articles[story.articleNumber - 1];
+    if (!article?.url || !article?.title) continue;
+    added.push({ url: article.url, title: article.title, normalizedTitle: normalizeStoryTitle(article.title), sentAt: now.toISOString() });
+  }
+  const combined = [...history, ...added].filter(entry => Date.parse(entry.sentAt) >= cutoff)
+    .filter((entry, index, all) => all.findIndex(candidate => candidate.url === entry.url || candidate.normalizedTitle === entry.normalizedTitle) === index)
+    .slice(-STORY_HISTORY_MAX_ENTRIES);
+  await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").bind(key, JSON.stringify(combined)).run();
+  console.log(categoryId + ": saved " + added.length + " delivered stories for the 72-hour no-repeat window.");
+}
+
 async function summarizeStartupDigest(env: NewsEnv): Promise<{ articles: NewsArticle[]; stories: NewsStory[] }> {
   if (!env.GEMINI_API_KEY) throw new Error("GEMINI_API_KEY is not configured.");
 
@@ -1181,6 +1228,8 @@ async function summarizeStartupDigest(env: NewsEnv): Promise<{ articles: NewsArt
     if (error instanceof GoogleNewsRateLimitError) throw error;
     console.warn("India Startups: local RSS feed was unusable; trying global fallback:", String(error));
   }
+
+  indiaArticles = await filterPreviouslySentStories(env, "startup", indiaArticles);
 
   if (indiaArticles.length > 0) {
     indiaStories = await summarizeArticles(
@@ -1204,11 +1253,12 @@ async function summarizeStartupDigest(env: NewsEnv): Promise<{ articles: NewsArt
     encodeURIComponent("global startups founders venture capital funding startup launches acquisitions") +
     "&hl=en-US&gl=US&ceid=US:en";
   const fetchedGlobalArticles = await fetchGoogleNewsArticles(env, globalUrl);
+  const eligibleGlobalArticles = await filterPreviouslySentStories(env, "startup", fetchedGlobalArticles);
 
   // Remove duplicate URLs and identical normalized headlines across both feeds.
   const seenUrls = new Set(indiaArticles.map(article => article.url));
   const seenTitles = new Set(indiaArticles.map(article => article.title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()));
-  const globalArticles = fetchedGlobalArticles.filter(article => {
+  const globalArticles = eligibleGlobalArticles.filter(article => {
     const normalizedTitle = article.title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
     if (seenUrls.has(article.url) || seenTitles.has(normalizedTitle)) return false;
     seenUrls.add(article.url);
@@ -1268,6 +1318,8 @@ async function summarizeCategoryDigest(
     if (error instanceof GoogleNewsRateLimitError) throw error;
     console.warn(source.topic + ": local RSS feed was unusable; trying global fallback:", String(error));  }
 
+  localArticles = await filterPreviouslySentStories(env, source.categoryId, localArticles);
+
   if (localArticles.length > 0) {
     localStories = await summarizeArticles(
       env.GEMINI_API_KEY,
@@ -1291,11 +1343,12 @@ async function summarizeCategoryDigest(
     " relevant India/category stories; searching globally for " + remaining + " more.");
 
   const fetchedGlobalArticles = await fetchGoogleNewsArticles(env, globalUrl);
+  const eligibleGlobalArticles = await filterPreviouslySentStories(env, source.categoryId, fetchedGlobalArticles);
   const seenUrls = new Set(localArticles.map(article => article.url));
   const seenTitles = new Set(localArticles.map(article =>
     article.title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()
   ));
-  const globalArticles = fetchedGlobalArticles.filter(article => {
+  const globalArticles = eligibleGlobalArticles.filter(article => {
     const normalizedTitle = article.title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
     if (seenUrls.has(article.url) || seenTitles.has(normalizedTitle)) return false;
     seenUrls.add(article.url);
@@ -1761,21 +1814,36 @@ async function sendTelegramChannelMessage(
   channelId: string,
   text: string
 ): Promise<{ message_id: number }> {
-  const response = await fetch("https://api.telegram.org/bot" + botToken + "/sendMessage", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      chat_id: channelId,
-      text,
-      parse_mode: "HTML",
-      disable_web_page_preview: true
-    })
-  });
-
-  const result: any = await response.json();
-  if (!response.ok || !result?.ok || !result?.result?.message_id) {
-    throw new Error("Telegram sendMessage failed: " + (result?.description || response.status));
+  const endpoint = "https://api.telegram.org/bot" + botToken + "/sendMessage";
+  const maxAttempts = 3;
+  let lastError = "Unknown Telegram delivery error.";
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    let response: Response;
+    let result: any = {};
+    try {
+      response = await fetch(endpoint, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chat_id: channelId, text, parse_mode: "HTML", disable_web_page_preview: true }),
+        signal: AbortSignal.timeout(20_000)
+      });
+      const responseText = await response.text();
+      try { result = JSON.parse(responseText); } catch { result = { description: responseText.slice(0, 300) }; }
+    } catch (error) {
+      lastError = String(error instanceof Error ? error.message : error);
+      if (attempt < maxAttempts) { await new Promise(resolve => setTimeout(resolve, attempt * 1500)); continue; }
+      break;
+    }
+    if (response.ok && result?.ok === true && result?.result?.message_id) return { message_id: Number(result.result.message_id) };
+    const errorCode = Number(result?.error_code || response.status || 0);
+    lastError = "HTTP " + response.status + ", Telegram " + errorCode + ": " +
+      String(result?.description || response.statusText || "No description supplied.").slice(0, 400);
+    if ((errorCode === 429 || response.status >= 500) && attempt < maxAttempts) {
+      const retryAfter = Number(result?.parameters?.retry_after || 0);
+      const waitMs = retryAfter > 0 ? Math.min(retryAfter * 1000, 30_000) : attempt * 2000;
+      await new Promise(resolve => setTimeout(resolve, waitMs));
+      continue;
+    }
+    break;
   }
-
-  return { message_id: Number(result.result.message_id) };
+  throw new Error("Telegram sendMessage failed after retry checks: " + lastError);
 }
