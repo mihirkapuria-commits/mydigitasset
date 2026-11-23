@@ -1181,6 +1181,48 @@ async function readRecentStoryHistory(env: NewsEnv, categoryId: string): Promise
   try { const parsed = JSON.parse(String(row?.value || "[]")); if (Array.isArray(parsed)) entries = parsed; }
   catch { console.warn(categoryId + ": saved story-history data was unreadable; starting a fresh history window."); }
   const cutoff = Date.now() - STORY_HISTORY_WINDOW_MS;
+
+  // On the first run after this feature is deployed, seed the history from
+  // any recent full digest texts already saved in D1. Older Telegram messages
+  // that were never saved as text cannot be recovered through the Bot API.
+  if (entries.length === 0) {
+    try {
+      const savedDigests = await env.DB.prepare(
+        "SELECT key, value FROM settings WHERE key LIKE ? ORDER BY key DESC LIMIT 5"
+      ).bind("telegram_news_digest:" + categoryId + ":%").all();
+      for (const row of savedDigests.results || []) {
+        const dateMatch = String(row.key || "").match(/:(\\d{4}-\\d{2}-\\d{2})$/);
+        if (!dateMatch) continue;
+        const sentAt = new Date(dateMatch[1] + "T08:00:00+05:30");
+        if (Number.isNaN(sentAt.getTime()) || sentAt.getTime() < cutoff) continue;
+        let saved: any = {};
+        try { saved = JSON.parse(String(row.value || "{}")); } catch { continue; }
+        if (typeof saved.message !== "string") continue;
+        const linkPattern = /<b>\\s*\\d+\\.\\s*([\\s\\S]*?)<\\/b>[\\s\\S]*?<a href="([^"]+)">/gi;
+        let match: RegExpExecArray | null;
+        while ((match = linkPattern.exec(saved.message)) !== null) {
+          const title = htmlToText(match[1]);
+          const storyUrl = safeHttpUrl(decodeXmlText(match[2]));
+          if (!title || !storyUrl) continue;
+          entries.push({
+            url: storyUrl,
+            title,
+            normalizedTitle: normalizeStoryTitle(title),
+            sentAt: sentAt.toISOString()
+          });
+        }
+      }
+      if (entries.length > 0) {
+        await env.DB.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)")
+          .bind(key, JSON.stringify(entries)).run();
+        console.log(categoryId + ": restored " + entries.length +
+          " recent stories from previously saved digests to initialize the 72-hour no-repeat history.");
+      }
+    } catch (seedError) {
+      console.warn(categoryId + ": could not initialize story history from saved digests:", String(seedError));
+    }
+  }
+
   return entries.filter(entry => entry && typeof entry.url === "string" && typeof entry.title === "string" &&
     Number.isFinite(Date.parse(entry.sentAt)) && Date.parse(entry.sentAt) >= cutoff);
 }
