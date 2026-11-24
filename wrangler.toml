@@ -16,12 +16,8 @@ crons = [
   "45 0 * * *", # 06:15 IST
   "10 1 * * *", # 06:40 IST
   "35 1 * * *", # 07:05 IST
-  "45 1 * * *", # 07:15 IST (customer reminders)
   "0 2 * * *",  # 07:30 IST
-  "25 2 * * *", # 07:55 IST
-  "15 3 * * *", # 08:45 IST (recovery)
-  "40 3 * * *", # 09:10 IST (recovery)
-  "5 4 * * *"   # 09:35 IST (recovery)
+  "25 2 * * *"  # 07:55 IST
 ]
 
 [[r2_buckets]]

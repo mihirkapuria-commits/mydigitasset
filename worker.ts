@@ -931,12 +931,6 @@ var worker_default = {
     const baseMin = await getConfiguredDeliveryBaseMinutes();
     const isNear = (targetMin) => Math.abs(currentMinutes - targetMin) <= 5 || (currentMinutes >= targetMin && currentMinutes <= targetMin + 10);
 
-    // Private customer reminders at base + 60 mins
-    if (isNear(baseMin + 60)) {
-      ctx.waitUntil(sendScheduledCustomerReminders(env));
-      return;
-    }
-
     const channelsResult = await env.DB.prepare(`
       SELECT id, title, telegram_chat_id
       FROM managed_categories
@@ -973,10 +967,13 @@ var worker_default = {
       return;
     }
 
-    // Batch 3 (base + 50 min): consumer-fmcg, manufacturing-auto, energy-renewal
+    // Batch 3 (base + 50 min / 07:05 IST): consumer-fmcg, manufacturing-auto, energy-renewal + customer reminders
     if (isNear(baseMin + 50)) {
-      ctx.waitUntil(runNewsBatchAndMatchingChannelAds([
-        "consumer-fmcg", "manufacturing-auto", "energy-renewal"
+      ctx.waitUntil(Promise.all([
+        runNewsBatchAndMatchingChannelAds([
+          "consumer-fmcg", "manufacturing-auto", "energy-renewal"
+        ]),
+        sendScheduledCustomerReminders(env)
       ]));
       return;
     }
@@ -989,17 +986,14 @@ var worker_default = {
       return;
     }
 
-    // Batch 5 (base + 100 min): bollywood, kids, women
+    // Batch 5 (base + 100 min / 07:55 IST): bollywood, kids, women + news recovery batch
     if (isNear(baseMin + 100)) {
-      ctx.waitUntil(runNewsBatchAndMatchingChannelAds([
-        "bollywood", "kids", "women"
-      ]));
-      return;
-    }
-
-    // Recovery slots (base + 150, 175, 200 min)
-    if (isNear(baseMin + 150) || isNear(baseMin + 175) || isNear(baseMin + 200)) {
-      ctx.waitUntil(runNewsRecoveryBatchAndMatchingChannelAds());
+      ctx.waitUntil((async () => {
+        await runNewsBatchAndMatchingChannelAds([
+          "bollywood", "kids", "women"
+        ]);
+        await runNewsRecoveryBatchAndMatchingChannelAds();
+      })());
       return;
     }
 
