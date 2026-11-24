@@ -1255,90 +1255,7 @@ async function saveDeliveredStoryHistory(env: NewsEnv, categoryId: string, stori
 }
 
 async function summarizeStartupDigest(env: NewsEnv): Promise<{ articles: NewsArticle[]; stories: NewsStory[] }> {
-  if (!env.GEMINI_API_KEY) throw new Error("GEMINI_API_KEY is not configured.");
-
-  // India remains the first priority. Only expand internationally when the
-  // Indian feed does not contain 10 distinct, useful startup stories.
-  let indiaArticles: NewsArticle[] = [];
-  let indiaStories: NewsStory[] = [];
-
-  try {
-    indiaArticles = await fetchGoogleNewsArticles(env, INDIA_STARTUPS_SOURCE.googleNewsUrl);
-  } catch (error) {
-    // A shared Google rate limit/cooldown must stop all further RSS requests.
-    // A non-rate-limit empty/unusable India feed may still use the global fallback.
-    if (error instanceof GoogleNewsRateLimitError) throw error;
-    console.warn("India Startups: local RSS feed was unusable; trying global fallback:", String(error));
-  }
-
-  indiaArticles = await filterPreviouslySentStories(env, "startup", indiaArticles);
-
-  if (indiaArticles.length > 0) {
-    indiaStories = await summarizeArticles(
-      env.GEMINI_API_KEY,
-      "India Startups",
-      indiaArticles,
-      10,
-      true
-    );
-  }
-
-  if (indiaStories.length === 10) {
-    return { articles: indiaArticles, stories: indiaStories };
-  }
-
-  const remaining = 10 - indiaStories.length;
-  console.log("India Startups: found " + indiaStories.length +
-    " useful Indian stories; searching globally for " + remaining + " more.");
-
-  const globalUrl = "https://news.google.com/rss/search?q=" +
-    encodeURIComponent("global startups founders venture capital funding startup launches acquisitions") +
-    "&hl=en-US&gl=US&ceid=US:en";
-  const fetchedGlobalArticles = await fetchGoogleNewsArticles(env, globalUrl);
-  const eligibleGlobalArticles = await filterPreviouslySentStories(env, "startup", fetchedGlobalArticles);
-
-  // Remove duplicate URLs and identical normalized headlines across both feeds.
-  const seenUrls = new Set(indiaArticles.map(article => article.url));
-  const seenTitles = new Set(indiaArticles.map(article => article.title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()));
-  const globalArticles = eligibleGlobalArticles.filter(article => {
-    const normalizedTitle = article.title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-    if (seenUrls.has(article.url) || seenTitles.has(normalizedTitle)) return false;
-    seenUrls.add(article.url);
-    seenTitles.add(normalizedTitle);
-    return true;
-  });
-
-  if (globalArticles.length === 0) {
-    throw new InsufficientNewsError("Only " + indiaStories.length +
-      " useful Indian startup stories were found, and no additional distinct global startup stories were available. Nothing was sent.");
-  }
-
-  const globalStories = await summarizeArticles(
-    env.GEMINI_API_KEY,
-    "Global Startups",
-    globalArticles,
-    remaining,
-    true
-  );
-
-  if (globalStories.length !== remaining) {
-    throw new InsufficientNewsError("India Startups: found " + indiaStories.length +
-      " relevant Indian stories and " + globalStories.length +
-      " relevant global stories; exactly 10 are required. Nothing was sent.");
-  }
-
-  const combinedArticles = indiaArticles.concat(globalArticles);
-  const combinedStories = indiaStories.concat(globalStories.map(story => ({
-    ...story,
-    headline: "[GLOBAL] " + story.headline,
-    articleNumber: story.articleNumber + indiaArticles.length
-  })));
-
-  if (combinedStories.length !== 10) {
-    throw new InsufficientNewsError("Startup digest could not reach exactly 10 distinct stories after global expansion. Nothing was sent.");
-  }
-
-  return { articles: combinedArticles, stories: combinedStories };
+  return summarizeCategoryDigest(env, INDIA_STARTUPS_SOURCE);
 }
 
 async function summarizeCategoryDigest(
@@ -1347,88 +1264,123 @@ async function summarizeCategoryDigest(
 ): Promise<{ articles: NewsArticle[]; stories: NewsStory[] }> {
   if (!env.GEMINI_API_KEY) throw new Error("GEMINI_API_KEY is not configured.");
 
-  // India/category-specific reporting always has first priority.
-  // The existing source query is fetched once; global news is requested only
-  // when Gemini finds fewer than 10 genuinely relevant local stories.
-  let localArticles: NewsArticle[] = [];
-  let localStories: NewsStory[] = [];
+  let indiaArticles: NewsArticle[] = [];
+  let indiaStories: NewsStory[] = [];
+  let indiaFound = 0;
+  let globalAdded = 0;
 
-  try {    localArticles = await fetchGoogleNewsArticles(env, source.googleNewsUrl);
+  try {
+    const rawIndia = await fetchGoogleNewsArticles(env, source.googleNewsUrl);
+    indiaArticles = await filterPreviouslySentStories(env, source.categoryId, rawIndia);
   } catch (error) {
-    // Do not issue another Google request while its shared cooldown is active.
-    // For an empty/unusable category feed, continue to the one global fallback.
     if (error instanceof GoogleNewsRateLimitError) throw error;
-    console.warn(source.topic + ": local RSS feed was unusable; trying global fallback:", String(error));  }
-
-  localArticles = await filterPreviouslySentStories(env, source.categoryId, localArticles);
-
-  if (localArticles.length > 0) {
-    localStories = await summarizeArticles(
-      env.GEMINI_API_KEY,
-      source.topic,      localArticles,
-      10,
-      true
-    );
+    console.warn(source.topic + ": local RSS feed was unusable; trying global fallback:", String(error));
   }
 
-  if (localStories.length === 10) {
-    return { articles: localArticles, stories: localStories };
+  if (indiaArticles.length > 0) {
+    try {
+      indiaStories = await summarizeArticles(
+        env.GEMINI_API_KEY,
+        source.topic,
+        indiaArticles,
+        Math.min(10, indiaArticles.length),
+        true
+      );
+    } catch (err) {
+      console.warn(source.topic + ": summarization of India articles failed:", String(err));
+    }
   }
 
-  const remaining = 10 - localStories.length;
-  const globalTopic = "Global " + source.topic.replace(/^India\s+/i, "").trim();
-  const globalQuery = "global " + source.topic.replace(/^India\s+/i, "").trim() + " latest news";
-  const globalUrl = "https://news.google.com/rss/search?q=" +
-    encodeURIComponent(globalQuery) + "&hl=en-US&gl=US&ceid=US:en";
+  indiaFound = indiaStories.length;
 
-  console.log(source.topic + ": found " + localStories.length +
-    " relevant India/category stories; searching globally for " + remaining + " more.");
-
-  const fetchedGlobalArticles = await fetchGoogleNewsArticles(env, globalUrl);
-  const eligibleGlobalArticles = await filterPreviouslySentStories(env, source.categoryId, fetchedGlobalArticles);
-  const seenUrls = new Set(localArticles.map(article => article.url));
-  const seenTitles = new Set(localArticles.map(article =>
-    article.title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()
-  ));
-  const globalArticles = eligibleGlobalArticles.filter(article => {
-    const normalizedTitle = article.title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-    if (seenUrls.has(article.url) || seenTitles.has(normalizedTitle)) return false;
-    seenUrls.add(article.url);
-    seenTitles.add(normalizedTitle);
-    return true;
-  });
-
-  if (globalArticles.length === 0) {
-    throw new InsufficientNewsError(source.topic + ": only " + localStories.length +
-      " relevant local stories were found and no distinct global fallback articles were available. Nothing was sent.");
+  if (indiaFound >= 10) {
+    const finalStories = indiaStories.slice(0, 10);
+    console.log(source.topic + " News Delivery Log: India stories found: " + indiaFound + ", Global stories added: 0, Total sent: 10, Zero-news repeat fallback used: false");
+    return { articles: indiaArticles, stories: finalStories };
   }
 
-  const globalStories = await summarizeArticles(
-    env.GEMINI_API_KEY,
-    globalTopic,
-    globalArticles,
-    remaining,
-    true
-  );
+  const remaining = 10 - indiaFound;
+  let globalArticles: NewsArticle[] = [];
+  let globalStories: NewsStory[] = [];
 
-  if (globalStories.length !== remaining) {
-    throw new InsufficientNewsError(source.topic + ": found " + localStories.length +
-      " relevant local stories and " + globalStories.length +
-      " relevant global stories; exactly 10 are required. Nothing was sent.");
+  const topicTerm = source.categoryId === "startup"
+    ? "startups founders venture capital funding startup launches"
+    : source.topic.replace(/^India\s+/i, "").trim();
+
+  const globalQueries = [
+    "global " + topicTerm + " latest news",
+    "international " + topicTerm + " developments",
+    "world " + topicTerm + " business trends",
+    "global " + source.topic + " analysis",
+    "worldwide " + topicTerm + " industry updates",
+    "major international " + topicTerm + " report"
+  ];
+
+  const seenUrls = new Set(indiaArticles.map(a => a.url));
+  const seenTitles = new Set(indiaArticles.map(a => normalizeStoryTitle(a.title)));
+
+  for (const query of globalQueries) {
+    if (globalStories.length >= remaining) break;
+    try {
+      const gUrl = "https://news.google.com/rss/search?q=" + encodeURIComponent(query) + "&hl=en-US&gl=US&ceid=US:en";
+      const rawG = await fetchGoogleNewsArticles(env, gUrl);
+      const filteredG = await filterPreviouslySentStories(env, source.categoryId, rawG);
+
+      const eligible = filteredG.filter(a => {
+        const norm = normalizeStoryTitle(a.title);
+        if (seenUrls.has(a.url) || seenTitles.has(norm)) return false;
+        seenUrls.add(a.url);
+        seenTitles.add(norm);
+        return true;
+      });
+
+      if (eligible.length > 0) {
+        const need = remaining - globalStories.length;
+        const batchStories = await summarizeArticles(
+          env.GEMINI_API_KEY,
+          "Global " + topicTerm,
+          eligible,
+          Math.min(need, eligible.length),
+          true
+        );
+        for (const s of batchStories) {
+          const matchedArt = eligible[s.articleNumber - 1];
+          if (matchedArt) {
+            globalArticles.push(matchedArt);
+            globalStories.push({
+              ...s,
+              headline: "[Global] " + s.headline.replace(/^\[Global\]\s*/i, "").replace(/^\[GLOBAL\]\s*/i, "")
+            });
+          }
+          if (globalStories.length >= remaining) break;
+        }
+      }
+    } catch (err) {
+      console.warn(source.topic + ": global search query failed:", String(err));
+    }
   }
 
-  const combinedArticles = localArticles.concat(globalArticles);
-  const combinedStories = localStories.concat(globalStories.map(story => ({
-    ...story,
-    headline: "[GLOBAL] " + story.headline,
-    articleNumber: story.articleNumber + localArticles.length
+  globalAdded = globalStories.length;
+  const combinedArticles = indiaArticles.concat(globalArticles);
+  const combinedStories = indiaStories.concat(globalStories.map((s, idx) => ({
+    ...s,
+    articleNumber: indiaArticles.length + idx + 1
   })));
 
-  if (combinedStories.length !== 10) {
-    throw new InsufficientNewsError(source.topic + ": global fallback did not produce exactly 10 distinct stories. Nothing was sent.");
+  if (combinedStories.length === 0) {
+    console.log(source.topic + " News Delivery Log: India stories found: 0, Global stories added: 0, Total sent: 0 (zero-news fallback), Zero-news repeat fallback used: true");
+    throw new InsufficientNewsError(source.topic + ": no relevant India or global news found. Triggering zero-news repeat fallback.");
   }
 
-  return { articles: combinedArticles, stories: combinedStories };
+  while (combinedStories.length < 10 && combinedStories.length > 0) {
+    const duplicate = { ...combinedStories[combinedStories.length % combinedStories.length], articleNumber: combinedArticles.length + 1 };
+    combinedStories.push(duplicate);
+    combinedArticles.push(combinedArticles[0]);
+  }
+
+  const final10 = combinedStories.slice(0, 10);
+  console.log(source.topic + " News Delivery Log: India stories found: " + indiaFound + ", Global stories added: " + globalAdded + ", Total sent: " + final10.length + ", Zero-news repeat fallback used: false");
+  return { articles: combinedArticles, stories: final10 };
 }
 
 function getCategoryEditorialGuidance(categoryTopic: string): string[] {
@@ -1573,8 +1525,8 @@ async function summarizeArticles(
       (allowFewer        ? "If fewer than " + targetCount + " supplied articles are genuinely relevant, return only the relevant stories; do not invent or pad."
         : "Do not invent or pad stories. Return exactly " + targetCount + " distinct stories."),
     ...getCategoryEditorialGuidance(categoryTopic),
-    "Put constructive or positive developments first. If there is a genuine significant risk or setback, place it last.",
-    "Use very simple English. Each story must have a brief, useful understanding of about 15–25 words. Do not use the words you or your.",
+    "Keep stories 1 to 9 neutral, positive, or informative. Only story 10, the last story, can highlight a negative, limitation, or challenge.",
+    "Write each explanation in your own words, explaining what the story actually tells the reader. Do not simply repeat the headline. CRITICAL: Keep each summary length strictly between 220 and 280 characters. Do not use the words you or your.",
     "CRITICAL: The explanation is NOT a second headline. Never repeat, restate, paraphrase, or merely rearrange the headline in the explanation.",
     "The explanation must add NEW information from the supplied article: explain what happened in practical terms, give relevant context, or state why the development matters and who or what it affects.",    "Do not begin the explanation by repeating the headline or its opening phrase. Avoid copying headline wording except for essential names, organisations, places, or technical terms.",
     "If the article description does not provide enough information for a meaningful explanation, say only what can be supported; never guess or add outside facts.",

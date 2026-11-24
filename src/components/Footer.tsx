@@ -24,11 +24,7 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
           <div className="space-y-1 text-xs text-slate-400">
             <div className="flex items-center gap-2">
               <Mail className="w-4 h-4 text-indigo-400" />
-              <span>Primary / Realty: <strong>tmkrealty@gmail.com</strong></span>
-            </div>
-            <div className="flex items-center gap-2">
-              <Mail className="w-4 h-4 text-slate-400" />
-              <span>Support / Admin: mihirkapuria@gmail.com</span>
+              <span>Contact: <strong>tmkrealty@gmail.com</strong></span>
             </div>
           </div>
         </div>
@@ -40,7 +36,7 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
             <li><button onClick={() => onNavigate('blog')} className="hover:text-white transition-colors">Blog & AdSense</button></li>
             <li><button onClick={() => onNavigate('offers')} className="hover:text-white transition-colors">Offers & Advertisements</button></li>
             <li><button onClick={() => onNavigate('utilities')} className="hover:text-white transition-colors">Utilities & Calculators</button></li>
-            <li><button onClick={() => onNavigate('contact')} className="hover:text-white transition-colors">Contact Us (tmkrealty@gmail.com)</button></li>
+            <li><button onClick={() => onNavigate('contact')} className="hover:text-white transition-colors">Contact Us</button></li>
           </ul>
         </div>
 
@@ -50,7 +46,6 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
             <li><span className="text-slate-400">Never sell phone numbers</span></li>
             <li><span className="text-slate-400">Manual UPI verification</span></li>
             <li><span className="text-slate-400">Secure password recovery</span></li>
-            <li><span className="text-slate-400">Authorized Admin: mihirkapuria@gmail.com</span></li>
           </ul>
         </div>
       </div>
