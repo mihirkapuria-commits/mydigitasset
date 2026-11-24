@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { User, PaymentRecord, AuditLog } from '../types';
+import { User, PaymentRecord, AuditLog, Category } from '../types';
 import { AdminCampaignManager } from './AdminCampaignManager';
 import { AdminSiteManager } from './AdminSiteManager';
 import {
@@ -11,6 +11,7 @@ interface AdminPortalProps {
   currentUser: User;
   token: string;
   onLogout: () => void;
+  categories: Category[];
 }
 
 interface PricingSettings {
@@ -24,7 +25,8 @@ interface PricingSettings {
 export const AdminPortal: React.FC<AdminPortalProps> = ({
   currentUser,
   token,
-  onLogout
+  onLogout,
+  categories
 }) => {
   const [activeTab, setActiveTab] = useState<
     'users' | 'customers' | 'payments' | 'audit' | 'pricing' | 'marketing' | 'website'
@@ -37,19 +39,10 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const [allNewsTesting, setAllNewsTesting] = useState(false);
-  const [newsTestRunId, setNewsTestRunId] = useState('');
-  const [allNewsTestResults, setAllNewsTestResults] = useState<Array<{
-    category: string;
-    title: string;
-    status: 'sent' | 'failed';
-    storyCount?: number;
-    error?: string;
-    messageIds?: number[];
-    testType?: 'news' | 'telegram';
-    details?: string;
-  }>>([]);
-  const [allNewsTestSummary, setAllNewsTestSummary] = useState('');
+  const [selectedNewsCategory, setSelectedNewsCategory] = useState('');
+  const [newsTesting, setNewsTesting] = useState(false);
+  const [newsTestResult, setNewsTestResult] = useState<any>(null);
+  const [newsTestSummary, setNewsTestSummary] = useState('');
 
 
 
@@ -189,66 +182,45 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   };
 
 
-  const handleTestAllNewsChannels = async () => {
-    if (!confirm('Queue a test of all 15 news channels? It will test only 5 channels per batch, with at least 15 minutes between batches. Each successful channel receives a clearly labelled TEST DELIVERY message. Normal scheduled deliveries will not be marked as sent.')) return;
+  useEffect(() => {
+    if (!selectedNewsCategory && categories.length > 0) {
+      setSelectedNewsCategory(categories[0].id);
+    }
+  }, [categories, selectedNewsCategory]);
 
-    setAllNewsTesting(true);
-    setAllNewsTestResults([]);
-    setAllNewsTestSummary('Submitting the paced 15-channel test…');
+  const handleTestSelectedNewsCategory = async () => {
+    const selectedCategory = categories.find(category => category.id === selectedNewsCategory);
+    if (!selectedCategory) {
+      setNewsTestSummary('Please select a category first.');
+      return;
+    }
+    if (!confirm(`Send a clearly labelled test news digest to the ${selectedCategory.title} Telegram channel? This tests only this one category. Normal scheduled deliveries will not be changed.`)) return;
+
+    setNewsTesting(true);
+    setNewsTestResult(null);
+    setNewsTestSummary('Testing ' + selectedCategory.title + '…');
     try {
-      const response = await fetch('/api/admin/news/all/test', {
+      const response = await fetch('/api/admin/news/test/channel', {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` }
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ categoryId: selectedCategory.id })
       });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'The 15-channel test could not be queued.');
-      setNewsTestRunId(data.runId);
-      setAllNewsTestSummary('Test queued. Five channels will be tested per batch, with at least 15 minutes between batches. First batch is scheduled no earlier than ' + new Date(data.nextRunAt).toLocaleString() + '.');
+      const result = data.result || data;
+      setNewsTestResult(result);
+      if (!response.ok || result.status !== 'sent') {
+        throw new Error(result.error || data.error || 'The selected category test failed.');
+      }
+      setNewsTestSummary(`Test successful: ${selectedCategory.title} · ${result.storyCount || 0} stories sent.`);
     } catch (err: any) {
-      setAllNewsTesting(false);
-      setAllNewsTestSummary('Could not start test: ' + (err.message || 'Unknown error'));
+      setNewsTestSummary('Test failed: ' + (err.message || 'Unknown error'));
+    } finally {
+      setNewsTesting(false);
     }
   };
-
-  useEffect(() => {
-    if (!newsTestRunId) return;
-    let stopped = false;
-    let interval: ReturnType<typeof setInterval> | undefined;
-    const poll = async () => {
-      try {
-        const response = await fetch('/api/admin/news/all/test/status?runId=' + encodeURIComponent(newsTestRunId), {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || 'Could not read test progress.');
-        if (stopped) return;
-        setAllNewsTestResults(data.results || []);
-        if (data.status === 'completed') {
-          setAllNewsTesting(false);
-          setAllNewsTestSummary('Test completed: ' + data.sent + ' channels sent successfully; ' + data.failed + ' failed, out of ' + data.total + '.');
-          if (interval) clearInterval(interval);
-        } else if (data.status === 'queued') {
-          setAllNewsTesting(true);
-          setAllNewsTestSummary('Test in progress: ' + (data.nextIndex || 0) + ' of ' + data.total + ' channels attempted. ' + data.sent + ' sent, ' + data.failed + ' failed. Next batch: ' + (data.nextRunAt ? new Date(data.nextRunAt).toLocaleString() : 'being scheduled') + '.');
-        } else if (data.status === 'processing') {
-          setAllNewsTesting(true);
-          setAllNewsTestSummary('Test batch running: ' + (data.nextIndex || 0) + ' of ' + data.total + ' channels attempted. ' + data.sent + ' sent, ' + data.failed + ' failed.');
-        } else if (data.status === 'failed') {
-          setAllNewsTesting(false);
-          setAllNewsTestSummary('Test stopped: ' + (data.error || 'Unknown error'));
-          if (interval) clearInterval(interval);
-        }
-      } catch (err: any) {
-        if (!stopped) setAllNewsTestSummary('Unable to refresh test progress: ' + (err.message || 'Unknown error'));
-      }
-    };
-    poll();
-    interval = setInterval(poll, 15000);
-    return () => {
-      stopped = true;
-      if (interval) clearInterval(interval);
-    };
-  }, [newsTestRunId, token]);
 
   const handleVerifyPayment = async (
     paymentId: string,
@@ -469,15 +441,31 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
           </div>
 
           <div className="flex items-center gap-3 flex-wrap">
-            <div className="text-xs text-slate-400">
-              News test safety: 5 channels per batch · minimum 15-minute gap · all 15 categories
-            </div>
+            <label htmlFor="admin-news-category" className="text-xs font-semibold text-slate-300">
+              Test one category
+            </label>
+            <select
+              id="admin-news-category"
+              value={selectedNewsCategory}
+              onChange={(event) => {
+                setSelectedNewsCategory(event.target.value);
+                setNewsTestResult(null);
+                setNewsTestSummary('');
+              }}
+              disabled={newsTesting || categories.length === 0}
+              className="min-w-64 px-3 py-2 text-xs font-medium rounded-lg bg-slate-800 text-white border border-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+            >
+              {categories.length === 0 && <option value="">No categories available</option>}
+              {categories.map(category => (
+                <option key={category.id} value={category.id}>{category.title}</option>
+              ))}
+            </select>
             <button
-              onClick={handleTestAllNewsChannels}
-              disabled={allNewsTesting}
+              onClick={handleTestSelectedNewsCategory}
+              disabled={newsTesting || !selectedNewsCategory}
               className="px-4 py-2 text-xs font-semibold rounded-lg bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white"
             >
-              {allNewsTesting ? '15-Channel Test Queued / Running…' : 'Test All 15 Categories'}
+              {newsTesting ? 'Testing…' : 'Test Selected Category'}
             </button>
 
             <div className="flex items-center gap-2 bg-slate-800 p-1 rounded-xl border border-slate-700 flex-wrap">
@@ -577,36 +565,16 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
           </div>
         )}
 
-        {allNewsTestSummary && (
-          <div className="p-4 rounded-xl bg-violet-50 border border-violet-200 text-violet-900 space-y-3">
-            <p className="text-sm font-semibold">{allNewsTestSummary}</p>
-            {allNewsTestResults.length > 0 && (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead>
-                    <tr className="border-b border-violet-200 text-violet-700">
-                      <th className="py-2 pr-4">Channel</th>
-                      <th className="py-2 pr-4">Result</th>
-                      <th className="py-2">Details</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {allNewsTestResults.map((item, index) => (
-                      <tr key={item.category || index} className="border-b border-violet-100 last:border-0">
-                        <td className="py-2 pr-4 font-medium">{item.title || item.category}</td>
-                        <td className={`py-2 pr-4 font-semibold ${item.status === 'sent' ? 'text-emerald-700' : 'text-red-700'}`}>
-                          {item.status === 'sent' ? (item.testType === 'telegram' ? 'Connected' : 'Sent · ' + (item.storyCount || 0) + ' stories') : 'Failed'}
-                        </td>
-                        <td className="py-2">
-                          {item.status === 'sent'
-                            ? (item.details || 'Telegram message ID(s): ' + ((item.messageIds || []).join(', ') || 'confirmed'))
-                            : (item.error || 'No error details returned.')}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+        {newsTestSummary && (
+          <div className="p-4 rounded-xl bg-violet-50 border border-violet-200 text-violet-900 space-y-2">
+            <p className="text-sm font-semibold">{newsTestSummary}</p>
+            {newsTestResult?.status === 'sent' && (
+              <p className="text-xs">
+                Telegram message ID(s): {(newsTestResult.messageIds || []).join(', ') || 'confirmed'}
+              </p>
+            )}
+            {newsTestResult?.status === 'failed' && newsTestResult.error && (
+              <p className="text-xs text-red-700">{newsTestResult.error}</p>
             )}
           </div>
         )}
