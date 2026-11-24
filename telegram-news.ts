@@ -1535,7 +1535,7 @@ async function summarizeArticles(
       (allowFewer        ? "If fewer than " + targetCount + " supplied articles are genuinely relevant, return only the relevant stories; do not invent or pad."
         : "Do not invent or pad stories. Return exactly " + targetCount + " distinct stories."),
     ...getCategoryEditorialGuidance(categoryTopic),
-    "Keep stories 1 to 9 neutral, positive, or informative. Only story 10, the last story, can highlight a negative, limitation, or challenge.",
+    "All stories must be positive, neutral, or informative. Only include a negative, limitation, or challenge story if a genuine negative story is actually found in the supplied sources. If no genuine negative story is found, do not invent one, and do not turn a positive story into a negative one. Do not force story 10 to be negative or global.",
     "Write each explanation in your own words, explaining what the story actually tells the reader. Do not simply repeat the headline. CRITICAL: Keep each summary length strictly between 220 and 280 characters. Do not use the words you or your.",
     "CRITICAL: The explanation is NOT a second headline. Never repeat, restate, paraphrase, or merely rearrange the headline in the explanation.",
     "The explanation must add NEW information from the supplied article: explain what happened in practical terms, give relevant context, or state why the development matters and who or what it affects.",    "Do not begin the explanation by repeating the headline or its opening phrase. Avoid copying headline wording except for essential names, organisations, places, or technical terms.",
