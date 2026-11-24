@@ -237,6 +237,7 @@ export default function App() {
             currentUser={currentUser}
             token={token!}
             onLogout={handleLogout}
+            categories={categories}
           />
         )}
       </main>
