@@ -2,23 +2,7 @@
 
 import { runCategoryNewsDeliveryBatch, runCategoryNewsRecoveryBatch, sendIndiaStartupsNewsTest, retryBankingFintechNewsDelivery, sendTelegramConnectionTest, sendCategoryNewsTest, diagnoseStartupGoogleNews, diagnoseStartupGemini } from "./telegram-news";
 
-const CATEGORIES = [
-  { id: 'banking-fintech', title: 'Banking and Fintech', telegramChatId: '-1004377330142' },
-  { id: 'consumer-fmcg', title: 'India Consumer & FMCG', telegramChatId: '-1004356285380' },
-  { id: 'economy-business', title: 'Economy and Business', telegramChatId: '-1003773612503' },
-  { id: 'energy-renewal', title: 'Energy and Renewal', telegramChatId: '-1004305076677' },
-  { id: 'hr-employment', title: 'HR and Employment', telegramChatId: '-1003756538856' },
-  { id: 'it-ai-cybersecurity', title: 'IT AI Cybersecurity', telegramChatId: '-1004404579614' },
-  { id: 'manufacturing-auto', title: 'Manufacturing and Auto', telegramChatId: '-1004328043113' },
-  { id: 'marketing-advertising', title: 'Marketing and Advertising', telegramChatId: '-1003914193738' },
-  { id: 'real-estate', title: 'Real Estate', telegramChatId: '-1004322510775' },
-  { id: 'bollywood', title: 'Bollywood', telegramChatId: '-1004339246354' },
-  { id: 'kids', title: 'Kids', telegramChatId: '-1004312693379' },
-  { id: 'women', title: 'Women', telegramChatId: '-1003821497200' },
-  { id: 'politics', title: 'Politics', telegramChatId: '-1004350871154' },
-  { id: 'stock-market', title: 'Stock Market', telegramChatId: '-1004343493425' },
-  { id: 'startup', title: 'Startup', telegramChatId: '-1003720483555' }
-];
+
 
 const ADMIN_EMAIL = 'mihirkapuria@gmail.com';
 const PASSWORD_ITERATIONS = 100000;
@@ -926,12 +910,29 @@ var worker_default = {
   async scheduled(controller, env, ctx) {
     const scheduledAt = new Date(controller.scheduledTime || Date.now());
     const istParts = getIndiaDateTimeParts(scheduledAt);
-    const istTime = istParts.hour + ":" + istParts.minute;
     const hour = Number(istParts.hour);
     const minute = Number(istParts.minute);
+    const currentMinutes = hour * 60 + minute;
 
-    // 07:15 IST — private customer reminders.
-    if (istTime === "07:15" || (hour === 7 && minute >= 12 && minute <= 18)) {
+    async function getConfiguredDeliveryBaseMinutes() {
+      try {
+        const setting = await env.DB.prepare(
+          "SELECT value FROM settings WHERE key = 'news_delivery_time_ist'"
+        ).first();
+        const value = String(setting?.value || "06:15");
+        const match = value.match(/^([01]\d|2[0-3]):([0-5]\d)$/);
+        if (!match) return 6 * 60 + 15;
+        return Number(match[1]) * 60 + Number(match[2]);
+      } catch {
+        return 6 * 60 + 15;
+      }
+    }
+
+    const baseMin = await getConfiguredDeliveryBaseMinutes();
+    const isNear = (targetMin) => Math.abs(currentMinutes - targetMin) <= 5 || (currentMinutes >= targetMin && currentMinutes <= targetMin + 10);
+
+    // Private customer reminders at base + 60 mins
+    if (isNear(baseMin + 60)) {
       ctx.waitUntil(sendScheduledCustomerReminders(env));
       return;
     }
@@ -954,54 +955,50 @@ var worker_default = {
     const runNewsBatchAndMatchingChannelAds = (categoryIds) =>
       runCategoryNewsDeliveryBatch(env, channels, categoryIds, afterNewsChannelDelivery);
     const runNewsRecoveryBatchAndMatchingChannelAds = () =>
-      runCategoryNewsRecoveryBatch(env, channels, 3, afterNewsChannelDelivery);
+      runCategoryNewsRecoveryBatch(env, channels, afterNewsChannelDelivery);
 
-    // Group 1 (06:15 IST): startup, stock-market, economy-business
-    if (istTime === "06:15" || (hour === 6 && minute >= 10 && minute <= 20)) {
+    // Batch 1 (base + 0 min): startup, stock-market, economy-business
+    if (isNear(baseMin)) {
       ctx.waitUntil(runNewsBatchAndMatchingChannelAds([
         "startup", "stock-market", "economy-business"
       ]));
       return;
     }
 
-    // Group 2 (06:40 IST): banking-fintech, it-ai-cybersecurity, real-estate
-    if (istTime === "06:40" || (hour === 6 && minute >= 35 && minute <= 50)) {
+    // Batch 2 (base + 25 min): banking-fintech, it-ai-cybersecurity, real-estate
+    if (isNear(baseMin + 25)) {
       ctx.waitUntil(runNewsBatchAndMatchingChannelAds([
         "banking-fintech", "it-ai-cybersecurity", "real-estate"
       ]));
       return;
     }
 
-    // Group 3 (07:05 IST): consumer-fmcg, manufacturing-auto, energy-renewal
-    if (istTime === "07:05" || (hour === 7 && minute >= 0 && minute <= 10)) {
+    // Batch 3 (base + 50 min): consumer-fmcg, manufacturing-auto, energy-renewal
+    if (isNear(baseMin + 50)) {
       ctx.waitUntil(runNewsBatchAndMatchingChannelAds([
         "consumer-fmcg", "manufacturing-auto", "energy-renewal"
       ]));
       return;
     }
 
-    // Group 4 (07:30 IST): marketing-advertising, hr-employment, politics
-    if (istTime === "07:30" || (hour === 7 && minute >= 25 && minute <= 35)) {
+    // Batch 4 (base + 75 min): marketing-advertising, hr-employment, politics
+    if (isNear(baseMin + 75)) {
       ctx.waitUntil(runNewsBatchAndMatchingChannelAds([
         "marketing-advertising", "hr-employment", "politics"
       ]));
       return;
     }
 
-    // Group 5 (07:55 IST): bollywood, kids, women
-    if (istTime === "07:55" || (hour === 7 && minute >= 50 && minute <= 60)) {
+    // Batch 5 (base + 100 min): bollywood, kids, women
+    if (isNear(baseMin + 100)) {
       ctx.waitUntil(runNewsBatchAndMatchingChannelAds([
         "bollywood", "kids", "women"
       ]));
       return;
     }
 
-    // Recovery slots (08:45, 09:10, 09:35 IST): max 3 categories retry
-    if (
-      istTime === "08:45" || (hour === 8 && minute >= 40 && minute <= 50) ||
-      istTime === "09:10" || (hour === 9 && minute >= 5 && minute <= 15) ||
-      istTime === "09:35" || (hour === 9 && minute >= 30 && minute <= 40)
-    ) {
+    // Recovery slots (base + 150, 175, 200 min)
+    if (isNear(baseMin + 150) || isNear(baseMin + 175) || isNear(baseMin + 200)) {
       ctx.waitUntil(runNewsRecoveryBatchAndMatchingChannelAds());
       return;
     }
@@ -2485,7 +2482,13 @@ var worker_default = {
         `).bind(userId).first();
 
         const sessionToken = await createSession(env, userId);
-        const selectedCategory = CATEGORIES.find(item => item.id === category);
+        const selectedCategory = await env.DB.prepare(
+          "SELECT id, title FROM managed_categories WHERE id = ? LIMIT 1"
+        ).bind(category).first();
+
+        if (!selectedCategory) {
+          return json({ error: "Selected category is missing from managed categories." }, 400);
+        }
 
         await sendTelegramMessage(
           env.TELEGRAM_BOT_TOKEN,
@@ -3104,13 +3107,15 @@ var worker_default = {
           VALUES (?, ?, ?, 'pending')
         `).bind(userId, paymentAmount, utrNumber).run();
 
-        const selectedCategory = CATEGORIES.find(
-          item => item.id === user.category
-        );
+        const selectedCategory = await env.DB.prepare(
+          "SELECT id, title FROM managed_categories WHERE id = ? LIMIT 1"
+        ).bind(user.category).first();
 
-        const categoryTitle = selectedCategory
-          ? selectedCategory.title
-          : user.category;
+        if (!selectedCategory) {
+          return json({ error: "Customer category is missing from managed categories." }, 400);
+        }
+
+        const categoryTitle = selectedCategory.title;
 
         const keyboard = {
           inline_keyboard: [[

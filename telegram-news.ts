@@ -308,11 +308,16 @@ export async function runCategoryNewsRecoveryBatch(
     const record = await env.DB.prepare("SELECT value FROM settings WHERE key = ?").bind(key).first();
     const status = String(record?.value || "");
 
-    // A successful or repeated delivery is final for the day. Never resend it.
-    // An in-progress delivery is left alone to avoid racing another invocation.
-    if (status.startsWith("sent:") || status.startsWith("repeated:") || status === "sending") continue;
+    const sendingTimeMatch = status.match(/^sending:(\d+)$/);
+    const sendingTimestamp = sendingTimeMatch ? Number(sendingTimeMatch[1]) : 0;
+    const isStaleSending = status === "sending" || (sendingTimestamp > 0 && Date.now() - sendingTimestamp > 20 * 60 * 1000);
+    const isInProgress = (status === "sending" || status.startsWith("sending:")) && !isStaleSending;
 
-    const lastAttemptAt = status.startsWith("failed:")
+    // A successful or repeated delivery is final for the day. Never resend it.
+    // An in-progress delivery is left alone unless stale (> 20 minutes).
+    if (status.startsWith("sent:") || status.startsWith("repeated:") || isInProgress) continue;
+
+    const lastAttemptAt = status.startsWith("failed:") || isStaleSending
       ? Number(status.split(":")[1] || 0)
       : 0;
     pending.push({ source, channel, lastAttemptAt: Number.isFinite(lastAttemptAt) ? lastAttemptAt : 0 });
@@ -321,8 +326,7 @@ export async function runCategoryNewsRecoveryBatch(
   // Rotate through failures fairly: after a failed retry its timestamp moves
   // forward, allowing other outstanding categories to be attempted next.
   pending.sort((a, b) => a.lastAttemptAt - b.lastAttemptAt);
-  const batchSize = Math.max(1, Math.min(3, Math.floor(maxCategories) || 3));
-  const selected = pending.slice(0, batchSize);
+  const selected = pending;
 
   if (selected.length === 0) {
     console.log("News recovery batch: all configured categories are already sent or in progress.");
@@ -525,27 +529,32 @@ async function runCategoryNewsDelivery(env: NewsEnv, source: CategoryNewsSource,
   }
 
   const priorStatus = String(priorDelivery?.value || "");
-  if (priorStatus.startsWith("sent:") || priorStatus.startsWith("repeated:") || priorStatus === "sending") {
+  const sendingTimeMatch = priorStatus.match(/^sending:(\d+)$/);
+  const sendingTimestamp = sendingTimeMatch ? Number(sendingTimeMatch[1]) : 0;
+  const isStaleSending = priorStatus === "sending" || (sendingTimestamp > 0 && Date.now() - sendingTimestamp > 20 * 60 * 1000);
+  const isInProgress = (priorStatus === "sending" || priorStatus.startsWith("sending:")) && !isStaleSending;
+
+  if (priorStatus.startsWith("sent:") || priorStatus.startsWith("repeated:") || isInProgress) {
     return priorStatus.startsWith("sent:") ? "sent" : priorStatus.startsWith("repeated:") ? "repeated" : "sending";
   }
-  if (manualRetry && !priorStatus.startsWith("failed:")) return "not_failed";
-  if (priorStatus.startsWith("failed:")) {
+  if (manualRetry && !priorStatus.startsWith("failed:") && !isStaleSending) return "not_failed";
+  if (priorStatus.startsWith("failed:") || isStaleSending) {
     const failedAt = Number(priorStatus.split(":")[1] || 0);
-    if (!manualRetry && !scheduledRun && failedAt && Date.now() - failedAt < 15 * 60 * 1000) return "cooldown";
+    if (!manualRetry && !scheduledRun && failedAt && !isStaleSending && Date.now() - failedAt < 15 * 60 * 1000) return "cooldown";
   } else if (!scheduledRun && time !== await getConfiguredDeliveryTime(env)) {
     return "not_due";
   }
 
+  const nowTs = Date.now();
   try {
-    if (!priorStatus) {
+    if (!priorStatus || isStaleSending) {
       const claim = await env.DB.prepare(
-        "INSERT OR IGNORE INTO settings (key, value) VALUES (?, 'sending')"
-      ).bind(deliveryKey).run();
-      if (Number(claim?.meta?.changes || 0) !== 1) return "claimed_elsewhere";
-    } else if (priorStatus.startsWith("failed:")) {
+        "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)"
+      ).bind(deliveryKey, "sending:" + nowTs).run();
+    } else if (priorStatus.startsWith("failed:") || isStaleSending) {
       const claim = await env.DB.prepare(
-        "UPDATE settings SET value = 'sending' WHERE key = ? AND value = ?"
-      ).bind(deliveryKey, priorStatus).run();
+        "UPDATE settings SET value = ? WHERE key = ?"
+      ).bind("sending:" + nowTs, deliveryKey).run();
       if (Number(claim?.meta?.changes || 0) !== 1) return "claimed_elsewhere";
     }
   } catch (error) {
@@ -711,6 +720,7 @@ async function repeatLastSuccessfulCategoryDigest(
   }
 
   const notice =
+    "Repeat from previous day - fresh news was not available today.\n\n" +
     "<b>MYDIGITASSET — NEWS AVAILABILITY</b>\n" +
     "<code>" + escapeTelegramHtml(todayDisplay) + "</code>\n\n" +
     "We could not find 10 relevant new stories for <b>" +
