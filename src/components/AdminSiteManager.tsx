@@ -157,7 +157,13 @@ export const AdminSiteManager: React.FC<Props> = ({ token }) => {
     setContentForm({
       title: x.title, summary: x.summary || '', body: x.body || '',
       imageUrl: x.image_url || '', targetUrl: x.target_url || '',
-      status: x.status, displayOrder: String(x.display_order || 0)
+      status: x.status, displayOrder: String(x.display_order || 0),
+      adPlacements: (() => {
+        try {
+          const metadata = JSON.parse(x.metadata_json || '{}');
+          return Array.isArray(metadata.adPlacements) ? metadata.adPlacements : blankContent.adPlacements;
+        } catch { return blankContent.adPlacements; }
+      })()
     });
   };
   const deleteContent = async (id: string) => {
