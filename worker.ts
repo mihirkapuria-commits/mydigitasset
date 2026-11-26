@@ -2470,8 +2470,8 @@ var worker_default = {
           return json({ error: 'Please complete all required fields.' }, 400);
         }
 
-        if (email === ADMIN_EMAIL) {
-          return json({ error: 'This email address cannot be used for public registration.' }, 403);
+        if (email === ADMIN_EMAIL || mobileNumber.includes('7021923124')) {
+          return json({ error: 'Registration using reserved administrator identity or phone number is not permitted.' }, 403);
         }
 
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {

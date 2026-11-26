@@ -328,8 +328,9 @@ async function startServer() {
     }
 
     const normalizedEmail = email.toLowerCase().trim();
-    if (normalizedEmail === 'mihirkapuria@gmail.com') {
-      return res.status(403).json({ error: 'Registration using reserved administrator identity is not permitted.' });
+    const cleanMobile = (fullMobile || '').replace(/\D/g, '');
+    if (normalizedEmail === 'mihirkapuria@gmail.com' || cleanMobile.includes('7021923124')) {
+      return res.status(403).json({ error: 'Registration using reserved administrator identity or phone number is not permitted.' });
     }
 
     const db = readDb();
