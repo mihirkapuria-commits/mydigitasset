@@ -1620,7 +1620,6 @@ var worker_default = {
         await env.DB.prepare('UPDATE account_registry SET lifecycle_status=?,transferred_to=?,updated_at=? WHERE user_id=?')
           .bind(action,action==='transferred'?String(data.transferredTo||'').slice(0,200):null,now,userId).run();
         if (action !== 'active') await env.DB.batch([
-          env.DB.prepare("UPDATE users SET status='stopped' WHERE id=?").bind(userId),
           env.DB.prepare('DELETE FROM auth_sessions WHERE user_id=?').bind(userId),
           env.DB.prepare('DELETE FROM sessions WHERE user_id=?').bind(String(userId)),
           env.DB.prepare('DELETE FROM telegram_link_tokens WHERE user_id=?').bind(String(userId)),
