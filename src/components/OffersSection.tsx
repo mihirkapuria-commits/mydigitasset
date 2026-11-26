@@ -45,7 +45,7 @@ export const OffersSection: React.FC<OffersSectionProps> = ({ onNavigateHome, on
         </div>
 
         <AdSenseSlot placementKey="offers-top" />
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 gap-6">
           {offers.map(offer => {
             const placements = Array.isArray(offer.adPlacements) ? offer.adPlacements : ['top', 'inline', 'bottom', 'left', 'right'];
             const has = (position: string) => placements.includes(position);
