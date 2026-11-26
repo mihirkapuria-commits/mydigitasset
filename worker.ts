@@ -1308,11 +1308,30 @@ var worker_default = {
       if (url.pathname === '/api/blog' && method === 'GET') {
         const result = await env.DB.prepare(`
           SELECT id, title, slug, excerpt, body, featured_image_url AS featuredImageUrl,
-                 seo_title AS seoTitle, seo_description AS seoDescription, published_at AS publishedAt
+                 seo_title AS seoTitle, seo_description AS seoDescription, published_at AS publishedAt,
+                 ad_placements_json AS adPlacementsJson, disclaimer_override AS disclaimerOverride
           FROM blog_articles WHERE status = 'published'
           ORDER BY published_at DESC, created_at DESC
         `).all();
-        return json(result.results || []);
+        return json((result.results || []).map(article => {
+          let adPlacements = ['blog-top', 'blog-inline', 'blog-bottom', 'blog-left', 'blog-right'];
+          try { const parsed = JSON.parse(article.adPlacementsJson || '[]'); if (Array.isArray(parsed)) adPlacements = parsed; } catch {}
+          return { ...article, adPlacements };
+        }));
+      }
+
+      if (url.pathname === '/api/blog-display-settings' && method === 'GET') {
+        const result = await env.DB.prepare('SELECT setting_key, setting_value FROM site_display_settings').all();
+        const values = Object.fromEntries((result.results || []).map(row => [row.setting_key, row.setting_value]));
+        return json({
+          disclaimerEnabled: values.disclaimer_enabled !== '0',
+          disclaimerText: values.disclaimer_text || 'Please exercise caution when viewing advertisements displayed on this website. Advertisements are provided by third-party advertisers and are not necessarily endorsed or verified by MyDigitAsset. Any decision to click on an advertisement, purchase a product, or use an advertised service is entirely independent of MyDigitAsset.',
+          backgroundColor: values.disclaimer_background_color || '#FCE8E8',
+          textColor: values.disclaimer_text_color || '#7F1D1D',
+          fontSize: Number(values.disclaimer_font_size || 14),
+          fontWeight: Number(values.disclaimer_font_weight || 500),
+          alignment: values.disclaimer_alignment === 'center' ? 'center' : 'left'
+        });
       }
 
       if (url.pathname === '/api/tools' && method === 'GET') {
@@ -1326,6 +1345,8 @@ var worker_default = {
       }
 
       if (url.pathname === '/api/adsense' && method === 'GET') {
+        const globalAds = await env.DB.prepare("SELECT setting_value FROM site_display_settings WHERE setting_key = 'ads_enabled'").first();
+        if (globalAds && String(globalAds.setting_value) === '0') return json([]);
         const result = await env.DB.prepare(`
           SELECT placement_key AS placementKey, enabled, client_id AS clientId, slot_id AS slotId
           FROM adsense_slots WHERE enabled = 1
@@ -2048,11 +2069,15 @@ var worker_default = {
         const now = new Date().toISOString();
         await env.DB.prepare(`
           INSERT INTO blog_articles
-            (id, title, slug, excerpt, body, featured_image_url, seo_title, seo_description, status, published_at, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (id, title, slug, excerpt, body, featured_image_url, seo_title, seo_description, status,
+             ad_placements_json, disclaimer_override, published_at, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).bind(id, title, slug, String(data.excerpt || ''), String(data.body || ''),
           String(data.featuredImageUrl || ''), String(data.seoTitle || ''),
-          String(data.seoDescription || ''), status, status === 'published' ? now : null, now, now).run();
+          String(data.seoDescription || ''), status,
+          JSON.stringify(Array.isArray(data.adPlacements) ? data.adPlacements.filter(key => ['blog-top','blog-inline','blog-bottom','blog-left','blog-right'].includes(key)) : ['blog-top','blog-inline','blog-bottom','blog-left','blog-right']),
+          [-1, 0, 1].includes(Number(data.disclaimerOverride)) ? Number(data.disclaimerOverride) : -1,
+          status === 'published' ? now : null, now, now).run();
         return json({ success: true, id });
       }
 
@@ -2070,12 +2095,15 @@ var worker_default = {
         await env.DB.prepare(`
           UPDATE blog_articles SET title = ?, slug = ?, excerpt = ?, body = ?,
             featured_image_url = ?, seo_title = ?, seo_description = ?, status = ?,
+            ad_placements_json = ?, disclaimer_override = ?,
             published_at = CASE WHEN ? = 'published' THEN COALESCE(published_at, ?) ELSE published_at END,
             updated_at = ? WHERE id = ?
         `).bind(title, slug, String(data.excerpt || ''), String(data.body || ''),
           String(data.featuredImageUrl || ''), String(data.seoTitle || ''),
-          String(data.seoDescription || ''), status, status, new Date().toISOString(),
-          new Date().toISOString(), id).run();
+          String(data.seoDescription || ''), status,
+          JSON.stringify(Array.isArray(data.adPlacements) ? data.adPlacements.filter(key => ['blog-top','blog-inline','blog-bottom','blog-left','blog-right'].includes(key)) : ['blog-top','blog-inline','blog-bottom','blog-left','blog-right']),
+          [-1, 0, 1].includes(Number(data.disclaimerOverride)) ? Number(data.disclaimerOverride) : -1,
+          status, new Date().toISOString(), new Date().toISOString(), id).run();
         return json({ success: true });
       }
 
@@ -2133,6 +2161,40 @@ var worker_default = {
         if (!admin) return json({ error: 'Administrator access required.' }, 403);
         const id = decodeURIComponent(url.pathname.split('/').pop() || '');
         await env.DB.prepare('DELETE FROM site_tools WHERE id = ?').bind(id).run();
+        return json({ success: true });
+      }
+
+      // ADMIN: WEBSITE-WIDE ADVERTISING AND BLOG DISCLAIMER SETTINGS.
+      if (url.pathname === '/api/admin/blog-display-settings' && method === 'GET') {
+        const admin = await getAuthorizedAdmin(request, env);
+        if (!admin) return json({ error: 'Administrator access required.' }, 403);
+        const result = await env.DB.prepare('SELECT setting_key, setting_value FROM site_display_settings').all();
+        const values = Object.fromEntries((result.results || []).map(row => [row.setting_key, row.setting_value]));
+        return json({ adsEnabled: values.ads_enabled !== '0', disclaimerEnabled: values.disclaimer_enabled !== '0',
+          disclaimerText: values.disclaimer_text || '', backgroundColor: values.disclaimer_background_color || '#FCE8E8',
+          textColor: values.disclaimer_text_color || '#7F1D1D', fontSize: values.disclaimer_font_size || '14',
+          fontWeight: values.disclaimer_font_weight || '500', alignment: values.disclaimer_alignment === 'center' ? 'center' : 'left' });
+      }
+      if (url.pathname === '/api/admin/blog-display-settings' && method === 'PUT') {
+        const admin = await getAuthorizedAdmin(request, env);
+        if (!admin) return json({ error: 'Administrator access required.' }, 403);
+        const data = await parseRequestBody(request);
+        const backgroundColor = /^#[0-9a-fA-F]{6}$/.test(String(data.backgroundColor || '')) ? data.backgroundColor : '#FCE8E8';
+        const textColor = /^#[0-9a-fA-F]{6}$/.test(String(data.textColor || '')) ? data.textColor : '#7F1D1D';
+        const fontSize = Math.min(20, Math.max(12, Number(data.fontSize) || 14));
+        const fontWeight = [400, 500, 600, 700].includes(Number(data.fontWeight)) ? Number(data.fontWeight) : 500;
+        const settings = { ads_enabled: data.adsEnabled === false ? '0' : '1',
+          disclaimer_enabled: data.disclaimerEnabled === false ? '0' : '1',
+          disclaimer_text: String(data.disclaimerText || '').slice(0, 1500),
+          disclaimer_background_color: backgroundColor, disclaimer_text_color: textColor,
+          disclaimer_font_size: String(fontSize), disclaimer_font_weight: String(fontWeight),
+          disclaimer_alignment: data.alignment === 'center' ? 'center' : 'left' };
+        for (const [key, value] of Object.entries(settings)) {
+          await env.DB.prepare(`INSERT INTO site_display_settings (setting_key, setting_value, updated_at, updated_by)
+            VALUES (?, ?, ?, ?) ON CONFLICT(setting_key) DO UPDATE SET setting_value = excluded.setting_value,
+            updated_at = excluded.updated_at, updated_by = excluded.updated_by`)
+            .bind(key, value, new Date().toISOString(), admin.email).run();
+        }
         return json({ success: true });
       }
 

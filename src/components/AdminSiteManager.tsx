@@ -7,6 +7,12 @@ type ContentItem = {
 type BlogItem = {
   id: string; title: string; slug: string; excerpt: string; body: string;
   featured_image_url: string; seo_title: string; seo_description: string; status: string;
+  ad_placements_json?: string; disclaimer_override?: number;
+};
+type BlogDisplaySettings = {
+  adsEnabled: boolean; disclaimerEnabled: boolean; disclaimerText: string;
+  backgroundColor: string; textColor: string; fontSize: string; fontWeight: string;
+  alignment: 'left' | 'center';
 };
 type ToolItem = {
   id: string; title: string; description: string; target_url: string;
@@ -30,9 +36,21 @@ const blankContent = {
   title: '', summary: '', body: '', imageUrl: '', targetUrl: '',
   status: 'draft', displayOrder: '0'
 };
+const blogAdPlacementOptions = [
+  ['blog-top', 'Above article'], ['blog-inline', 'Within article'],
+  ['blog-bottom', 'Below article'], ['blog-left', 'Left side (desktop)'],
+  ['blog-right', 'Right side (desktop)']
+] as const;
 const blankBlog = {
   title: '', slug: '', excerpt: '', body: '', featuredImageUrl: '',
-  seoTitle: '', seoDescription: '', status: 'draft'
+  seoTitle: '', seoDescription: '', status: 'draft',
+  adPlacements: ['blog-top', 'blog-inline', 'blog-bottom', 'blog-left', 'blog-right'],
+  disclaimerOverride: '-1'
+};
+const defaultDisplaySettings: BlogDisplaySettings = {
+  adsEnabled: true, disclaimerEnabled: true,
+  disclaimerText: 'Please exercise caution when viewing advertisements displayed on this website. Advertisements are provided by third-party advertisers and are not necessarily endorsed or verified by MyDigitAsset. Any decision to click on an advertisement, purchase a product, or use an advertised service is entirely independent of MyDigitAsset.',
+  backgroundColor: '#FCE8E8', textColor: '#7F1D1D', fontSize: '14', fontWeight: '500', alignment: 'left'
 };
 const blankTool = {
   title: '', description: '', targetUrl: '', iconName: '',
@@ -46,6 +64,7 @@ export const AdminSiteManager: React.FC<Props> = ({ token }) => {
   const [blogs, setBlogs] = useState<BlogItem[]>([]);
   const [tools, setTools] = useState<ToolItem[]>([]);
   const [slots, setSlots] = useState<AdSlot[]>([]);
+  const [displaySettings, setDisplaySettings] = useState<BlogDisplaySettings>(defaultDisplaySettings);
   const [newSlot, setNewSlot] = useState({ placementKey: '', displayName: '', clientId: '', slotId: '' });
   const [contentForm, setContentForm] = useState(blankContent);
   const [blogForm, setBlogForm] = useState(blankBlog);
@@ -91,14 +110,17 @@ export const AdminSiteManager: React.FC<Props> = ({ token }) => {
   const loadAll = async () => {
     setError('');
     try {
-      const [b, t, a] = await Promise.all([
-        fetch('/api/admin/blog', { headers }),
-        fetch('/api/admin/tools', { headers }),
-        fetch('/api/admin/adsense', { headers })
+      const [b, t, a, ds] = await Promise.all([
+        fetch('/api/admin/blog', { headers }), fetch('/api/admin/tools', { headers }),
+        fetch('/api/admin/adsense', { headers }), fetch('/api/admin/blog-display-settings', { headers })
       ]);
-      const [bd, td, ad] = await Promise.all([b.json(), t.json(), a.json()]);
-      if (!b.ok || !t.ok || !a.ok) throw new Error(bd.error || td.error || ad.error || 'Could not load website settings.');
+      const [bd, td, ad, dsd] = await Promise.all([b.json(), t.json(), a.json(), ds.json()]);
+      if (!b.ok || !t.ok || !a.ok || !ds.ok) throw new Error(bd.error || td.error || ad.error || dsd.error || 'Could not load website settings.');
       setBlogs(bd); setTools(td); setSlots(ad);
+      setDisplaySettings({ ...defaultDisplaySettings, ...dsd,
+        fontSize: String(dsd.fontSize ?? defaultDisplaySettings.fontSize),
+        fontWeight: String(dsd.fontWeight ?? defaultDisplaySettings.fontWeight)
+      });
       await loadContent();
     } catch (e: any) { setError(e.message || 'Unable to load website content.'); }
   };
@@ -162,7 +184,9 @@ export const AdminSiteManager: React.FC<Props> = ({ token }) => {
     setBlogForm({
       title: x.title, slug: x.slug, excerpt: x.excerpt || '', body: x.body || '',
       featuredImageUrl: x.featured_image_url || '', seoTitle: x.seo_title || '',
-      seoDescription: x.seo_description || '', status: x.status
+      seoDescription: x.seo_description || '', status: x.status,
+      adPlacements: (() => { try { const v = JSON.parse(x.ad_placements_json || '[]'); return Array.isArray(v) ? v : blankBlog.adPlacements; } catch { return blankBlog.adPlacements; } })(),
+      disclaimerOverride: String(x.disclaimer_override ?? -1)
     });
   };
   const deleteBlog = async (id: string) => {
@@ -224,6 +248,18 @@ export const AdminSiteManager: React.FC<Props> = ({ token }) => {
     if (!r.ok) { setError(d.error || 'Could not delete placement.'); return; }
     setNotice('AdSense placement deleted.');
     await loadAll();
+  };
+
+  const saveDisplaySettings = async () => {
+    setBusy(true); setError(''); setNotice('');
+    try {
+      const r = await fetch('/api/admin/blog-display-settings', { method: 'PUT',
+        headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(displaySettings) });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || 'Could not save advertising and disclaimer settings.');
+      setNotice('Advertising and disclaimer settings saved.'); await loadAll();
+    } catch (e: any) { setError(e.message || 'Could not save settings.'); }
+    finally { setBusy(false); }
   };
 
   const saveAdsense = async () => {
@@ -300,6 +336,13 @@ export const AdminSiteManager: React.FC<Props> = ({ token }) => {
             <label className="text-xs font-semibold md:col-span-2">SEO description<input className="mt-1 w-full border rounded-lg p-2 text-sm" value={blogForm.seoDescription} onChange={e => setBlogForm({ ...blogForm, seoDescription: e.target.value })} /></label>
             <label className="text-xs font-semibold">Publishing status<select className="mt-1 w-full border rounded-lg p-2 text-sm" value={blogForm.status} onChange={e => setBlogForm({ ...blogForm, status: e.target.value })}><option value="draft">Draft</option><option value="published">Publish</option><option value="unpublished">Unpublish</option></select></label>
           </div>
+          <div className="border rounded-xl p-4 space-y-3">
+            <div><h3 className="text-sm font-bold">Advertisement placements for this article</h3><p className="text-xs text-slate-500">Choose where ads may appear. Left and right ads are shown only on wide desktop screens.</p></div>
+            <div className="grid sm:grid-cols-2 gap-2">
+              {blogAdPlacementOptions.map(([key, label]) => <label key={key} className="flex items-center gap-2 text-xs"><input type="checkbox" checked={blogForm.adPlacements.includes(key)} onChange={e => setBlogForm(current => ({ ...current, adPlacements: e.target.checked ? [...current.adPlacements, key] : current.adPlacements.filter(x => x !== key) }))} />{label}</label>)}
+            </div>
+            <label className="block text-xs font-semibold">Disclaimer for this article<select className="mt-1 w-full border rounded-lg p-2 text-sm" value={blogForm.disclaimerOverride} onChange={e => setBlogForm({ ...blogForm, disclaimerOverride: e.target.value })}><option value="-1">Use website-wide setting</option><option value="1">Show disclaimer on this article</option><option value="0">Hide disclaimer on this article</option></select></label>
+          </div>
           <div className="flex gap-2"><button disabled={busy} onClick={saveBlog} className="px-4 py-2 rounded-lg bg-slate-900 text-white text-sm">{busy ? 'Saving...' : editingBlogId ? 'Update article' : 'Save article'}</button><button onClick={() => { setBlogForm(blankBlog); setEditingBlogId(''); }} className="px-4 py-2 rounded-lg border text-sm">Clear</button></div>
         </section>
         <section className="bg-white border rounded-2xl overflow-hidden"><div className="p-4 border-b font-bold text-sm">All articles</div><div className="divide-y">{blogs.map(x => <div key={x.id} className="p-4 flex flex-wrap justify-between gap-3"><div><strong className="text-sm">{x.title}</strong><p className="text-xs text-slate-500">/{x.slug} · {x.status}</p></div><div className="flex gap-2"><button onClick={() => editBlog(x)} className="px-3 py-1 rounded bg-slate-100 text-xs">Edit</button><button onClick={() => deleteBlog(x.id)} className="px-3 py-1 rounded bg-red-50 text-red-700 text-xs">Delete</button></div></div>)}{!blogs.length && <p className="p-4 text-xs text-slate-500">No articles yet.</p>}</div></section>
@@ -323,7 +366,26 @@ export const AdminSiteManager: React.FC<Props> = ({ token }) => {
 
       {view === 'adsense' && <>
         <section className="bg-white border rounded-2xl p-5 space-y-4">
-          <div><h2 className="font-bold">Google AdSense placements</h2><p className="text-xs text-slate-500 mt-1">Enter the AdSense client and ad-unit slot IDs. Ad serving remains subject to Google account approval and policy.</p></div>
+          <div><h2 className="font-bold">Website-wide advertising and disclaimer settings</h2><p className="text-xs text-slate-500 mt-1">Ads are ON by default. Turn them OFF here if you wish. Disclaimer defaults apply to all blog articles unless an article overrides them.</p></div>
+          <div className="grid md:grid-cols-2 gap-4">
+            <label className="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={displaySettings.adsEnabled} onChange={e => setDisplaySettings({ ...displaySettings, adsEnabled: e.target.checked })} /> Display advertisements website-wide</label>
+            <label className="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={displaySettings.disclaimerEnabled} onChange={e => setDisplaySettings({ ...displaySettings, disclaimerEnabled: e.target.checked })} /> Display disclaimer by default on blog articles</label>
+          </div>
+          <label className="block text-xs font-semibold">Disclaimer text<textarea rows={4} className="mt-1 w-full border rounded-lg p-2 text-sm" value={displaySettings.disclaimerText} onChange={e => setDisplaySettings({ ...displaySettings, disclaimerText: e.target.value })} /></label>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <label className="text-xs font-semibold">Background colour<input type="color" className="mt-1 block w-full h-10 border rounded-lg p-1" value={displaySettings.backgroundColor} onChange={e => setDisplaySettings({ ...displaySettings, backgroundColor: e.target.value })} /></label>
+            <label className="text-xs font-semibold">Text colour<input type="color" className="mt-1 block w-full h-10 border rounded-lg p-1" value={displaySettings.textColor} onChange={e => setDisplaySettings({ ...displaySettings, textColor: e.target.value })} /></label>
+            <label className="text-xs font-semibold">Font size (px)<input type="number" min="12" max="20" className="mt-1 w-full border rounded-lg p-2 text-sm" value={displaySettings.fontSize} onChange={e => setDisplaySettings({ ...displaySettings, fontSize: e.target.value })} /></label>
+            <label className="text-xs font-semibold">Font weight<select className="mt-1 w-full border rounded-lg p-2 text-sm" value={displaySettings.fontWeight} onChange={e => setDisplaySettings({ ...displaySettings, fontWeight: e.target.value })}><option value="400">Normal</option><option value="500">Medium</option><option value="600">Semi-bold</option><option value="700">Bold</option></select></label>
+            <label className="text-xs font-semibold">Text alignment<select className="mt-1 w-full border rounded-lg p-2 text-sm" value={displaySettings.alignment} onChange={e => setDisplaySettings({ ...displaySettings, alignment: e.target.value as 'left' | 'center' })}><option value="left">Left</option><option value="center">Centre</option></select></label>
+          </div>
+          <div className="rounded-xl border p-4" style={{ backgroundColor: displaySettings.backgroundColor, color: displaySettings.textColor, fontSize: `${displaySettings.fontSize}px`, fontWeight: Number(displaySettings.fontWeight), textAlign: displaySettings.alignment }}>
+            <strong className="block mb-1">⚠️ Advertisement Disclaimer</strong>{displaySettings.disclaimerText}
+          </div>
+          <button disabled={busy} onClick={saveDisplaySettings} className="px-5 py-2.5 rounded-xl bg-slate-900 text-white text-sm font-semibold">{busy ? 'Saving...' : 'Save advertising and disclaimer settings'}</button>
+        </section>
+        <section className="bg-white border rounded-2xl p-5 space-y-4">
+          <div><h2 className="font-bold">Google AdSense placements</h2><p className="text-xs text-slate-500 mt-1">Enter the AdSense client and ad-unit slot IDs. Ad serving remains subject to Google account approval and policy. Side ads appear only on wide desktop screens.</p></div>
           <div className="grid md:grid-cols-5 gap-2 p-3 rounded-xl bg-slate-50 border">
             <input className="border rounded-lg p-2 text-xs" placeholder="placement-key" value={newSlot.placementKey} onChange={e => setNewSlot({ ...newSlot, placementKey: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-') })} />
             <input className="border rounded-lg p-2 text-xs" placeholder="Display name" value={newSlot.displayName} onChange={e => setNewSlot({ ...newSlot, displayName: e.target.value })} />
