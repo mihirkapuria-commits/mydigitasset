@@ -22,7 +22,7 @@ export const Hero: React.FC<HeroProps> = ({ onStartTrial }) => {
             </h1>
 
             <p className="text-lg sm:text-xl text-slate-600 leading-relaxed max-w-2xl">
-              Select <strong className="text-slate-900 font-semibold">one category</strong> and receive 10 curated daily updates every day directly through Telegram. Designed for students, founders, and anyone interested in staying updated. Start with a <strong className="text-slate-900 font-semibold">three-day free trial</strong> with no upfront payment.
+              Select <strong className="text-slate-900 font-semibold">one category</strong> and receive 10 curated daily updates every day directly through Telegram. Designed for students, investment/business learners, founders, investors, and business professionals. Start with a <strong className="text-slate-900 font-semibold">three-day free trial</strong> with no upfront payment.
             </p>
 
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4 pt-2">

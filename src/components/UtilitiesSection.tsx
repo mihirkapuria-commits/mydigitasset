@@ -43,7 +43,7 @@ export const UtilitiesSection: React.FC<UtilitiesSectionProps> = ({ onNavigateHo
           <div className="space-y-2">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-50 text-indigo-700 text-xs font-semibold"><Wrench className="w-3.5 h-3.5" /> Financial Utilities & Calculators</div>
             <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">Interactive Business Tools</h1>
-            <p className="text-sm text-slate-600">Useful financial calculators and reference tools for founders and investors.</p>
+            <p className="text-sm text-slate-600">Useful financial calculators and reference tools for students, investment/business learners, founders, investors, and business professionals.</p>
           </div>
           <button onClick={onNavigateHome} className="px-4 py-2.5 bg-slate-900 text-white text-xs font-semibold rounded-xl">← Back to Home</button>
         </div>

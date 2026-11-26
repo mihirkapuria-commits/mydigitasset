@@ -25,7 +25,7 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
             </span>
           </button>
           <p className="text-sm text-slate-400 max-w-sm leading-relaxed">
-            The right news. The right categories. Delivered directly to you through Telegram. Built for founders, investors, and business professionals.
+            The right news. The right categories. Delivered directly to you through Telegram. Built for students, investment/business learners, founders, investors, and business professionals.
           </p>
           <div className="space-y-1 text-xs text-slate-400">
             <div className="flex items-center gap-2">

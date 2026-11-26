@@ -41,7 +41,7 @@ export const PricingSection: React.FC<PricingSectionProps> = ({ onStartTrial }) 
             </div>
             <div className="space-y-3 text-sm text-slate-300">
               <div className="flex items-center gap-3"><Check className="w-5 h-5 text-indigo-400 shrink-0" /><span>Daily curated news updates delivered on Telegram in the selected category</span></div>
-              <div className="flex items-center gap-3"><Check className="w-5 h-5 text-indigo-400 shrink-0" /><span>Useful industry information for students and professionals</span></div>
+              <div className="flex items-center gap-3"><Check className="w-5 h-5 text-indigo-400 shrink-0" /><span>Useful industry information for students, investment/business learners, founders, investors, and business professionals</span></div>
               <div className="flex items-center gap-3"><Check className="w-5 h-5 text-indigo-400 shrink-0" /><span>Secure manual UPI payment verification</span></div>
               <div className="flex items-center gap-3"><Check className="w-5 h-5 text-indigo-400 shrink-0" /><span>Customer personal information is not sold to third parties</span></div>
             </div>
