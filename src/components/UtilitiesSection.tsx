@@ -3,7 +3,7 @@ import { Wrench, Calculator, Percent } from 'lucide-react';
 import { AdSenseSlot } from './AdSenseSlot';
 
 interface UtilitiesSectionProps { onNavigateHome: () => void; }
-type Tool = { id: string; title: string; description: string; targetUrl: string; iconName?: string; };
+type Tool = { id: string; title: string; description: string; targetUrl: string; iconName?: string; adPlacements?: string[]; };
 type UtilityItem = { id: string; title: string; summary: string; body: string; imageUrl?: string; targetUrl?: string; adPlacements?: string[]; };
 
 export const UtilitiesSection: React.FC<UtilitiesSectionProps> = ({ onNavigateHome }) => {
@@ -74,11 +74,22 @@ export const UtilitiesSection: React.FC<UtilitiesSectionProps> = ({ onNavigateHo
 
         {linkTools.length > 0 && <section className="space-y-4">
           <h2 className="text-xl font-bold text-slate-900">More tools</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-            {linkTools.map(tool => <a key={tool.id} href={tool.targetUrl || '#'} target={tool.targetUrl ? '_blank' : undefined} rel="noopener noreferrer" className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm hover:border-indigo-300">
-              <h3 className="font-bold text-slate-900">{tool.title}</h3><p className="text-xs text-slate-600 mt-2">{tool.description}</p>
-              {tool.targetUrl && <span className="inline-block mt-4 text-xs font-semibold text-indigo-700">Open tool →</span>}
-            </a>)}
+          <div className="grid grid-cols-1 gap-5">
+            {linkTools.map(tool => {
+              const placements = Array.isArray(tool.adPlacements) ? tool.adPlacements : ['top', 'inline', 'bottom', 'left', 'right'];
+              const has = (position: string) => placements.includes(position);
+              return <div key={tool.id} className="grid grid-cols-1 xl:grid-cols-[180px_minmax(0,1fr)_180px] gap-4 items-start">
+                <aside className="hidden xl:block">{has('left') && <AdSenseSlot placementKey="tools-left" />}</aside>
+                <article className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm min-w-0">
+                  {has('top') && <AdSenseSlot placementKey="tools-top" />}
+                  <h3 className="font-bold text-slate-900">{tool.title}</h3><p className="text-xs text-slate-600 mt-2">{tool.description}</p>
+                  {has('inline') && <AdSenseSlot placementKey="tools-inline" />}
+                  {tool.targetUrl && <a href={tool.targetUrl} target="_blank" rel="noopener noreferrer" className="inline-block mt-4 text-xs font-semibold text-indigo-700">Open tool →</a>}
+                  {has('bottom') && <AdSenseSlot placementKey="tools-bottom" />}
+                </article>
+                <aside className="hidden xl:block">{has('right') && <AdSenseSlot placementKey="tools-right" />}</aside>
+              </div>;
+            })}
           </div>
         </section>}
 
