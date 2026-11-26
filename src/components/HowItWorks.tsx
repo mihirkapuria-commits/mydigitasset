@@ -22,7 +22,7 @@ export const HowItWorks: React.FC = () => {
           <h3 className="text-3xl sm:text-4xl font-extrabold text-slate-900 tracking-tight">How MyDigitAsset Works</h3>
           <p className="text-base text-slate-600 leading-relaxed">A simple way to receive useful, curated industry news.</p>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+        <div className="space-y-6">
           {steps.map((item, index) => {
             const placements = Array.isArray(item.adPlacements) ? item.adPlacements : ['top', 'inline', 'bottom', 'left', 'right'];
             const has = (position: string) => placements.includes(position);
