@@ -51,7 +51,7 @@ export const UtilitiesSection: React.FC<UtilitiesSectionProps> = ({ onNavigateHo
 
         {utilityItems.length > 0 && <section className="space-y-4">
           <h2 className="text-xl font-bold text-slate-900">Useful resources</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+          <div className="grid grid-cols-1 gap-5">
             {utilityItems.map(item => {
               const placements = Array.isArray(item.adPlacements) ? item.adPlacements : ['top', 'inline', 'bottom', 'left', 'right'];
               const has = (position: string) => placements.includes(position);
