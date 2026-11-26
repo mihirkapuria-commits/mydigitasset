@@ -350,6 +350,20 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     }
   };
 
+  const handleLifecycleChange = async (account: User, action: 'active' | 'deactivated' | 'transferred') => {
+    const transferredTo = action === 'transferred' ? (prompt('Enter receiving person / company (optional):') || '') : '';
+    if (!confirm(`${action.toUpperCase()} account ${account.customerNumber || account.id} — ${account.name || account.email}?`)) return;
+    try {
+      const response = await fetch(`/api/admin/customers/${encodeURIComponent(account.id)}/lifecycle`, {
+        method:'POST', headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},
+        body:JSON.stringify({action,transferredTo})
+      });
+      const data=await response.json();
+      if(!response.ok) throw new Error(data.error || 'Could not update account.');
+      alert(data.message || 'Account status updated.'); await fetchAdminData();
+    } catch(err:any) { alert(err.message || 'Could not update account.'); }
+  };
+
   const handleDeleteSelectedAccounts = async () => {
     const visibleAccounts = customers.filter(c =>
       activeTab === 'customers' ? c.accountType === 'customer' : c.accountType !== 'customer'
@@ -361,11 +375,11 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     }
 
     const accountList = selectedAccounts
-      .map(account => `• ${account.name || account.email} (ID ${account.id})`)
+       .map(account => `• ${account.name || account.email} (Customer ID ${account.customerNumber || account.id})`)
       .join('\n');
     const accountLabel = activeTab === 'customers' ? 'customer' : 'user';
     const confirmed = confirm(
-      `PERMANENTLY DELETE ONLY THESE ${selectedAccounts.length} SELECTED ${accountLabel.toUpperCase()}(S)?\n\n${accountList}\n\nOnly the listed account IDs and their linked records will be deleted. All other users and customers will remain untouched. This cannot be undone.`
+      `MARK ONLY THESE ${selectedAccounts.length} SELECTED ${accountLabel.toUpperCase()}(S) AS DELETED?\n\n${accountList}\n\nAccess will be revoked. Permanent customer IDs and financial history will be retained. Other accounts remain untouched.`
     );
     if (!confirmed) return;
 
@@ -382,7 +396,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         return account.id;
       }));
       setSelectedAccountIds(current => current.filter(id => !results.includes(id)));
-      alert(`Successfully deleted ${results.length} selected ${accountLabel}(s). No unselected accounts were targeted.`);
+      alert(`Successfully marked ${results.length} selected ${accountLabel}(s) as Deleted. Customer IDs remain reserved.`);
       await fetchAdminData();
     } catch (err: any) {
       alert(err.message || 'One or more selected accounts could not be deleted. Refresh the list to check the result.');
@@ -392,7 +406,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
   const handleDeleteAccount = async (account: User) => {
     const confirmed = confirm(
-      `PERMANENTLY DELETE ${account.name} (ID ${account.id})?\n\nThis removes the account and its linked payments, subscriptions, sessions and Telegram records. This cannot be undone.`
+      `MARK ${account.name} (Customer ID ${account.customerNumber || account.id}) AS DELETED? Access will be revoked; customer ID and payment history will be retained.`
     );
     if (!confirmed) return;
     try {
@@ -508,6 +522,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
             >
               {newsTesting ? 'Testing…' : 'Test Selected Category'}
             </button>
+            <button onClick={() => setActiveTab('marketing')} className="px-4 py-2 text-xs font-semibold rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950">Ad Hoc Advertisement</button>
 
             <div className="flex items-center gap-2 bg-slate-800 p-1 rounded-xl border border-slate-700 flex-wrap">
               <button
@@ -833,7 +848,9 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                               }}
                             />
                           </th>
-                          <th className="p-4">Account Type</th>\n                          <th className="p-4">Name</th>
+                          <th className="p-4">Customer ID</th>
+                          <th className="p-4">Account Type</th>
+                          <th className="p-4">Status</th>\n                          <th className="p-4">Name</th>
                           <th className="p-4">Email</th>
                           <th className="p-4">Mobile</th>
                           <th className="p-4">Category</th>
@@ -861,11 +878,13 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                                   : current.filter(id => id !== c.id))}
                               />
                             </td>
+                            <td className="p-4 font-mono font-bold text-indigo-700">{c.customerNumber || '0000000'}</td>
                             <td className="p-4">
                               <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${c.accountType === 'customer' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-700'}`}>
                                 {c.accountType === 'customer' ? 'Customer' : 'User'}
                               </span>
                             </td>
+                            <td className="p-4"><span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${c.lifecycleStatus === 'active' ? 'bg-emerald-100 text-emerald-800' : c.lifecycleStatus === 'deleted' ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-800'}`}>{(c.lifecycleStatus || 'active') === 'active' ? (c.accountType === 'customer' ? 'Paid' : 'Free') : c.lifecycleStatus}</span></td>
                             <td className="p-4 font-semibold text-slate-900">{c.name}</td>
                             <td className="p-4 text-slate-600">{c.email}</td>
                             <td className="p-4 font-mono text-slate-600">
@@ -956,6 +975,11 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                                   >
                                     Require Reset
                                   </button>
+                                  {(c.lifecycleStatus || 'active') === 'active' && <>
+                                    <button onClick={() => handleLifecycleChange(c, 'deactivated')} className="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-white font-semibold rounded">Deactivate</button>
+                                    <button onClick={() => handleLifecycleChange(c, 'transferred')} className="px-2.5 py-1 bg-orange-600 hover:bg-orange-500 text-white font-semibold rounded">Transfer</button>
+                                  </>}
+                                  {c.lifecycleStatus && c.lifecycleStatus !== 'active' && c.lifecycleStatus !== 'deleted' && <button onClick={() => handleLifecycleChange(c, 'active')} className="px-2.5 py-1 bg-emerald-700 hover:bg-emerald-600 text-white font-semibold rounded">Reactivate</button>}
                                   <button
                                     onClick={() => handleDeleteAccount(c)}
                                     className="px-2.5 py-1 bg-red-700 hover:bg-red-600 text-white font-semibold rounded"
