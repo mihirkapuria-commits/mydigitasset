@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 
 type ContentItem = {
   id: string; section_key: string; title: string; summary: string; body: string;
-  image_url: string; target_url: string; status: string; display_order: number;
+  image_url: string; target_url: string; status: string; display_order: number; metadata_json?: string;
 };
 type BlogItem = {
   id: string; title: string; slug: string; excerpt: string; body: string;
@@ -34,8 +34,13 @@ const sections = [
 
 const blankContent = {
   title: '', summary: '', body: '', imageUrl: '', targetUrl: '',
-  status: 'draft', displayOrder: '0'
+  status: 'draft', displayOrder: '0',
+  adPlacements: ['top', 'inline', 'bottom', 'left', 'right']
 };
+const contentAdPlacementOptions = [
+  ['top', 'Above content'], ['inline', 'Within content'], ['bottom', 'Below content'],
+  ['left', 'Left side (desktop)'], ['right', 'Right side (desktop)']
+] as const;
 const blogAdPlacementOptions = [
   ['blog-top', 'Above article'], ['blog-inline', 'Within article'],
   ['blog-bottom', 'Below article'], ['blog-left', 'Left side (desktop)'],
@@ -138,7 +143,7 @@ export const AdminSiteManager: React.FC<Props> = ({ token }) => {
       const r = await fetch(url, {
         method: editingId ? 'PUT' : 'POST',
         headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...contentForm, section, displayOrder: Number(contentForm.displayOrder || 0) })
+        body: JSON.stringify({ ...contentForm, section, metadata: { adPlacements: contentForm.adPlacements }, displayOrder: Number(contentForm.displayOrder || 0) })
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || 'Could not save content.');
@@ -310,6 +315,12 @@ export const AdminSiteManager: React.FC<Props> = ({ token }) => {
             <label className="text-xs font-semibold">Link URL<input className="mt-1 w-full border rounded-lg p-2 text-sm" value={contentForm.targetUrl} onChange={e => setContentForm({ ...contentForm, targetUrl: e.target.value })} /></label>
             <label className="text-xs font-semibold">Status<select className="mt-1 w-full border rounded-lg p-2 text-sm" value={contentForm.status} onChange={e => setContentForm({ ...contentForm, status: e.target.value })}><option value="draft">Draft</option><option value="published">Published</option><option value="hidden">Hidden</option></select></label>
             <label className="text-xs font-semibold">Display order<input type="number" className="mt-1 w-full border rounded-lg p-2 text-sm" value={contentForm.displayOrder} onChange={e => setContentForm({ ...contentForm, displayOrder: e.target.value })} /></label>
+          </div>
+          <div className="border rounded-xl p-4 space-y-3">
+            <div><h3 className="text-sm font-bold">Advertisement placements for this item</h3><p className="text-xs text-slate-500">Choose where ads may appear. Side ads are shown only on wide desktop screens. All placements are selected by default.</p></div>
+            <div className="grid sm:grid-cols-2 gap-2">
+              {contentAdPlacementOptions.map(([key, label]) => <label key={key} className="flex items-center gap-2 text-xs"><input type="checkbox" checked={contentForm.adPlacements.includes(key)} onChange={e => setContentForm(current => ({ ...current, adPlacements: e.target.checked ? [...current.adPlacements, key] : current.adPlacements.filter(x => x !== key) }))} />{label}</label>)}
+            </div>
           </div>
           <div className="flex gap-2"><button disabled={busy} onClick={saveContent} className="px-4 py-2 rounded-lg bg-slate-900 text-white text-sm">{busy ? 'Saving...' : editingId ? 'Update item' : 'Add item'}</button><button onClick={() => { setContentForm(blankContent); setEditingId(''); }} className="px-4 py-2 rounded-lg border text-sm">Clear</button></div>
         </section>
