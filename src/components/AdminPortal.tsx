@@ -227,9 +227,12 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     paymentId: string,
     action: 'approve' | 'reject'
   ) => {
+    if (action === 'reject' && !confirm(
+      'Reject this payment? The customer account will be stopped immediately, and MyDigitAsset will ask Telegram to remove the customer from the linked category channel. Continue?'
+    )) return;
     try {
       const res = await fetch(
-        `/api/admin/payments/${paymentId}/verify`,
+        `/api/admin/payments/${encodeURIComponent(paymentId)}/verify`,
         {
           method: 'POST',
           headers: {
@@ -246,7 +249,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         throw new Error(data.error || 'Failed to verify payment.');
       }
 
-      fetchAdminData();
+      alert(data.message || (action === 'approve' ? 'Payment approved.' : 'Payment rejected.'));
+      await fetchAdminData();
     } catch (err: any) {
       alert(err.message);
     }
