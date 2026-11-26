@@ -980,13 +980,13 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                                     <button onClick={() => handleLifecycleChange(c, 'transferred')} className="px-2.5 py-1 bg-orange-600 hover:bg-orange-500 text-white font-semibold rounded">Transfer</button>
                                   </>}
                                   {c.lifecycleStatus && c.lifecycleStatus !== 'active' && c.lifecycleStatus !== 'deleted' && <button onClick={() => handleLifecycleChange(c, 'active')} className="px-2.5 py-1 bg-emerald-700 hover:bg-emerald-600 text-white font-semibold rounded">Reactivate</button>}
-                                  <button
+                                  {c.lifecycleStatus !== 'deleted' && <button
                                     onClick={() => handleDeleteAccount(c)}
                                     className="px-2.5 py-1 bg-red-700 hover:bg-red-600 text-white font-semibold rounded"
-                                    title="Permanently delete account and linked records"
+                                    title="Mark account as deleted and revoke access while retaining its customer ID and history"
                                   >
                                     Delete
-                                  </button>
+                                  </button>}
                                 </>
                               )}
                             </td>
