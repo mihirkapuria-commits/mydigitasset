@@ -592,10 +592,12 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
             <button
               onClick={onLogout}
-              title="Sign out"
-              className="p-3 text-slate-300 hover:text-red-400 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 transition-colors shadow-sm"
+              title="Log out of System Administration"
+              aria-label="Log out"
+              className="inline-flex items-center justify-center gap-2 px-5 py-3 text-sm font-semibold text-white rounded-xl bg-red-600 hover:bg-red-500 focus:outline-none focus:ring-2 focus:ring-red-300 focus:ring-offset-2 focus:ring-offset-slate-900 transition-colors shadow-sm"
             >
               <LogOut className="w-4 h-4" />
+              <span>Log Out</span>
             </button>
           </div>
         </div>
