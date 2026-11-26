@@ -791,11 +791,20 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                       </button>
                       <button
                         onClick={handleDeleteSelectedAccounts}
-                        disabled={selectedAccountIds.length === 0}
+                        disabled={!customers.some(c =>
+                          (activeTab === 'customers' ? c.accountType === 'customer' : c.accountType !== 'customer') &&
+                          selectedAccountIds.includes(c.id)
+                        )}
                         className="px-3 py-2 rounded-lg bg-red-700 hover:bg-red-600 text-white text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed"
                         title="Delete only the users or customers selected in the table"
                       >
-                        Delete Selected {activeTab === 'customers' ? 'Customer' : 'User'}{selectedAccountIds.length === 1 ? '' : 's'} ({selectedAccountIds.length})
+                        Delete Selected {activeTab === 'customers' ? 'Customer' : 'User'}{customers.filter(c =>
+                          (activeTab === 'customers' ? c.accountType === 'customer' : c.accountType !== 'customer') &&
+                          selectedAccountIds.includes(c.id)
+                        ).length === 1 ? '' : 's'} ({customers.filter(c =>
+                          (activeTab === 'customers' ? c.accountType === 'customer' : c.accountType !== 'customer') &&
+                          selectedAccountIds.includes(c.id)
+                        ).length})
                       </button>
                       <button onClick={handleExportAccounts} className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold">
                         Export CSV
