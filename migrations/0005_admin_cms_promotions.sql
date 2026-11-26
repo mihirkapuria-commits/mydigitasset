@@ -56,7 +56,7 @@ VALUES
    'published', 1),
   ('seed-offer-advertising', 'offers', 'Advertise with MyDigitAsset',
    'Banner placements, sponsored content and partner collaborations.',
-   'For advertising and sponsorship enquiries, contact the MyDigitAsset team.',
+   'For advertising and sponsorship enquiries, contact the MyDigitAsset team at tmkrealty@gmail.com.',
    'published', 2),
   ('seed-how-1', 'how-it-works', 'Register Your Account',
    'Create a secure account with your name, email and mobile number.',
