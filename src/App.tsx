@@ -14,9 +14,10 @@ import { BlogSection } from './components/BlogSection';
 import { OffersSection } from './components/OffersSection';
 import { UtilitiesSection } from './components/UtilitiesSection';
 import { ContactSection } from './components/ContactSection';
+import { PrivacyPolicySection } from './components/PrivacyPolicySection';
 import { Category, User } from './types';
 
-type ViewType = 'home' | 'dashboard' | 'admin' | 'blog' | 'offers' | 'utilities' | 'contact';
+type ViewType = 'home' | 'dashboard' | 'admin' | 'blog' | 'offers' | 'utilities' | 'contact' | 'privacy';
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -220,6 +221,10 @@ export default function App() {
 
         {currentView === 'contact' && (
           <ContactSection onNavigateHome={() => setCurrentView('home')} />
+        )}
+
+        {currentView === 'privacy' && (
+          <PrivacyPolicySection onNavigateHome={() => setCurrentView('home')} />
         )}
 
         {currentView === 'dashboard' && currentUser && (

@@ -2,7 +2,7 @@ import React from 'react';
 import { Shield, Mail } from 'lucide-react';
 
 interface FooterProps {
-  onNavigate: (view: 'home' | 'dashboard' | 'admin' | 'blog' | 'offers' | 'utilities' | 'contact') => void;
+  onNavigate: (view: 'home' | 'dashboard' | 'admin' | 'blog' | 'offers' | 'utilities' | 'contact' | 'privacy') => void;
 }
 
 export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
@@ -50,7 +50,17 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
           <h4 className="text-xs font-bold uppercase tracking-wider text-slate-300">Privacy & Compliance</h4>
           <ul className="space-y-2 text-sm text-slate-400">
             <li><span className="text-slate-400">Never sell phone numbers</span></li>
-            <li><span className="text-slate-400">Manual UPI verification</span></li>
+            <li>
+              <button
+                onClick={() => {
+                  onNavigate('privacy');
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
+                className="text-slate-400 hover:text-white transition-colors text-left focus:outline-none"
+              >
+                Website Privacy Policy
+              </button>
+            </li>
             <li><span className="text-slate-400">Secure password recovery</span></li>
           </ul>
         </div>
