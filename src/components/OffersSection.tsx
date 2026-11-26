@@ -8,7 +8,7 @@ interface OffersSectionProps {
 }
 type Offer = {
   id: string; title: string; summary: string; body: string;
-  imageUrl?: string; image_url?: string; targetUrl?: string; target_url?: string;
+  imageUrl?: string; image_url?: string; targetUrl?: string; target_url?: string; adPlacements?: string[];
 };
 
 export const OffersSection: React.FC<OffersSectionProps> = ({ onNavigateHome, onStartTrial }) => {
@@ -46,19 +46,28 @@ export const OffersSection: React.FC<OffersSectionProps> = ({ onNavigateHome, on
 
         <AdSenseSlot placementKey="offers-top" />
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {offers.map(offer => (
-            <article key={offer.id} className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm space-y-4">
-              {(offer.imageUrl || offer.image_url) && <img src={offer.imageUrl || offer.image_url} alt="" className="w-full h-44 object-cover rounded-xl" />}
-              <h2 className="text-xl font-bold text-slate-900">{offer.title}</h2>
-              <p className="text-sm text-slate-600">{offer.summary}</p>
-              {offer.body && <p className="text-xs text-slate-500 whitespace-pre-wrap">{offer.body}</p>}
-              {offer.targetUrl || offer.target_url ? (
-                <a href={offer.targetUrl || offer.target_url} target="_blank" rel="noopener noreferrer" className="inline-block px-4 py-2 rounded-lg bg-indigo-600 text-white text-xs font-semibold">View Offer</a>
-              ) : offer.title.toLowerCase().includes('subscription') ? (
-                <button onClick={onStartTrial} className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-xs font-semibold">Start Free Trial</button>
-              ) : null}
-            </article>
-          ))}
+          {offers.map(offer => {
+            const placements = Array.isArray(offer.adPlacements) ? offer.adPlacements : ['top', 'inline', 'bottom', 'left', 'right'];
+            const has = (position: string) => placements.includes(position);
+            return <div key={offer.id} className="grid grid-cols-1 xl:grid-cols-[180px_minmax(0,1fr)_180px] gap-4 items-start">
+              <aside className="hidden xl:block">{has('left') && <AdSenseSlot placementKey="offers-left" />}</aside>
+              <article className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm space-y-4 min-w-0">
+                {has('top') && <AdSenseSlot placementKey="offers-top" />}
+                {(offer.imageUrl || offer.image_url) && <img src={offer.imageUrl || offer.image_url} alt="" className="w-full h-44 object-cover rounded-xl" />}
+                <h2 className="text-xl font-bold text-slate-900">{offer.title}</h2>
+                <p className="text-sm text-slate-600">{offer.summary}</p>
+                {has('inline') && <AdSenseSlot placementKey="offers-inline" />}
+                {offer.body && <p className="text-xs text-slate-500 whitespace-pre-wrap">{offer.body}</p>}
+                {offer.targetUrl || offer.target_url ? (
+                  <a href={offer.targetUrl || offer.target_url} target="_blank" rel="noopener noreferrer" className="inline-block px-4 py-2 rounded-lg bg-indigo-600 text-white text-xs font-semibold">View Offer</a>
+                ) : offer.title.toLowerCase().includes('subscription') ? (
+                  <button onClick={onStartTrial} className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-xs font-semibold">Start Free Trial</button>
+                ) : null}
+                {has('bottom') && <AdSenseSlot placementKey="offers-bottom" />}
+              </article>
+              <aside className="hidden xl:block">{has('right') && <AdSenseSlot placementKey="offers-right" />}</aside>
+            </div>;
+          })}
         </div>
         {!offers.length && <p className="bg-white border rounded-2xl p-8 text-center text-sm text-slate-500">No offers are currently published.</p>}
         <AdSenseSlot placementKey="offers-bottom" />
