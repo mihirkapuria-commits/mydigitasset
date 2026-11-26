@@ -1705,6 +1705,133 @@ var worker_default = {
 
       // ADMIN: CUSTOMER, PAYMENT AND AUDIT DATA
 
+      // ADMIN: APPROVE OR REJECT AN INDIVIDUAL PAYMENT SUBMISSION.
+      // Rejection immediately stops the account and asks Telegram to ban the member
+      // from the account's configured category channel.
+      const paymentVerifyMatch = url.pathname.match(/^\\/api\\/admin\\/payments\\/([^/]+)\\/verify$/);
+      if (paymentVerifyMatch && method === 'POST') {
+        const admin = await getAuthorizedAdmin(request, env);
+        if (!admin) return json({ error: 'Administrator access required.' }, 403);
+        const paymentId = decodeURIComponent(paymentVerifyMatch[1]);
+        const data = await parseRequestBody(request);
+        const action = String(data.action || '').toLowerCase();
+        if (!['approve', 'reject'].includes(action)) {
+          return json({ error: 'Choose approve or reject.' }, 400);
+        }
+
+        const payment = await env.DB.prepare(`
+          SELECT p.id, p.user_id, p.status, u.first_name, u.surname, u.email,
+                 u.category, tc.telegram_chat_id
+          FROM payments p
+          JOIN users u ON u.id = p.user_id
+          LEFT JOIN telegram_connections tc ON tc.user_id = u.id
+          WHERE CAST(p.id AS TEXT) = ? AND lower(u.email) <> ?
+          LIMIT 1
+        `).bind(paymentId, ADMIN_EMAIL).first();
+        if (!payment) return json({ error: 'Payment submission or customer not found.' }, 404);
+        if (String(payment.status || '').toLowerCase() !== 'pending') {
+          return json({ error: 'This payment has already been processed.' }, 409);
+        }
+
+        const now = new Date().toISOString();
+        if (action === 'approve') {
+          const changed = await env.DB.prepare(
+            "UPDATE payments SET status = 'approved' WHERE id = ? AND status = 'pending'"
+          ).bind(payment.id).run();
+          if (Number(changed?.meta?.changes || 0) !== 1) {
+            return json({ error: 'This payment was already processed. Refresh the page.' }, 409);
+          }
+          await env.DB.prepare(`
+            CREATE TABLE IF NOT EXISTS customer_subscription_periods (
+              id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL,
+              started_at TEXT NOT NULL, expires_at TEXT NOT NULL,
+              created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+          `).run();
+          const current = await env.DB.prepare(
+            "SELECT MAX(expires_at) AS expires_at FROM customer_subscription_periods WHERE user_id = ?"
+          ).bind(payment.user_id).first();
+          const currentExpiry = current?.expires_at ? new Date(current.expires_at) : null;
+          const periodStart = currentExpiry && currentExpiry > new Date() ? currentExpiry : new Date();
+          const periodEnd = new Date(periodStart);
+          periodEnd.setUTCFullYear(periodEnd.getUTCFullYear() + 1);
+          await env.DB.prepare(
+            "INSERT INTO customer_subscription_periods (user_id, started_at, expires_at) VALUES (?, ?, ?)"
+          ).bind(payment.user_id, periodStart.toISOString(), periodEnd.toISOString()).run();
+          await env.DB.prepare("UPDATE users SET status = 'active' WHERE id = ?").bind(payment.user_id).run();
+          await sendCustomerTelegramNotification(
+            env, payment.user_id,
+            "payment-confirmation:" + payment.user_id + ":" + periodEnd.toISOString(),
+            "payment_confirmation",
+            "✅ *Your MyDigitAsset payment has been approved.*\\n\\nYour annual subscription is active until *" +
+              formatIndiaDate(periodEnd) + "*."
+          );
+        } else {
+          await env.DB.prepare(
+            "UPDATE payments SET status = 'rejected' WHERE id = ? AND status = 'pending'"
+          ).bind(payment.id).run();
+          await env.DB.batch([
+            env.DB.prepare("UPDATE users SET status = 'stopped' WHERE id = ?").bind(payment.user_id),
+            env.DB.prepare("DELETE FROM auth_sessions WHERE user_id = ?").bind(payment.user_id),
+            env.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(String(payment.user_id)),
+            env.DB.prepare("DELETE FROM telegram_link_tokens WHERE user_id = ?").bind(String(payment.user_id)),
+            env.DB.prepare("DELETE FROM telegram_verification_tokens WHERE user_id = ?").bind(payment.user_id)
+          ]);
+
+          let telegramRemoved = false;
+          let telegramRemovalMessage = 'No linked Telegram account was found, so there was no member ID available to remove.';
+          if (payment.telegram_chat_id && payment.category) {
+            const channel = await env.DB.prepare(
+              "SELECT title, telegram_chat_id FROM managed_categories WHERE id = ? AND active = 1 AND telegram_chat_id <> '' LIMIT 1"
+            ).bind(payment.category).first();
+            if (channel?.telegram_chat_id && env.TELEGRAM_BOT_TOKEN) {
+              const telegramResponse = await fetch(
+                "https://api.telegram.org/bot" + env.TELEGRAM_BOT_TOKEN + "/banChatMember",
+                {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    chat_id: channel.telegram_chat_id,
+                    user_id: Number(payment.telegram_chat_id),
+                    revoke_messages: true
+                  })
+                }
+              );
+              const telegramResult = await telegramResponse.json().catch(() => ({}));
+              telegramRemoved = telegramResponse.ok && telegramResult.ok === true;
+              telegramRemovalMessage = telegramRemoved
+                ? "Customer removed from Telegram channel: " + channel.title
+                : "Payment rejected and MyDigitAsset access stopped, but Telegram could not remove the member: " +
+                  String(telegramResult.description || "Telegram API error. Check that the bot is an administrator with ban-user permission.");
+            } else {
+              telegramRemovalMessage = 'Payment rejected and MyDigitAsset access stopped, but the customer category has no active Telegram channel configured.';
+            }
+          }
+
+          if (telegramRemoved) {
+            await env.DB.batch([
+              env.DB.prepare("DELETE FROM telegram_connections WHERE user_id = ?").bind(payment.user_id),
+              env.DB.prepare("DELETE FROM category_access WHERE user_id = ?").bind(payment.user_id)
+            ]);
+          }
+          await env.DB.prepare(
+            "INSERT INTO audit_logs (timestamp, admin_email, action, details) VALUES (?, ?, ?, ?)"
+          ).bind(now, admin.email, 'payment_rejected',
+            'Rejected payment ' + paymentId + ' for account ID ' + payment.user_id + '. ' + telegramRemovalMessage).run();
+          return json({
+            success: true,
+            message: 'Payment rejected. ' + telegramRemovalMessage,
+            telegramRemoved
+          });
+        }
+
+        await env.DB.prepare(
+          "INSERT INTO audit_logs (timestamp, admin_email, action, details) VALUES (?, ?, ?, ?)"
+        ).bind(now, admin.email, 'payment_approved',
+          'Approved payment ' + paymentId + ' for account ID ' + payment.user_id).run();
+        return json({ success: true, message: 'Payment approved and the one-year subscription activated.' });
+      }
+
       if (url.pathname === '/api/admin/payments' && method === 'GET') {
         const admin = await getAuthorizedAdmin(request, env);
         if (!admin) return json({ error: 'Administrator access required.' }, 403);
