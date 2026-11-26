@@ -423,7 +423,19 @@ async function ensureBlogAdvertisingSettings(env) {
   }
   await env.DB.prepare(`INSERT OR IGNORE INTO adsense_slots (placement_key, display_name, enabled) VALUES
     ('blog-left', 'Left side of blog article (desktop)', 1),
-    ('blog-right', 'Right side of blog article (desktop)', 1)`).run();
+    ('blog-right', 'Right side of blog article (desktop)', 1),
+    ('offers-top', 'Offers: above item', 1), ('offers-inline', 'Offers: within item', 1),
+    ('offers-bottom', 'Offers: below item', 1), ('offers-left', 'Offers: left side (desktop)', 1),
+    ('offers-right', 'Offers: right side (desktop)', 1),
+    ('utilities-top', 'Utilities: above item', 1), ('utilities-inline', 'Utilities: within item', 1),
+    ('utilities-bottom', 'Utilities: below item', 1), ('utilities-left', 'Utilities: left side (desktop)', 1),
+    ('utilities-right', 'Utilities: right side (desktop)', 1),
+    ('how-it-works-top', 'How It Works: above item', 1), ('how-it-works-inline', 'How It Works: within item', 1),
+    ('how-it-works-bottom', 'How It Works: below item', 1), ('how-it-works-left', 'How It Works: left side (desktop)', 1),
+    ('how-it-works-right', 'How It Works: right side (desktop)', 1),
+    ('faq-top', 'FAQ: above item', 1), ('faq-inline', 'FAQ: within item', 1),
+    ('faq-bottom', 'FAQ: below item', 1), ('faq-left', 'FAQ: left side (desktop)', 1),
+    ('faq-right', 'FAQ: right side (desktop)', 1)`).run();
   await env.DB.prepare("UPDATE adsense_slots SET enabled = 1 WHERE placement_key IN ('blog-top','blog-inline','blog-bottom')").run();
 }
 
@@ -1335,7 +1347,17 @@ var worker_default = {
           WHERE section_key = ? AND status = 'published'
           ORDER BY display_order, created_at DESC
         `).bind(section).all();
-        return json(result.results || []);
+        const defaults = ['top', 'inline', 'bottom', 'left', 'right'];
+        return json((result.results || []).map(item => {
+          let adPlacements = defaults;
+          try {
+            const metadata = JSON.parse(item.metadataJson || '{}');
+            if (Array.isArray(metadata.adPlacements)) {
+              adPlacements = metadata.adPlacements.filter(key => defaults.includes(key));
+            }
+          } catch {}
+          return { ...item, adPlacements };
+        }));
       }
 
       if (url.pathname === '/api/blog' && method === 'GET') {
