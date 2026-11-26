@@ -396,6 +396,11 @@ async function registerAccountNumber(env, userId, type) {
 }
 
 async function ensureBlogAdvertisingSettings(env) {
+  const toolColumns = await env.DB.prepare('PRAGMA table_info(site_tools)').all();
+  const toolColumnNames = new Set((toolColumns.results || []).map(column => column.name));
+  if (!toolColumnNames.has('ad_placements_json')) {
+    await env.DB.prepare("ALTER TABLE site_tools ADD COLUMN ad_placements_json TEXT NOT NULL DEFAULT '[\"top\",\"inline\",\"bottom\",\"left\",\"right\"]'").run();
+  }
   const columns = await env.DB.prepare('PRAGMA table_info(blog_articles)').all();
   const names = new Set((columns.results || []).map(column => column.name));
   if (!names.has('ad_placements_json')) {
@@ -430,6 +435,9 @@ async function ensureBlogAdvertisingSettings(env) {
     ('utilities-top', 'Utilities: above item', 1), ('utilities-inline', 'Utilities: within item', 1),
     ('utilities-bottom', 'Utilities: below item', 1), ('utilities-left', 'Utilities: left side (desktop)', 1),
     ('utilities-right', 'Utilities: right side (desktop)', 1),
+    ('tools-top', 'Tools: above tool', 1), ('tools-inline', 'Tools: within tool', 1),
+    ('tools-bottom', 'Tools: below tool', 1), ('tools-left', 'Tools: left side (desktop)', 1),
+    ('tools-right', 'Tools: right side (desktop)', 1),
     ('how-it-works-top', 'How It Works: above item', 1), ('how-it-works-inline', 'How It Works: within item', 1),
     ('how-it-works-bottom', 'How It Works: below item', 1), ('how-it-works-left', 'How It Works: left side (desktop)', 1),
     ('how-it-works-right', 'How It Works: right side (desktop)', 1),
@@ -1392,11 +1400,11 @@ var worker_default = {
       if (url.pathname === '/api/tools' && method === 'GET') {
         const result = await env.DB.prepare(`
           SELECT id, title, description, target_url AS targetUrl, icon_name AS iconName,
-                 display_order AS displayOrder
+                 display_order AS displayOrder, ad_placements_json AS adPlacementsJson
           FROM site_tools WHERE status = 'published'
           ORDER BY display_order, created_at DESC
         `).all();
-        return json(result.results || []);
+        return json((result.results || []).map(tool => ({ ...tool, adPlacements: (() => { try { const v = JSON.parse(tool.adPlacementsJson || '[]'); return Array.isArray(v) ? v : ['top','inline','bottom','left','right']; } catch { return ['top','inline','bottom','left','right']; } })() })));
       }
 
       if (url.pathname === '/api/adsense' && method === 'GET') {
@@ -2187,11 +2195,11 @@ var worker_default = {
         const id = randomId('tool');
         const now = new Date().toISOString();
         await env.DB.prepare(`
-          INSERT INTO site_tools (id, title, description, target_url, icon_name, status, display_order, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO site_tools (id, title, description, target_url, icon_name, status, display_order, ad_placements_json, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).bind(id, title, String(data.description || ''), String(data.targetUrl || ''),
           String(data.iconName || ''), ['draft', 'published', 'hidden'].includes(data.status) ? data.status : 'draft',
-          Number(data.displayOrder || 0), now, now).run();
+          Number(data.displayOrder || 0), JSON.stringify(Array.isArray(data.metadata?.adPlacements) ? data.metadata.adPlacements.filter(x => ['top','inline','bottom','left','right'].includes(x)) : ['top','inline','bottom','left','right']), now, now).run();
         return json({ success: true, id });
       }
 
@@ -2204,10 +2212,10 @@ var worker_default = {
         if (!title) return json({ error: 'Tool title is required.' }, 400);
         await env.DB.prepare(`
           UPDATE site_tools SET title = ?, description = ?, target_url = ?, icon_name = ?,
-            status = ?, display_order = ?, updated_at = ? WHERE id = ?
+            status = ?, display_order = ?, ad_placements_json = ?, updated_at = ? WHERE id = ?
         `).bind(title, String(data.description || ''), String(data.targetUrl || ''),
           String(data.iconName || ''), ['draft', 'published', 'hidden'].includes(data.status) ? data.status : 'draft',
-          Number(data.displayOrder || 0), new Date().toISOString(), id).run();
+          Number(data.displayOrder || 0), JSON.stringify(Array.isArray(data.metadata?.adPlacements) ? data.metadata.adPlacements.filter(x => ['top','inline','bottom','left','right'].includes(x)) : ['top','inline','bottom','left','right']), new Date().toISOString(), id).run();
         return json({ success: true });
       }
 
