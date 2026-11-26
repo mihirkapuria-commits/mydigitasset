@@ -8,6 +8,8 @@ export interface Category {
 
 export interface User {
   id: string;
+  customerNumber?: string;
+  lifecycleStatus?: 'active' | 'deactivated' | 'transferred' | 'deleted';
   name: string;
   firstName?: string;
   surname?: string;
