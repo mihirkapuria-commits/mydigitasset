@@ -166,6 +166,7 @@ async function getAuthenticatedUser(request, env) {
       u.status,
       u.role,
       u.created_at,
+      ar.account_number, ar.lifecycle_status,
       EXISTS (
         SELECT 1 FROM telegram_connections tc WHERE tc.user_id = u.id
       ) AS telegram_connected,
@@ -175,8 +176,10 @@ async function getAuthenticatedUser(request, env) {
       ) AS telegram_username
     FROM auth_sessions s
     JOIN users u ON u.id = s.user_id
+    LEFT JOIN account_registry ar ON ar.user_id = u.id
     WHERE s.token_hash = ?
       AND s.expires_at > ?
+      AND COALESCE(ar.lifecycle_status, 'active') = 'active'
     LIMIT 1
   `).bind(tokenHash, now).first();
 
@@ -261,7 +264,9 @@ function publicUser(user) {
     paymentStatus: 'none',
     telegramConnected: Boolean(user.telegram_connected),
     telegramUsername: user.telegram_username || '',
-    createdAt: user.created_at || ''
+    createdAt: user.created_at || '',
+    customerNumber: user.account_number ? String(user.account_number).padStart(7, '0') : '0',
+    lifecycleStatus: user.lifecycle_status || 'active'
   };
 }
 
@@ -366,6 +371,28 @@ async function sendTelegramMessage(token, chatId, message, replyMarkup = null) {
     console.error('Telegram sendMessage network failure:', String(error));
     return false;
   }
+}
+
+async function ensureAccountRegistry(env) {
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS account_registry (
+    account_number INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL UNIQUE,
+    account_type TEXT NOT NULL DEFAULT 'user', lifecycle_status TEXT NOT NULL DEFAULT 'active',
+    transferred_to TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`).run();
+  await env.DB.prepare(`
+    INSERT OR IGNORE INTO account_registry (user_id, account_type, lifecycle_status)
+    SELECT u.id, CASE WHEN EXISTS (SELECT 1 FROM payments p WHERE p.user_id=u.id AND lower(p.status) IN ('approved','verified'))
+      OR EXISTS (SELECT 1 FROM customer_subscription_periods sp WHERE sp.user_id=u.id)
+      THEN 'customer' ELSE 'user' END, 'active'
+    FROM users u WHERE lower(u.email) <> ? ORDER BY u.id ASC
+  `).bind(ADMIN_EMAIL).run();
+}
+async function registerAccountNumber(env, userId, type) {
+  await env.DB.prepare("INSERT OR IGNORE INTO account_registry (user_id, account_type) VALUES (?, ?)")
+    .bind(userId, type === 'customer' ? 'customer' : 'user').run();
+  return env.DB.prepare("SELECT account_number, lifecycle_status FROM account_registry WHERE user_id = ?")
+    .bind(userId).first();
 }
 
 async function ensureTelegramTables(env) {
@@ -1074,6 +1101,7 @@ var worker_default = {
       `).run();
 
       await ensureTelegramTables(env);
+      await ensureAccountRegistry(env);
 
       // ADMINISTRATOR GOOGLE OAUTH: start authorization with state + PKCE.
       if (url.pathname === '/api/auth/google/login' && method === 'GET') {
@@ -1346,6 +1374,7 @@ var worker_default = {
           SELECT u.id, u.first_name, u.surname, u.email, u.country_code, u.mobile_number,
                  u.category, COALESCE(mc.title, u.category) AS category_display,
                  u.trial_expires_at, u.status, u.role, u.created_at,
+                 ar.account_number, ar.lifecycle_status,
                  (SELECT MIN(sp.started_at) FROM customer_subscription_periods sp
                   WHERE sp.user_id = u.id) AS paid_start,
                  (SELECT MAX(sp.expires_at) FROM customer_subscription_periods sp
@@ -1371,6 +1400,7 @@ var worker_default = {
                  ) AS subscription_expires_at
           FROM users u
           LEFT JOIN managed_categories mc ON mc.id = u.category
+          LEFT JOIN account_registry ar ON ar.user_id = u.id
           WHERE lower(u.email) <> ?
           ORDER BY u.created_at DESC
         `).bind(ADMIN_EMAIL).all();
@@ -1379,6 +1409,8 @@ var worker_default = {
           ...publicUser(user),
           categoryTitle: user.category_display || user.category || '',
           accountType: Number(user.has_paid_history) === 1 ? 'customer' : 'user',
+          customerNumber: String(user.account_number || 0).padStart(7, '0'),
+          lifecycleStatus: user.lifecycle_status || 'active',
           paymentStatus: user.latest_payment_status === 'approved'
             ? 'verified'
             : (user.latest_payment_status || 'none'),
@@ -1395,6 +1427,7 @@ var worker_default = {
         const result = await env.DB.prepare(`
           SELECT u.id, u.first_name, u.surname, u.email, u.country_code, u.mobile_number,
                  COALESCE(mc.title, u.category) AS category, u.status, u.created_at, u.trial_expires_at,
+                 ar.account_number AS customer_number, ar.lifecycle_status,
                  (SELECT MIN(sp.started_at) FROM customer_subscription_periods sp
                   WHERE sp.user_id = u.id) AS paid_start,
                  (SELECT MAX(sp.expires_at) FROM customer_subscription_periods sp
@@ -1412,6 +1445,7 @@ var worker_default = {
                  ) THEN 'Connected' ELSE 'Not connected' END AS telegram_status
           FROM users u
           LEFT JOIN managed_categories mc ON mc.id = u.category
+          LEFT JOIN account_registry ar ON ar.user_id = u.id
           WHERE lower(u.email) <> ?
             AND (? = '' OR (CASE WHEN EXISTS (
               SELECT 1 FROM payments p
@@ -1422,7 +1456,7 @@ var worker_default = {
           ORDER BY u.id ASC
         `).bind(ADMIN_EMAIL, exportType, exportType).all();
         const columns = [
-          ['ID','id'],['Account Type','account_type'],['First Name','first_name'],
+          ['Customer ID','customer_number'],['ID','id'],['Account Type','account_type'],['Lifecycle Status','lifecycle_status'],['First Name','first_name'],
           ['Surname','surname'],['Email','email'],['Country Code','country_code'],
           ['Mobile','mobile_number'],['Category','category'],['Account Status','status'],
           ['Payment Status','payment_status'],['Registration Date','created_at'],
@@ -1482,6 +1516,7 @@ var worker_default = {
           accountType === 'user' ? trialExpiry : null,
           accountType === 'customer' ? 'active' : 'trial').run();
         const userId = Number(inserted.meta?.last_row_id || 0);
+        const identity = await registerAccountNumber(env, userId, accountType);
         if (accountType === 'customer') {
           await env.DB.prepare(`
             CREATE TABLE IF NOT EXISTS customer_subscription_periods (
@@ -1510,6 +1545,7 @@ var worker_default = {
         `).bind(new Date().toISOString(), admin.email, 'account_created',
           'Created ' + accountType + ' account ID ' + userId).run();
         return json({ success: true, id: String(userId), accountType,
+          customerNumber: String(identity?.account_number || 0).padStart(7, '0'),
           message: 'Account created. The account holder must use Forgot Password with their registered email and mobile number to create their own password.' }, 201);
       }
 
@@ -1546,36 +1582,55 @@ var worker_default = {
         return json({ success: true, message: 'Account details updated.' });
       }
 
-      // ADMIN: PERMANENTLY DELETE AN ACCOUNT AND ITS USER-OWNED RECORDS.
+      // Soft delete: keep permanent customer ID and financial history; revoke all access.
       const deleteCustomerMatch = url.pathname.match(/^\/api\/admin\/customers\/(\d+)$/);
       if (deleteCustomerMatch && method === 'DELETE') {
         const admin = await getAuthorizedAdmin(request, env);
         if (!admin) return json({ error: 'Administrator access required.' }, 403);
         const userId = Number(deleteCustomerMatch[1]);
-        const existing = await env.DB.prepare(
-          'SELECT id FROM users WHERE id = ? AND lower(email) <> ? LIMIT 1'
-        ).bind(userId, ADMIN_EMAIL).first();
-        if (!existing) return json({ error: 'Account not found.' }, 404);
+        const existing = await env.DB.prepare('SELECT id FROM users WHERE id=? AND lower(email)<>? LIMIT 1').bind(userId,ADMIN_EMAIL).first();
+        if (!existing) return json({ error:'Account not found.' },404);
+        const now = new Date().toISOString();
         await env.DB.batch([
-          env.DB.prepare('DELETE FROM auth_sessions WHERE user_id = ?').bind(userId),
-          env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(String(userId)),
-          env.DB.prepare('DELETE FROM delivery_logs WHERE user_id = ?').bind(String(userId)),
-          env.DB.prepare('DELETE FROM telegram_link_tokens WHERE user_id = ?').bind(String(userId)),
-          env.DB.prepare('DELETE FROM telegram_verification_tokens WHERE user_id = ?').bind(userId),
-          env.DB.prepare('DELETE FROM telegram_connections WHERE user_id = ?').bind(userId),
-          env.DB.prepare('DELETE FROM customer_telegram_notification_log WHERE user_id = ?').bind(userId),
-          env.DB.prepare('DELETE FROM customer_subscription_periods WHERE user_id = ?').bind(userId),
-          env.DB.prepare('DELETE FROM subscriptions WHERE user_id = ?').bind(userId),
-          env.DB.prepare('DELETE FROM category_access WHERE user_id = ?').bind(userId),
-          env.DB.prepare('DELETE FROM payments WHERE user_id = ?').bind(userId),
-          env.DB.prepare('DELETE FROM users WHERE id = ?').bind(userId)
+          env.DB.prepare("UPDATE account_registry SET lifecycle_status='deleted',updated_at=? WHERE user_id=?").bind(now,userId),
+          env.DB.prepare("UPDATE users SET status='stopped' WHERE id=?").bind(userId),
+          env.DB.prepare('DELETE FROM auth_sessions WHERE user_id=?').bind(userId),
+          env.DB.prepare('DELETE FROM sessions WHERE user_id=?').bind(String(userId)),
+          env.DB.prepare('DELETE FROM telegram_link_tokens WHERE user_id=?').bind(String(userId)),
+          env.DB.prepare('DELETE FROM telegram_verification_tokens WHERE user_id=?').bind(userId),
+          env.DB.prepare('DELETE FROM telegram_connections WHERE user_id=?').bind(userId),
+          env.DB.prepare('DELETE FROM category_access WHERE user_id=?').bind(userId)
         ]);
-        await env.DB.prepare(`
-          INSERT INTO audit_logs (timestamp, admin_email, action, details)
-          VALUES (?, ?, ?, ?)
-        `).bind(new Date().toISOString(), admin.email, 'account_deleted',
-          'Permanently deleted account ID ' + userId + ' and associated records').run();
-        return json({ success: true, message: 'Account and associated database records deleted.' });
+        await env.DB.prepare('INSERT INTO audit_logs (timestamp,admin_email,action,details) VALUES (?,?,?,?)')
+          .bind(now,admin.email,'account_deleted','Account ID '+userId+' marked Deleted; permanent customer ID and financial history retained').run();
+        return json({success:true,message:'Account marked Deleted. Access revoked; customer ID and history retained.'});
+      }
+
+      const lifecycleMatch = url.pathname.match(/^\/api\/admin\/customers\/(\d+)\/lifecycle$/);
+      if (lifecycleMatch && method === 'POST') {
+        const admin = await getAuthorizedAdmin(request, env);
+        if (!admin) return json({error:'Administrator access required.'},403);
+        const userId = Number(lifecycleMatch[1]);
+        const data = await parseRequestBody(request);
+        const action = String(data.action||'').toLowerCase();
+        if (!['active','deactivated','transferred'].includes(action)) return json({error:'Unsupported lifecycle status.'},400);
+        const exists = await env.DB.prepare('SELECT id FROM users WHERE id=? AND lower(email)<>?').bind(userId,ADMIN_EMAIL).first();
+        if (!exists) return json({error:'Account not found.'},404);
+        const now = new Date().toISOString();
+        await env.DB.prepare('UPDATE account_registry SET lifecycle_status=?,transferred_to=?,updated_at=? WHERE user_id=?')
+          .bind(action,action==='transferred'?String(data.transferredTo||'').slice(0,200):null,now,userId).run();
+        if (action !== 'active') await env.DB.batch([
+          env.DB.prepare("UPDATE users SET status='stopped' WHERE id=?").bind(userId),
+          env.DB.prepare('DELETE FROM auth_sessions WHERE user_id=?').bind(userId),
+          env.DB.prepare('DELETE FROM sessions WHERE user_id=?').bind(String(userId)),
+          env.DB.prepare('DELETE FROM telegram_link_tokens WHERE user_id=?').bind(String(userId)),
+          env.DB.prepare('DELETE FROM telegram_verification_tokens WHERE user_id=?').bind(userId),
+          env.DB.prepare('DELETE FROM telegram_connections WHERE user_id=?').bind(userId),
+          env.DB.prepare('DELETE FROM category_access WHERE user_id=?').bind(userId)
+        ]);
+        await env.DB.prepare('INSERT INTO audit_logs (timestamp,admin_email,action,details) VALUES (?,?,?,?)')
+          .bind(now,admin.email,'account_lifecycle_updated','Account ID '+userId+' marked '+action).run();
+        return json({success:true,message:'Account status updated to '+action+'.'});
       }
 
       // ADMIN: PRESERVE THE EXISTING APPROVE / STOP CONTROLS.
@@ -2478,6 +2533,7 @@ var worker_default = {
         ).run();
 
         const userId = insert.meta.last_row_id;
+        const identity = await registerAccountNumber(env, userId, 'user');
 
         const user = await env.DB.prepare(`
           SELECT id, first_name, surname, email, country_code,
@@ -2509,7 +2565,7 @@ var worker_default = {
         return json({
           success: true,
           token: sessionToken,
-          user: publicUser(user)
+          user: { ...publicUser(user), customerNumber: String(identity?.account_number || 0).padStart(7, '0') }
         });
       }
 
@@ -2914,17 +2970,12 @@ var worker_default = {
         }
 
         const user = await env.DB.prepare(`
-          SELECT id, first_name, surname, email, country_code,
-                 mobile_number, password, category, trial_expires_at,
-                 status, role, created_at
-          FROM users
-          WHERE lower(email) = ?
-          LIMIT 1
+          SELECT u.id,u.first_name,u.surname,u.email,u.country_code,u.mobile_number,u.password,u.category,u.trial_expires_at,u.status,u.role,u.created_at,ar.account_number,ar.lifecycle_status
+          FROM users u LEFT JOIN account_registry ar ON ar.user_id=u.id WHERE lower(u.email)=? LIMIT 1
         `).bind(email).first();
 
-        if (!user) {
-          return json({ error: 'Invalid email or password.' }, 401);
-        }
+        if (!user) return json({ error:'Invalid email or password.' },401);
+        if (user.lifecycle_status && user.lifecycle_status !== 'active') return json({error:'This account is not active. Please contact support.'},403);
 
         const verification = await verifyPassword(password, user.password);
 
