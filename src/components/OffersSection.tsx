@@ -33,6 +33,17 @@ export const OffersSection: React.FC<OffersSectionProps> = ({ onNavigateHome, on
           </div>
           <button onClick={onNavigateHome} className="px-4 py-2.5 bg-slate-900 text-white text-xs font-semibold rounded-xl">← Back to Home</button>
         </div>
+
+        <div className="bg-gradient-to-r from-indigo-900 to-slate-900 text-white rounded-3xl p-8 shadow-md space-y-4">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-800 text-indigo-200 text-xs font-semibold">
+            <Tag className="w-3.5 h-3.5" /> Advertise with MyDigitAsset
+          </div>
+          <h2 className="text-2xl font-bold tracking-tight">Reach Founders, Investors & Business Professionals</h2>
+          <p className="text-slate-300 text-sm max-w-2xl leading-relaxed">
+            Promote your product, service, or brand across our high-engagement Telegram news channels and partner network. To discuss advertising packages, campaign scheduling, and custom placements, please contact us directly at <a href="mailto:tmkrealty@gmail.com" className="text-indigo-300 font-semibold underline hover:text-white">tmkrealty@gmail.com</a>.
+          </p>
+        </div>
+
         <AdSenseSlot placementKey="offers-top" />
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {offers.map(offer => (
