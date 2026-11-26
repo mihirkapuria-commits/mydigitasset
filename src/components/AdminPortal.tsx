@@ -765,7 +765,10 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                           <th className="p-4">Subscription</th>
                           <th className="p-4">Payment Status</th>
                           <th className="p-4">Telegram</th>
-                          <th className="p-4">Trial Expiry</th>
+                          <th className="p-4">Trial Start Date</th>
+                          <th className="p-4">Trial Expiry Date</th>
+                          <th className="p-4">Paid Start Date</th>
+                          <th className="p-4">Paid Expiry Date</th>
                           <th className="p-4 text-right">Admin Actions</th>
                         </tr>
                       </thead>
@@ -812,9 +815,24 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                               )}
                             </td>
                             <td className="p-4 font-mono text-slate-500">
-                              {c.trialExpiry
-                                ? new Date(c.trialExpiry).toLocaleDateString()
-                                : '-'}
+                              {c.trialStart && c.trialStart !== '0'
+                                ? new Date(c.trialStart).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' })
+                                : '0'}
+                            </td>
+                            <td className="p-4 font-mono text-slate-500">
+                              {c.trialExpiry && c.trialExpiry !== '0'
+                                ? new Date(c.trialExpiry).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' })
+                                : '0'}
+                            </td>
+                            <td className="p-4 font-mono text-slate-500">
+                              {c.paidStart && c.paidStart !== '0'
+                                ? new Date(c.paidStart).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' })
+                                : '0'}
+                            </td>
+                            <td className="p-4 font-mono text-slate-500">
+                              {c.paidExpiry && c.paidExpiry !== '0'
+                                ? new Date(c.paidExpiry).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' })
+                                : '0'}
                             </td>
                             <td className="p-4 text-right space-x-1.5">
                               {c.email !== 'mihirkapuria@gmail.com' && (
