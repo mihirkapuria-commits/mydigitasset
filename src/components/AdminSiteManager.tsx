@@ -16,7 +16,7 @@ type BlogDisplaySettings = {
 };
 type ToolItem = {
   id: string; title: string; description: string; target_url: string;
-  icon_name: string; status: string; display_order: number;
+  icon_name: string; status: string; display_order: number; ad_placements_json?: string;
 };
 type AdSlot = {
   placement_key: string; display_name: string; enabled: number;
@@ -59,8 +59,12 @@ const defaultDisplaySettings: BlogDisplaySettings = {
 };
 const blankTool = {
   title: '', description: '', targetUrl: '', iconName: '',
-  status: 'draft', displayOrder: '0'
+  status: 'draft', displayOrder: '0', adPlacements: ['top', 'inline', 'bottom', 'left', 'right']
 };
+const toolAdPlacementOptions = [
+  ['top', 'Above tool'], ['inline', 'Within tool'], ['bottom', 'Below tool'],
+  ['left', 'Left side (desktop)'], ['right', 'Right side (desktop)']
+] as const;
 
 export const AdminSiteManager: React.FC<Props> = ({ token }) => {
   const [view, setView] = useState<'content' | 'blog' | 'tools' | 'adsense'>('content');
@@ -215,7 +219,7 @@ export const AdminSiteManager: React.FC<Props> = ({ token }) => {
       const r = await fetch(url, {
         method: editingToolId ? 'PUT' : 'POST',
         headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...toolForm, displayOrder: Number(toolForm.displayOrder || 0) })
+        body: JSON.stringify({ ...toolForm, metadata: { adPlacements: toolForm.adPlacements }, displayOrder: Number(toolForm.displayOrder || 0) })
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || 'Could not save tool.');
@@ -228,7 +232,8 @@ export const AdminSiteManager: React.FC<Props> = ({ token }) => {
     setEditingToolId(x.id);
     setToolForm({
       title: x.title, description: x.description || '', targetUrl: x.target_url || '',
-      iconName: x.icon_name || '', status: x.status, displayOrder: String(x.display_order || 0)
+      iconName: x.icon_name || '', status: x.status, displayOrder: String(x.display_order || 0),
+      adPlacements: (() => { try { const v = JSON.parse(x.ad_placements_json || '[]'); return Array.isArray(v) ? v : blankTool.adPlacements; } catch { return blankTool.adPlacements; } })()
     });
   };
   const deleteTool = async (id: string) => {
@@ -375,6 +380,10 @@ export const AdminSiteManager: React.FC<Props> = ({ token }) => {
             <label className="text-xs font-semibold">Tool URL<input className="mt-1 w-full border rounded-lg p-2 text-sm" value={toolForm.targetUrl} onChange={e => setToolForm({ ...toolForm, targetUrl: e.target.value })} /></label>
             <label className="text-xs font-semibold">Status<select className="mt-1 w-full border rounded-lg p-2 text-sm" value={toolForm.status} onChange={e => setToolForm({ ...toolForm, status: e.target.value })}><option value="draft">Draft</option><option value="published">Published</option><option value="hidden">Hidden</option></select></label>
             <label className="text-xs font-semibold">Display order<input type="number" className="mt-1 w-full border rounded-lg p-2 text-sm" value={toolForm.displayOrder} onChange={e => setToolForm({ ...toolForm, displayOrder: e.target.value })} /></label>
+          </div>
+          <div className="rounded-xl border border-slate-200 p-4 space-y-3">
+            <div><h3 className="text-sm font-bold">Advertisement placement for this tool</h3><p className="text-xs text-slate-500">Choose where advertisements may appear. All positions are selected by default; side ads appear only on wide desktop screens.</p></div>
+            <div className="grid sm:grid-cols-2 gap-2">{toolAdPlacementOptions.map(([value, label]) => <label key={value} className="flex items-center gap-2 text-xs"><input type="checkbox" checked={toolForm.adPlacements.includes(value)} onChange={e => setToolForm(current => ({ ...current, adPlacements: e.target.checked ? [...current.adPlacements, value] : current.adPlacements.filter(x => x !== value) }))} />{label}</label>)}</div>
           </div>
           <div className="flex gap-2"><button disabled={busy} onClick={saveTool} className="px-4 py-2 rounded-lg bg-slate-900 text-white text-sm">{busy ? 'Saving...' : editingToolId ? 'Update tool' : 'Add tool'}</button><button onClick={() => { setToolForm(blankTool); setEditingToolId(''); }} className="px-4 py-2 rounded-lg border text-sm">Clear</button></div>
         </section>
