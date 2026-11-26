@@ -4,7 +4,7 @@ import { AdSenseSlot } from './AdSenseSlot';
 
 interface UtilitiesSectionProps { onNavigateHome: () => void; }
 type Tool = { id: string; title: string; description: string; targetUrl: string; iconName?: string; };
-type UtilityItem = { id: string; title: string; summary: string; body: string; imageUrl?: string; targetUrl?: string; };
+type UtilityItem = { id: string; title: string; summary: string; body: string; imageUrl?: string; targetUrl?: string; adPlacements?: string[]; };
 
 export const UtilitiesSection: React.FC<UtilitiesSectionProps> = ({ onNavigateHome }) => {
   const [subAmount, setSubAmount] = useState<number>(252);
@@ -52,12 +52,23 @@ export const UtilitiesSection: React.FC<UtilitiesSectionProps> = ({ onNavigateHo
         {utilityItems.length > 0 && <section className="space-y-4">
           <h2 className="text-xl font-bold text-slate-900">Useful resources</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-            {utilityItems.map(item => <article key={item.id} className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm">
-              <h3 className="font-bold text-slate-900">{item.title}</h3>
-              <p className="text-xs text-slate-600 mt-2">{item.summary}</p>
-              {item.body && <p className="text-xs text-slate-500 mt-2 whitespace-pre-wrap">{item.body}</p>}
-              {item.targetUrl && <a href={item.targetUrl} target="_blank" rel="noopener noreferrer" className="inline-block mt-4 text-xs font-semibold text-indigo-700">Open resource →</a>}
-            </article>)}
+            {utilityItems.map(item => {
+              const placements = Array.isArray(item.adPlacements) ? item.adPlacements : ['top', 'inline', 'bottom', 'left', 'right'];
+              const has = (position: string) => placements.includes(position);
+              return <div key={item.id} className="grid grid-cols-1 xl:grid-cols-[180px_minmax(0,1fr)_180px] gap-4 items-start">
+                <aside className="hidden xl:block">{has('left') && <AdSenseSlot placementKey="utilities-left" />}</aside>
+                <article className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm min-w-0">
+                  {has('top') && <AdSenseSlot placementKey="utilities-top" />}
+                  <h3 className="font-bold text-slate-900">{item.title}</h3>
+                  <p className="text-xs text-slate-600 mt-2">{item.summary}</p>
+                  {has('inline') && <AdSenseSlot placementKey="utilities-inline" />}
+                  {item.body && <p className="text-xs text-slate-500 mt-2 whitespace-pre-wrap">{item.body}</p>}
+                  {item.targetUrl && <a href={item.targetUrl} target="_blank" rel="noopener noreferrer" className="inline-block mt-4 text-xs font-semibold text-indigo-700">Open resource →</a>}
+                  {has('bottom') && <AdSenseSlot placementKey="utilities-bottom" />}
+                </article>
+                <aside className="hidden xl:block">{has('right') && <AdSenseSlot placementKey="utilities-right" />}</aside>
+              </div>;
+            })}
           </div>
         </section>}
 
