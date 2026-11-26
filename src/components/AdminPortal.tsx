@@ -35,6 +35,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [customers, setCustomers] = useState<User[]>([]);
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -346,6 +347,46 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       await fetchAdminData();
     } catch (err: any) {
       alert(err.message);
+    }
+  };
+
+  const handleDeleteSelectedAccounts = async () => {
+    const visibleAccounts = customers.filter(c =>
+      activeTab === 'customers' ? c.accountType === 'customer' : c.accountType !== 'customer'
+    );
+    const selectedAccounts = visibleAccounts.filter(c => selectedAccountIds.includes(c.id));
+    if (selectedAccounts.length === 0) {
+      alert('Select at least one ' + (activeTab === 'customers' ? 'customer' : 'user') + ' to delete.');
+      return;
+    }
+
+    const accountList = selectedAccounts
+      .map(account => `• ${account.name || account.email} (ID ${account.id})`)
+      .join('\n');
+    const accountLabel = activeTab === 'customers' ? 'customer' : 'user';
+    const confirmed = confirm(
+      `PERMANENTLY DELETE ONLY THESE ${selectedAccounts.length} SELECTED ${accountLabel.toUpperCase()}(S)?\n\n${accountList}\n\nOnly the listed account IDs and their linked records will be deleted. All other users and customers will remain untouched. This cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    try {
+      const results = await Promise.all(selectedAccounts.map(async account => {
+        const response = await fetch(`/api/admin/customers/${encodeURIComponent(account.id)}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error((account.name || account.email) + ': ' + (data.error || 'Deletion failed.'));
+        }
+        return account.id;
+      }));
+      setSelectedAccountIds(current => current.filter(id => !results.includes(id)));
+      alert(`Successfully deleted ${results.length} selected ${accountLabel}(s). No unselected accounts were targeted.`);
+      await fetchAdminData();
+    } catch (err: any) {
+      alert(err.message || 'One or more selected accounts could not be deleted. Refresh the list to check the result.');
+      await fetchAdminData();
     }
   };
 
@@ -748,6 +789,14 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                       <button onClick={() => handleCreateAccount(activeTab === 'customers' ? 'customer' : 'user')} className="px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold">
                         Add {activeTab === 'customers' ? 'Customer' : 'User'}
                       </button>
+                      <button
+                        onClick={handleDeleteSelectedAccounts}
+                        disabled={selectedAccountIds.length === 0}
+                        className="px-3 py-2 rounded-lg bg-red-700 hover:bg-red-600 text-white text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed"
+                        title="Delete only the users or customers selected in the table"
+                      >
+                        Delete Selected {activeTab === 'customers' ? 'Customer' : 'User'}{selectedAccountIds.length === 1 ? '' : 's'} ({selectedAccountIds.length})
+                      </button>
                       <button onClick={handleExportAccounts} className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold">
                         Export CSV
                       </button>
@@ -758,6 +807,21 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                     <table className="w-full text-left border-collapse text-xs">
                       <thead>
                         <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold">
+                          <th className="p-4">
+                            <input
+                              type="checkbox"
+                              aria-label="Select all visible accounts"
+                              checked={customers.filter(c => activeTab === 'customers' ? c.accountType === 'customer' : c.accountType !== 'customer').length > 0 && customers.filter(c => activeTab === 'customers' ? c.accountType === 'customer' : c.accountType !== 'customer').every(c => selectedAccountIds.includes(c.id))}
+                              onChange={event => {
+                                const visibleIds = customers
+                                  .filter(c => activeTab === 'customers' ? c.accountType === 'customer' : c.accountType !== 'customer')
+                                  .map(c => c.id);
+                                setSelectedAccountIds(current => event.target.checked
+                                  ? Array.from(new Set([...current, ...visibleIds]))
+                                  : current.filter(id => !visibleIds.includes(id)));
+                              }}
+                            />
+                          </th>
                           <th className="p-4">Account Type</th>\n                          <th className="p-4">Name</th>
                           <th className="p-4">Email</th>
                           <th className="p-4">Mobile</th>
@@ -776,6 +840,16 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                       <tbody className="divide-y divide-slate-100">
                         {customers.filter(c => activeTab === 'customers' ? c.accountType === 'customer' : c.accountType !== 'customer').map(c => (
                           <tr key={c.id} className="hover:bg-slate-50/50">
+                            <td className="p-4">
+                              <input
+                                type="checkbox"
+                                aria-label={`Select ${c.name || c.email}`}
+                                checked={selectedAccountIds.includes(c.id)}
+                                onChange={event => setSelectedAccountIds(current => event.target.checked
+                                  ? [...current, c.id]
+                                  : current.filter(id => id !== c.id))}
+                              />
+                            </td>
                             <td className="p-4">
                               <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${c.accountType === 'customer' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-700'}`}>
                                 {c.accountType === 'customer' ? 'Customer' : 'User'}
