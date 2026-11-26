@@ -46,10 +46,9 @@ export const ContactSection: React.FC<ContactSectionProps> = ({ onNavigateHome }
               <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold">
                 <Mail className="w-5 h-5" />
               </div>
-              <h3 className="text-lg font-bold text-slate-900">Email Addresses</h3>
+              <h3 className="text-lg font-bold text-slate-900">Contact Email</h3>
               <div className="space-y-2 text-xs text-slate-600">
                 <p>Primary Realty & Business: <br /><strong className="text-slate-900 font-mono">tmkrealty@gmail.com</strong></p>
-                <p className="pt-2">Technical Support & Admin: <br /><strong className="text-slate-900 font-mono">mihirkapuria@gmail.com</strong></p>
               </div>
             </div>
 
@@ -60,7 +59,7 @@ export const ContactSection: React.FC<ContactSectionProps> = ({ onNavigateHome }
               <h3 className="text-lg font-bold text-slate-900">Office Location</h3>
               <p className="text-xs text-slate-600 leading-relaxed">
                 MyDigitAsset / TMK Realty Office,<br />
-                Bandra Kurla Complex (BKC),<br />
+                Borivali,<br />
                 Mumbai, Maharashtra, India.
               </p>
             </div>
@@ -98,7 +97,7 @@ export const ContactSection: React.FC<ContactSectionProps> = ({ onNavigateHome }
                       required
                       value={name}
                       onChange={(e) => setName(e.target.value)}
-                      placeholder="Mihir Kapuria"
+                      placeholder="Ravi Goel"
                       className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-slate-900"
                     />
                   </div>

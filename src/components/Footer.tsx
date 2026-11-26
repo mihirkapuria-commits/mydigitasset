@@ -38,11 +38,11 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
         <div className="space-y-3">
           <h4 className="text-xs font-bold uppercase tracking-wider text-slate-300">Quick Links</h4>
           <ul className="space-y-2 text-sm text-slate-400">
-            <li><button onClick={() => onNavigate('home')} className="hover:text-white transition-colors">Home & Categories</button></li>
-            <li><button onClick={() => onNavigate('blog')} className="hover:text-white transition-colors">Blog & AdSense</button></li>
-            <li><button onClick={() => onNavigate('offers')} className="hover:text-white transition-colors">Offers & Advertisements</button></li>
-            <li><button onClick={() => onNavigate('utilities')} className="hover:text-white transition-colors">Utilities & Calculators</button></li>
-            <li><button onClick={() => onNavigate('contact')} className="hover:text-white transition-colors">Contact Us</button></li>
+            <li><button onClick={() => { onNavigate('home'); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="hover:text-white transition-colors">Home & Categories</button></li>
+            <li><button onClick={() => { onNavigate('blog'); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="hover:text-white transition-colors">Blog & AdSense</button></li>
+            <li><button onClick={() => { onNavigate('offers'); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="hover:text-white transition-colors">Offers & Advertisements</button></li>
+            <li><button onClick={() => { onNavigate('utilities'); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="hover:text-white transition-colors">Utilities & Calculators</button></li>
+            <li><button onClick={() => { onNavigate('contact'); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="hover:text-white transition-colors">Contact Us</button></li>
           </ul>
         </div>
 
