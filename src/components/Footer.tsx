@@ -10,14 +10,20 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
     <footer className="bg-slate-950 text-white py-16 border-t border-slate-800">
       <div className="max-w-7xl mx-auto px-6 grid grid-cols-1 md:grid-cols-4 gap-10">
         <div className="space-y-4 md:col-span-2">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white font-bold text-sm tracking-tight">
+          <button
+            onClick={() => {
+              onNavigate('home');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+            className="flex items-center gap-2 text-left group focus:outline-none"
+          >
+            <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white font-bold text-sm tracking-tight group-hover:bg-indigo-500 transition-colors">
               MA
             </div>
-            <span className="text-lg font-bold tracking-tight text-white">
+            <span className="text-lg font-bold tracking-tight text-white group-hover:text-indigo-300 transition-colors">
               MyDigitAsset
             </span>
-          </div>
+          </button>
           <p className="text-sm text-slate-400 max-w-sm leading-relaxed">
             The right news. The right categories. Delivered directly to you through Telegram. Built for founders, investors, and business professionals.
           </p>

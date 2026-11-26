@@ -22,7 +22,10 @@ export const Navbar: React.FC<NavbarProps> = ({
       <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between gap-6">
         {/* Zone 1: Brand wordmark */}
         <button
-          onClick={() => onNavigate('home')}
+          onClick={() => {
+            onNavigate('home');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }}
           className="flex items-center gap-2 text-left group focus:outline-none"
         >
           <div className="w-8 h-8 rounded-lg bg-slate-900 flex items-center justify-center text-white font-bold text-sm tracking-tight shadow-sm group-hover:bg-indigo-600 transition-colors">
