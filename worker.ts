@@ -252,9 +252,11 @@ function publicUser(user) {
     role: user.role === 'admin' ? 'admin' : 'customer',
     category,
     categories: category ? [category] : [],
-    trialStart: user.created_at || '',
-    trialExpiry,
-    trialExpiresAt: trialExpiry,
+    trialStart: user.created_at || '0',
+    trialExpiry: trialExpiry || '0',
+    paidStart: user.paid_start || '0',
+    paidExpiry: user.paid_expiry || '0',
+    trialExpiresAt: trialExpiry || '0',
     subscriptionStatus,
     paymentStatus: 'none',
     telegramConnected: Boolean(user.telegram_connected),
@@ -1344,6 +1346,10 @@ var worker_default = {
           SELECT u.id, u.first_name, u.surname, u.email, u.country_code, u.mobile_number,
                  u.category, COALESCE(mc.title, u.category) AS category_display,
                  u.trial_expires_at, u.status, u.role, u.created_at,
+                 (SELECT MIN(sp.started_at) FROM customer_subscription_periods sp
+                  WHERE sp.user_id = u.id) AS paid_start,
+                 (SELECT MAX(sp.expires_at) FROM customer_subscription_periods sp
+                  WHERE sp.user_id = u.id) AS paid_expiry,
                  EXISTS (
                    SELECT 1 FROM telegram_connections tc WHERE tc.user_id = u.id
                  ) AS telegram_connected,
@@ -1389,6 +1395,10 @@ var worker_default = {
         const result = await env.DB.prepare(`
           SELECT u.id, u.first_name, u.surname, u.email, u.country_code, u.mobile_number,
                  COALESCE(mc.title, u.category) AS category, u.status, u.created_at, u.trial_expires_at,
+                 (SELECT MIN(sp.started_at) FROM customer_subscription_periods sp
+                  WHERE sp.user_id = u.id) AS paid_start,
+                 (SELECT MAX(sp.expires_at) FROM customer_subscription_periods sp
+                  WHERE sp.user_id = u.id) AS paid_expiry,
                  CASE WHEN EXISTS (
                    SELECT 1 FROM payments p
                    WHERE p.user_id = u.id AND lower(p.status) IN ('approved', 'verified')
@@ -1416,7 +1426,8 @@ var worker_default = {
           ['Surname','surname'],['Email','email'],['Country Code','country_code'],
           ['Mobile','mobile_number'],['Category','category'],['Account Status','status'],
           ['Payment Status','payment_status'],['Registration Date','created_at'],
-          ['Trial Expiry','trial_expires_at'],['Paid Subscription Expiry','subscription_expires_at'],
+          ['Trial Start Date','created_at'],['Trial Expiry Date','trial_expires_at'],
+          ['Paid Start Date','paid_start'],['Paid Expiry Date','paid_expiry'],
           ['Telegram','telegram_status']
         ];
         const csvCell = value => {
