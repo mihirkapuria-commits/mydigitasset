@@ -1708,7 +1708,7 @@ var worker_default = {
       // ADMIN: APPROVE OR REJECT AN INDIVIDUAL PAYMENT SUBMISSION.
       // Rejection immediately stops the account and asks Telegram to ban the member
       // from the account's configured category channel.
-      const paymentVerifyMatch = url.pathname.match(/^\\/api\\/admin\\/payments\\/([^/]+)\\/verify$/);
+      const paymentVerifyMatch = url.pathname.match(/^\/api\/admin\/payments\/([^/]+)\/verify$/);
       if (paymentVerifyMatch && method === 'POST') {
         const admin = await getAuthorizedAdmin(request, env);
         if (!admin) return json({ error: 'Administrator access required.' }, 403);
