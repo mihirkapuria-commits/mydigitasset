@@ -22,6 +22,8 @@ export interface User {
   categories: string[];
   trialStart: string;
   trialExpiry: string;
+  paidStart: string;
+  paidExpiry: string;
   trialExpiresAt?: string;
   subscriptionStatus: 'trial' | 'active_paid' | 'expired' | 'pending_approval' | 'stopped';
   paymentStatus: 'none' | 'pending' | 'verified' | 'rejected';
